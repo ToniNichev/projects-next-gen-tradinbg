@@ -1,10 +1,10 @@
-# bot_barebone.py
 import logging
 import signal
 import threading
-import time
+from datetime import datetime
 
 import ccxt
+from binance import ThreadedWebsocketManager
 
 from config import BotConfig
 from dashboard import start_dashboard, update_state
@@ -56,30 +56,68 @@ def main():
     signal.signal(signal.SIGTERM, stop_handler)
 
     logging.info(
-        "Starting trading loop (symbol=%s timeframe=%s)",
+        "Starting websocket stream (symbol=%s timeframe=%s)",
         config.symbol,
         config.timeframe,
     )
 
-    while not stop_event.is_set():
+    binance_symbol = config.symbol.replace("/", "").upper()
+    twm = ThreadedWebsocketManager(
+        api_key=config.binance_api_key,
+        api_secret=config.binance_api_secret,
+        tld="us",
+    )
+    twm.start()
+    trader_lock = threading.Lock()
+
+    def handle_kline(msg: dict) -> None:
+        if msg.get("e") != "kline":
+            return
+        kline = msg.get("k", {})
+        started_at = datetime.utcfromtimestamp(int(kline.get("t", 0)) / 1000)
+        ended_at = datetime.utcfromtimestamp(int(kline.get("T", 0)) / 1000)
+        logging.info(
+            "Kline %s %s-%s open=%.2f high=%.2f low=%.2f close=%.2f volume=%.2f closed=%s",
+            config.symbol,
+            started_at.isoformat(),
+            ended_at.isoformat(),
+            float(kline.get("o", 0.0)),
+            float(kline.get("h", 0.0)),
+            float(kline.get("l", 0.0)),
+            float(kline.get("c", 0.0)),
+            float(kline.get("v", 0.0)),
+            kline.get("x"),
+        )
+        if not kline.get("x"):
+            return
+        if kline.get("s") != binance_symbol:
+            return
+
         try:
-            signal_obj = compute_signal(
-                exchange,
-                config.symbol,
-                config.timeframe,
-                short_window=config.short_window,
-                long_window=config.long_window,
-            )
-            trade = trader.handle_signal(signal_obj, config.order_pct)
-            update_state(
-                balances=trader.get_balances(),
-                last_signal=signal_obj.to_dict(),
-                last_trade=trade.to_dict() if trade else None,
-                price=signal_obj.price,
-                signal_direction=signal_obj.direction,
-                timestamp=signal_obj.timestamp.isoformat(),
+            with trader_lock:
+                signal_obj = compute_signal(
+                    exchange,
+                    config.symbol,
+                    config.timeframe,
+                    short_window=config.short_window,
+                    long_window=config.long_window,
+                )
+                trade = trader.handle_signal(signal_obj, config.order_pct)
+                update_state(
+                    balances=trader.get_balances(),
+                    last_signal=signal_obj.to_dict(),
+                    last_trade=trade.to_dict() if trade else None,
+                    price=signal_obj.price,
+                    signal_direction=signal_obj.direction,
+                    timestamp=signal_obj.timestamp.isoformat(),
                 trade_side=trade.side if trade else None,
-            )
+                ohlc={
+                    "open": float(kline.get("o", 0.0)),
+                    "high": float(kline.get("h", 0.0)),
+                    "low": float(kline.get("l", 0.0)),
+                    "close": float(kline.get("c", 0.0)),
+                },
+                )
 
             logging.info(
                 "Signal=%s price=%.2f short=%.2f long=%.2f trend=%.4f",
@@ -90,10 +128,20 @@ def main():
                 signal_obj.trend_strength,
             )
         except Exception as exc:
-            logging.exception("cycle failed: %s", exc)
-        time.sleep(config.poll_interval)
+            logging.exception("websocket cycle failed: %s", exc)
 
-    logging.info("Trading loop terminated.")
+    twm.start_kline_socket(
+        callback=handle_kline,
+        symbol=binance_symbol,
+        interval=config.timeframe,
+    )
+
+    try:
+        stop_event.wait()
+    finally:
+        logging.info("Shutting down websocket stream.")
+        twm.stop()
+        logging.info("Trading loop terminated.")
 
 
 if __name__ == "__main__":

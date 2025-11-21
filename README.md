@@ -1,6 +1,8 @@
-# Crypto Bot
+# Next-Gen Trading Bot
 
 Lightweight Python engine that reads Binance.US market data, applies a moving-average crossover strategy, and simulates fills via a paper trader while exposing a tiny dashboard for monitoring.
+
+> **Note**: If your directory is named `next-gen-tradinbg`, please rename it to `next-gen-trading` to fix the typo.
 
 ## Setup
 
@@ -19,9 +21,8 @@ Lightweight Python engine that reads Binance.US market data, applies a moving-av
    - `BOT_TIMEFRAME` (default `5m`)
    - `BOT_SHORT_WINDOW` / `BOT_LONG_WINDOW` (20/50)
    - `BOT_ORDER_PCT` (fraction of available cash per trade)
-   - `BOT_POLL_INTERVAL` (seconds between cycles)
    - `BOT_INITIAL_USDT` (paper starting cash)
-   - `BOT_TRADES_LOG_PATH` (CSV append path)
+   - `BOT_TRADES_LOG_PATH` (CSV append path, default `data/trade_log.csv`)
 
 ## Running
 
@@ -31,7 +32,7 @@ Execute the orchestrator:
 python3 main.py
 ```
 
-The loop fetches candles, generates a signal, and logs simulated trades to `trade_log.csv`. The dashboard starts automatically and listens on `BOT_DASHBOARD_HOST:BOT_DASHBOARD_PORT` (default `0.0.0.0:8000`).
+The bot now relies on Binance's kline websocket stream instead of polling. Whenever a closed candle arrives on `<symbol>@kline_<timeframe>`, it recomputes the signal, feeds the paper trader, writes to `data/trade_log.csv`, and updates the dashboard. The dashboard starts automatically and listens on `BOT_DASHBOARD_HOST:BOT_DASHBOARD_PORT` (default `0.0.0.0:8000`).
 
 ## Dashboard
 Visit `http://<host>:<port>/state` to retrieve JSON with the latest balances, signal, and trade summary. This endpoint can be proxied behind your own domain, and the new UI at `http://<host>:<port>/ui` renders a live price chart with buy/sell markers and the most recent trade summary.
@@ -45,5 +46,5 @@ Copy `.env.example` to `.env` and edit your API keys or parameters. The bot load
 1. Provide real Binance.US credentials as environment variables.
 2. Adjust `BOT_ORDER_PCT` / risk parameters to match your appetite.
 3. Change `BOT_EXCHANGE_TYPE` to `spot` or `future` as needed.
-4. Monitor `trade_log.csv` and the `/state` endpoint while the script runs on your Mac server.
+4. Monitor `data/trade_log.csv` and the `/state` endpoint while the script runs on your Mac server.
 

@@ -10,9 +10,8 @@ dist/
 *.egg-info/
 *.egg
 
-# Logs
+# Logs and data
 *.log
-trade_log.csv
+data/
 .env
-trade_log.csv
 
