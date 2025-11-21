@@ -1,3 +1,4 @@
+import logging as flask_logging
 import os
 import threading
 from datetime import datetime
@@ -5,6 +6,10 @@ from datetime import datetime
 from flask import Flask, jsonify, render_template
 
 app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "templates"))
+
+# Reduce Flask logging noise - only show errors
+log = flask_logging.getLogger('werkzeug')
+log.setLevel(flask_logging.ERROR)
 
 _state = {
     "balances": {"USDT": 0.0, "BASE": 0.0},

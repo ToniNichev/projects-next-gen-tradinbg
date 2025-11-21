@@ -13,6 +13,15 @@ from strategy import compute_signal
 
 
 def build_exchange(config: BotConfig) -> ccxt.binanceus:
+    import socket
+    import urllib3.util.connection as urllib3_cn
+    
+    # Force IPv4 to avoid Binance.US IPv6 error
+    def allowed_gai_family():
+        return socket.AF_INET
+    
+    urllib3_cn.allowed_gai_family = allowed_gai_family
+    
     exchange = ccxt.binanceus(
         {
             "apiKey": config.binance_api_key,
@@ -69,8 +78,76 @@ def main():
     )
     twm.start()
     trader_lock = threading.Lock()
+    
+    # Buffer to store candles from websocket (avoids fetch_ohlcv calls)
+    candle_buffer = []
+    max_buffer_size = max(config.long_window * 2, 120)
+    
+    # Pre-load initial candles to start trading immediately
+    try:
+        logging.info("Fetching initial candle history...")
+        initial_candles = exchange.fetch_ohlcv(
+            config.symbol, config.timeframe, limit=max_buffer_size
+        )
+        candle_buffer = initial_candles
+        logging.info("Loaded %d initial candles", len(candle_buffer))
+        
+        # Compute initial signal and populate dashboard with historical data
+        if len(candle_buffer) >= config.long_window:
+            try:
+                # Populate dashboard history with recent candles (last 100 for chart)
+                from dashboard import _record_history
+                for candle in candle_buffer[-100:]:
+                    _record_history(
+                        timestamp=datetime.utcfromtimestamp(candle[0] / 1000).isoformat(),
+                        price=float(candle[4]),  # close price
+                        signal_direction="neutral",
+                        trade_side=None,
+                        ohlc={
+                            "open": float(candle[1]),
+                            "high": float(candle[2]),
+                            "low": float(candle[3]),
+                            "close": float(candle[4]),
+                        },
+                    )
+                
+                # Compute and display initial signal
+                initial_signal = compute_signal(
+                    exchange,
+                    config.symbol,
+                    config.timeframe,
+                    short_window=config.short_window,
+                    long_window=config.long_window,
+                    candle_data=candle_buffer,
+                )
+                update_state(
+                    balances=trader.get_balances(),
+                    last_signal=initial_signal.to_dict(),
+                    last_trade=None,
+                    price=initial_signal.price,
+                    signal_direction=initial_signal.direction,
+                    timestamp=initial_signal.timestamp.isoformat(),
+                    trade_side=None,
+                    ohlc={
+                        "open": candle_buffer[-1][1],
+                        "high": candle_buffer[-1][2],
+                        "low": candle_buffer[-1][3],
+                        "close": candle_buffer[-1][4],
+                    },
+                )
+                logging.info(
+                    "Initial signal computed: %s at price %.2f (populated %d historical candles)",
+                    initial_signal.direction,
+                    initial_signal.price,
+                    min(100, len(candle_buffer)),
+                )
+            except Exception as e:
+                logging.warning("Failed to compute initial signal: %s", e)
+    except Exception as e:
+        logging.warning("Failed to fetch initial candles: %s. Will buffer from stream.", e)
 
     def handle_kline(msg: dict) -> None:
+        nonlocal candle_buffer
         if msg.get("e") != "kline":
             return
         kline = msg.get("k", {})
@@ -88,9 +165,35 @@ def main():
             float(kline.get("v", 0.0)),
             kline.get("x"),
         )
-        if not kline.get("x"):
-            return
         if kline.get("s") != binance_symbol:
+            return
+        
+        # Store closed candles in buffer
+        if kline.get("x"):  # Candle is closed
+            candle_data = [
+                int(kline.get("t", 0)),  # timestamp
+                float(kline.get("o", 0.0)),  # open
+                float(kline.get("h", 0.0)),  # high
+                float(kline.get("l", 0.0)),  # low
+                float(kline.get("c", 0.0)),  # close
+                float(kline.get("v", 0.0)),  # volume
+            ]
+            candle_buffer.append(candle_data)
+            
+            # Keep buffer at max size
+            if len(candle_buffer) > max_buffer_size:
+                candle_buffer.pop(0)
+            
+            # Skip signal computation until we have enough candles
+            if len(candle_buffer) < config.long_window:
+                logging.info(
+                    "Buffering candles: %d/%d",
+                    len(candle_buffer),
+                    config.long_window,
+                )
+                return
+
+        if not kline.get("x"):
             return
 
         try:
@@ -101,6 +204,7 @@ def main():
                     config.timeframe,
                     short_window=config.short_window,
                     long_window=config.long_window,
+                    candle_data=candle_buffer,
                 )
                 trade = trader.handle_signal(signal_obj, config.order_pct)
                 update_state(

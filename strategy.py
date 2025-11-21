@@ -33,9 +33,14 @@ def compute_signal(
     timeframe: str,
     short_window: int = 20,
     long_window: int = 50,
+    candle_data: list = None,
 ) -> StrategySignal:
-    history_limit = max(long_window * 2, 120)
-    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=history_limit)
+    # Use buffered candle data if provided, otherwise fetch from exchange
+    if candle_data is not None and len(candle_data) > 0:
+        ohlcv = candle_data
+    else:
+        history_limit = max(long_window * 2, 120)
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=history_limit)
 
     df = pd.DataFrame(
         ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"]
