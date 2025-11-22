@@ -15,3 +15,12 @@ dist/
 data/
 .env
 
+# Database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Alembic migrations (if generated)
+alembic/versions/*.pyc
+

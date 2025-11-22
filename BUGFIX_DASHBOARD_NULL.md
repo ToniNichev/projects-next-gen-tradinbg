@@ -88,3 +88,4 @@ Consider adding:
 - Health check to ensure buffer is being updated
 - Alert if no candles received for X minutes
 
+

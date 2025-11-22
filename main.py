@@ -11,6 +11,13 @@ from dashboard import start_dashboard, update_state
 from paper_trader import PaperTrader
 from strategy import compute_signal
 
+try:
+    from database import initialize_database
+    DATABASE_AVAILABLE = True
+except ImportError:
+    DATABASE_AVAILABLE = False
+    logging.warning("Database module not available. Install SQLAlchemy to enable database features.")
+
 
 def build_exchange(config: BotConfig) -> ccxt.binanceus:
     import socket
@@ -48,11 +55,27 @@ def main():
         )
 
     exchange = build_exchange(config)
+    
+    # Initialize database if enabled
+    db_manager = None
+    if config.enable_database and DATABASE_AVAILABLE:
+        try:
+            db_manager = initialize_database(config.database_url)
+            logging.info(f"Database initialized: {config.database_url}")
+        except Exception as e:
+            logging.error(f"Failed to initialize database: {e}")
+            logging.warning("Continuing without database support")
+    
     trader = PaperTrader(
         initial_usdt=config.initial_usdt,
         fee_rate=config.fee_rate,
         slippage=config.slippage,
         log_path=config.trades_log_path,
+        use_trailing_stop=config.use_trailing_stop,
+        trailing_stop_pct=config.trailing_stop_pct,
+        db_manager=db_manager,
+        enable_database=config.enable_database,
+        enable_csv_logging=config.enable_csv_logging,
     )
     start_dashboard(config.dashboard_host, config.dashboard_port)
     stop_event = threading.Event()
@@ -119,6 +142,24 @@ def main():
                     short_window=config.short_window,
                     long_window=config.long_window,
                     candle_data=candle_buffer,
+                    min_trend_strength=config.min_trend_strength,
+                    rsi_period=config.rsi_period,
+                    rsi_oversold=config.rsi_oversold,
+                    rsi_overbought=config.rsi_overbought,
+                    atr_period=config.atr_period,
+                    atr_stop_multiplier=config.atr_stop_multiplier,
+                    use_atr_stops=config.use_atr_stops,
+                    stop_loss_pct=config.stop_loss_pct,
+                    take_profit_pct=config.take_profit_pct,
+                    macd_fast=config.macd_fast,
+                    macd_slow=config.macd_slow,
+                    macd_signal=config.macd_signal,
+                    require_macd_confirmation=config.require_macd_confirmation,
+                    require_volume_confirmation=config.require_volume_confirmation,
+                    volume_threshold=config.volume_threshold,
+                    use_dynamic_sizing=config.use_dynamic_sizing,
+                    min_position_size=config.min_position_size,
+                    max_position_size=config.max_position_size,
                 )
                 update_state(
                     balances=trader.get_balances(),
@@ -198,6 +239,19 @@ def main():
 
         try:
             with trader_lock:
+                # Get current price for position updates
+                current_price = float(kline.get("c", 0.0))
+                
+                # Check if open position should be closed (stop loss, take profit, trailing stop)
+                exit_trade = trader.update_position(current_price)
+                if exit_trade:
+                    logging.info(
+                        "Position closed: %s | Reason: %s | P&L: $%.2f",
+                        exit_trade.side,
+                        exit_trade.exit_reason,
+                        exit_trade.pnl or 0.0,
+                    )
+                
                 signal_obj = compute_signal(
                     exchange,
                     config.symbol,
@@ -205,8 +259,26 @@ def main():
                     short_window=config.short_window,
                     long_window=config.long_window,
                     candle_data=candle_buffer,
+                    min_trend_strength=config.min_trend_strength,
+                    rsi_period=config.rsi_period,
+                    rsi_oversold=config.rsi_oversold,
+                    rsi_overbought=config.rsi_overbought,
+                    atr_period=config.atr_period,
+                    atr_stop_multiplier=config.atr_stop_multiplier,
+                    use_atr_stops=config.use_atr_stops,
+                    stop_loss_pct=config.stop_loss_pct,
+                    take_profit_pct=config.take_profit_pct,
+                    macd_fast=config.macd_fast,
+                    macd_slow=config.macd_slow,
+                    macd_signal=config.macd_signal,
+                    require_macd_confirmation=config.require_macd_confirmation,
+                    require_volume_confirmation=config.require_volume_confirmation,
+                    volume_threshold=config.volume_threshold,
+                    use_dynamic_sizing=config.use_dynamic_sizing,
+                    min_position_size=config.min_position_size,
+                    max_position_size=config.max_position_size,
                 )
-                trade = trader.handle_signal(signal_obj, config.order_pct)
+                trade = trader.handle_signal(signal_obj)
                 update_state(
                     balances=trader.get_balances(),
                     last_signal=signal_obj.to_dict(),
@@ -224,12 +296,16 @@ def main():
                 )
 
             logging.info(
-                "Signal=%s price=%.2f short=%.2f long=%.2f trend=%.4f",
+                "Signal=%s price=%.2f short=%.2f long=%.2f trend=%.4f ATR=%.2f PosSize=%.1f%% SL=%.2f TP=%.2f",
                 signal_obj.direction,
                 signal_obj.price,
                 signal_obj.short_ema,
                 signal_obj.long_ema,
                 signal_obj.trend_strength,
+                signal_obj.atr,
+                signal_obj.position_size * 100,
+                signal_obj.stop_loss,
+                signal_obj.take_profit,
             )
         except Exception as exc:
             logging.exception("websocket cycle failed: %s", exc)

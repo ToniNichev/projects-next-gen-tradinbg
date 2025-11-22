@@ -3,4 +3,6 @@ pandas>=2.1.0
 Flask>=3.0.0
 python-dotenv>=1.0.0
 python-binance>=2.0.0
+sqlalchemy>=2.0.0
+alembic>=1.12.0
 
