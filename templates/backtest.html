@@ -1,0 +1,573 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest - Crypto Bot Dashboard{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .backtest-controls {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  
+  .result-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .result-card:hover {
+    border-color: var(--accent-blue);
+    transform: translateY(-2px);
+  }
+  
+  .result-card.selected {
+    border-color: var(--accent-blue);
+    background: var(--bg-tertiary);
+  }
+  
+  .result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  
+  .result-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-top: 0.75rem;
+  }
+  
+  .stat {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .stat-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+  }
+  
+  .stat-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  
+  .params-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+  }
+  
+  .params-table td {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  .params-table td:first-child {
+    color: var(--text-secondary);
+    width: 40%;
+  }
+  
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+  
+  .tab-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  .tab-buttons button {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    padding: 0.75rem 1rem;
+    border-radius: 0;
+  }
+  
+  .tab-buttons button.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent-blue);
+  }
+  
+  .tab-content {
+    display: none;
+  }
+  
+  .tab-content.active {
+    display: block;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Backtest Runner</h1>
+<p class="text-muted">Test different parameter configurations on historical data</p>
+
+<!-- Backtest Controls -->
+<div class="backtest-controls">
+  <h2>Quick Backtest</h2>
+  
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+    <div class="form-group">
+      <label for="days_back">Days of History</label>
+      <select id="days_back">
+        <option value="7">7 days</option>
+        <option value="14">14 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="60">60 days</option>
+        <option value="90">90 days</option>
+      </select>
+    </div>
+  </div>
+  
+  <div class="tab-buttons">
+    <button class="active" onclick="switchTab('current')">Use Current Config</button>
+    <button onclick="switchTab('custom')">Custom Parameters</button>
+    <button onclick="switchTab('presets')">Presets</button>
+  </div>
+  
+  <!-- Current Config Tab -->
+  <div id="tab-current" class="tab-content active">
+    <p class="text-muted mb-2">Run backtest with the current bot configuration</p>
+    <button onclick="runQuickBacktest()" id="run-current-btn" class="success">
+      <span id="run-current-text">Run Backtest</span>
+    </button>
+  </div>
+  
+  <!-- Custom Parameters Tab -->
+  <div id="tab-custom" class="tab-content">
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+      <div class="form-group">
+        <label>Position Size (%)</label>
+        <input type="number" id="custom_position" value="20" min="5" max="100" step="5">
+      </div>
+      <div class="form-group">
+        <label>Stop Loss (%)</label>
+        <input type="number" id="custom_stop" value="2.5" min="0.5" max="10" step="0.5">
+      </div>
+      <div class="form-group">
+        <label>Take Profit (%)</label>
+        <input type="number" id="custom_profit" value="4" min="1" max="20" step="0.5">
+      </div>
+      <div class="form-group">
+        <label>Short EMA</label>
+        <input type="number" id="custom_short" value="12" min="5" max="50">
+      </div>
+      <div class="form-group">
+        <label>Long EMA</label>
+        <input type="number" id="custom_long" value="26" min="10" max="200">
+      </div>
+      <div class="form-group">
+        <label>ATR Multiplier</label>
+        <input type="number" id="custom_atr" value="2.5" min="1" max="5" step="0.5">
+      </div>
+    </div>
+    <button onclick="runCustomBacktest()" id="run-custom-btn" class="success">
+      <span id="run-custom-text">Run Custom Backtest</span>
+    </button>
+  </div>
+  
+  <!-- Presets Tab -->
+  <div id="tab-presets" class="tab-content">
+    <p class="text-muted mb-2">Run predefined strategy configurations</p>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+      <button onclick="runPreset('conservative')" class="secondary">🛡️ Conservative</button>
+      <button onclick="runPreset('balanced')" class="secondary">⚖️ Balanced</button>
+      <button onclick="runPreset('aggressive')" class="secondary">🚀 Aggressive</button>
+      <button onclick="runPreset('scalping')" class="secondary">⚡ Scalping</button>
+    </div>
+  </div>
+  
+  <div id="backtest-status" style="margin-top: 1rem;"></div>
+</div>
+
+<!-- Results Section -->
+<div>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h2>Results History</h2>
+    <div style="display: flex; gap: 0.5rem;">
+      <button onclick="compareSelected()" class="secondary" id="compare-btn" disabled>
+        Compare Selected (<span id="selected-count">0</span>)
+      </button>
+      <button onclick="clearResults()" class="secondary">Clear All</button>
+    </div>
+  </div>
+  
+  <div id="results-container">
+    <p class="text-muted" style="text-align: center; padding: 3rem;">
+      No backtests run yet. Start a backtest above to see results.
+    </p>
+  </div>
+</div>
+
+<!-- Comparison Modal -->
+<div id="comparison-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; overflow-y: auto;">
+  <div style="max-width: 1200px; margin: 2rem auto; background: var(--bg-secondary); border-radius: 0.75rem; padding: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+      <h2>Backtest Comparison</h2>
+      <button onclick="closeComparison()" class="secondary">Close</button>
+    </div>
+    <div id="comparison-content"></div>
+  </div>
+</div>
+
+<script>
+  let selectedResults = new Set();
+  
+  function switchTab(tabName) {
+    // Update buttons
+    document.querySelectorAll('.tab-buttons button').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // Update content
+    document.querySelectorAll('.tab-content').forEach(content => {
+      content.classList.remove('active');
+    });
+    document.getElementById(`tab-${tabName}`).classList.add('active');
+  }
+  
+  async function runQuickBacktest() {
+    const btn = document.getElementById('run-current-btn');
+    const text = document.getElementById('run-current-text');
+    const status = document.getElementById('backtest-status');
+    
+    btn.disabled = true;
+    text.innerHTML = '<span class="spinner"></span> Running...';
+    status.innerHTML = '<p class="text-muted">Backtest started. This may take 30-60 seconds...</p>';
+    
+    const daysBack = parseInt(document.getElementById('days_back').value);
+    
+    try {
+      const response = await fetch('/api/backtest/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days_back: daysBack })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        status.innerHTML = '<p class="text-success">Backtest started! Waiting for results...</p>';
+        
+        // Poll for results
+        pollBacktestStatus(data.backtest_id);
+      } else {
+        throw new Error('Failed to start backtest');
+      }
+    } catch (error) {
+      status.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+      btn.disabled = false;
+      text.textContent = 'Run Backtest';
+    }
+  }
+  
+  async function runCustomBacktest() {
+    const btn = document.getElementById('run-custom-btn');
+    const text = document.getElementById('run-custom-text');
+    const status = document.getElementById('backtest-status');
+    
+    btn.disabled = true;
+    text.innerHTML = '<span class="spinner"></span> Running...';
+    status.innerHTML = '<p class="text-muted">Running custom backtest...</p>';
+    
+    const params = {
+      days_back: parseInt(document.getElementById('days_back').value),
+      min_position_size: parseFloat(document.getElementById('custom_position').value) / 100,
+      max_position_size: parseFloat(document.getElementById('custom_position').value) / 100,
+      stop_loss_pct: parseFloat(document.getElementById('custom_stop').value) / 100,
+      take_profit_pct: parseFloat(document.getElementById('custom_profit').value) / 100,
+      short_window: parseInt(document.getElementById('custom_short').value),
+      long_window: parseInt(document.getElementById('custom_long').value),
+      atr_stop_multiplier: parseFloat(document.getElementById('custom_atr').value),
+    };
+    
+    try {
+      const response = await fetch('/api/backtest/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        status.innerHTML = '<p class="text-success">Custom backtest started!</p>';
+        pollBacktestStatus(data.backtest_id);
+      } else {
+        throw new Error('Failed to start backtest');
+      }
+    } catch (error) {
+      status.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+      btn.disabled = false;
+      text.textContent = 'Run Custom Backtest';
+    }
+  }
+  
+  async function runPreset(preset) {
+    const presets = {
+      conservative: {
+        min_position_size: 0.10,
+        max_position_size: 0.20,
+        stop_loss_pct: 0.03,
+        take_profit_pct: 0.06,
+        atr_stop_multiplier: 3.0,
+        require_macd_confirmation: true,
+        require_volume_confirmation: true,
+        volume_threshold: 1.5,
+      },
+      balanced: {
+        min_position_size: 0.15,
+        max_position_size: 0.30,
+        stop_loss_pct: 0.025,
+        take_profit_pct: 0.04,
+        atr_stop_multiplier: 2.5,
+        require_volume_confirmation: true,
+      },
+      aggressive: {
+        min_position_size: 0.25,
+        max_position_size: 0.50,
+        stop_loss_pct: 0.02,
+        take_profit_pct: 0.06,
+        atr_stop_multiplier: 2.0,
+        require_macd_confirmation: false,
+        require_volume_confirmation: false,
+      },
+      scalping: {
+        min_position_size: 0.30,
+        max_position_size: 0.50,
+        stop_loss_pct: 0.01,
+        take_profit_pct: 0.02,
+        atr_stop_multiplier: 1.5,
+        use_trailing_stop: true,
+        trailing_stop_pct: 0.01,
+      },
+    };
+    
+    const params = {
+      days_back: parseInt(document.getElementById('days_back').value),
+      ...presets[preset]
+    };
+    
+    const status = document.getElementById('backtest-status');
+    status.innerHTML = `<p class="text-muted">Running ${preset} preset...</p>`;
+    
+    try {
+      const response = await fetch('/api/backtest/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        pollBacktestStatus(data.backtest_id);
+      }
+    } catch (error) {
+      status.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+    }
+  }
+  
+  async function pollBacktestStatus(backtestId) {
+    const maxAttempts = 120; // 2 minutes max
+    let attempts = 0;
+    
+    const interval = setInterval(async () => {
+      attempts++;
+      
+      try {
+        const response = await fetch('/api/backtest/results');
+        const data = await response.json();
+        const result = data.results.find(r => r.id === backtestId);
+        
+        if (result && result.status === 'completed') {
+          clearInterval(interval);
+          document.getElementById('backtest-status').innerHTML = 
+            '<p class="text-success">✓ Backtest completed!</p>';
+          resetButtons();
+          loadResults();
+        } else if (result && result.status === 'failed') {
+          clearInterval(interval);
+          document.getElementById('backtest-status').innerHTML = 
+            `<p class="text-danger">✗ Backtest failed: ${result.error}</p>`;
+          resetButtons();
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          document.getElementById('backtest-status').innerHTML = 
+            '<p class="text-danger">Timeout waiting for results</p>';
+          resetButtons();
+        }
+      } catch (error) {
+        console.error('Error polling status:', error);
+      }
+    }, 1000);
+  }
+  
+  function resetButtons() {
+    document.getElementById('run-current-btn').disabled = false;
+    document.getElementById('run-current-text').textContent = 'Run Backtest';
+    document.getElementById('run-custom-btn').disabled = false;
+    document.getElementById('run-custom-text').textContent = 'Run Custom Backtest';
+  }
+  
+  async function loadResults() {
+    try {
+      const response = await fetch('/api/backtest/results');
+      const data = await response.json();
+      
+      const container = document.getElementById('results-container');
+      
+      if (data.results.length === 0) {
+        container.innerHTML = '<p class="text-muted" style="text-align: center; padding: 3rem;">No backtests run yet.</p>';
+        return;
+      }
+      
+      container.innerHTML = data.results.map(result => {
+        if (result.status !== 'completed' || !result.result) return '';
+        
+        const r = result.result;
+        const pnlClass = r.pnl >= 0 ? 'text-success' : 'text-danger';
+        const selected = selectedResults.has(result.id) ? 'selected' : '';
+        
+        return `
+          <div class="result-card ${selected}" onclick="toggleSelection('${result.id}')">
+            <div class="result-header">
+              <div>
+                <strong>${new Date(result.timestamp).toLocaleString()}</strong>
+                <span class="text-muted"> · ${result.days_back} days</span>
+              </div>
+              <div>
+                <span class="status ${r.pnl >= 0 ? 'success' : 'danger'}">
+                  ${r.pnl >= 0 ? '+' : ''}${r.pnl_pct.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+            <div class="result-stats">
+              <div class="stat">
+                <div class="stat-label">Final Value</div>
+                <div class="stat-value">$${r.final_value.toFixed(2)}</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">Total P&L</div>
+                <div class="stat-value ${pnlClass}">${r.pnl >= 0 ? '+' : ''}$${r.pnl.toFixed(2)}</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">Trades</div>
+                <div class="stat-value">${r.trades}</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">vs Buy & Hold</div>
+                <div class="stat-value ${r.pnl_pct > r.buy_hold_pct ? 'text-success' : 'text-danger'}">
+                  ${(r.pnl_pct - r.buy_hold_pct).toFixed(2)}%
+                </div>
+              </div>
+            </div>
+            ${Object.keys(result.parameters).length > 0 ? `
+              <details style="margin-top: 1rem;">
+                <summary style="cursor: pointer; color: var(--text-secondary);">Custom Parameters</summary>
+                <table class="params-table">
+                  ${Object.entries(result.parameters).map(([k, v]) => `
+                    <tr>
+                      <td>${k.replace(/_/g, ' ')}</td>
+                      <td>${typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v}</td>
+                    </tr>
+                  `).join('')}
+                </table>
+              </details>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+    } catch (error) {
+      console.error('Error loading results:', error);
+    }
+  }
+  
+  function toggleSelection(id) {
+    if (selectedResults.has(id)) {
+      selectedResults.delete(id);
+    } else {
+      selectedResults.add(id);
+    }
+    
+    document.getElementById('selected-count').textContent = selectedResults.size;
+    document.getElementById('compare-btn').disabled = selectedResults.size < 2;
+    loadResults();
+  }
+  
+  async function compareSelected() {
+    if (selectedResults.size < 2) return;
+    
+    const response = await fetch('/api/backtest/results');
+    const data = await response.json();
+    const results = data.results.filter(r => selectedResults.has(r.id) && r.status === 'completed');
+    
+    const comparison = document.getElementById('comparison-content');
+    comparison.innerHTML = `
+      <div class="comparison-grid">
+        ${results.map(result => {
+          const r = result.result;
+          return `
+            <div class="card">
+              <h3>${new Date(result.timestamp).toLocaleString()}</h3>
+              <p class="text-muted">${result.days_back} days backtest</p>
+              <table class="params-table">
+                <tr><td>P&L</td><td class="${r.pnl >= 0 ? 'text-success' : 'text-danger'}">${r.pnl >= 0 ? '+' : ''}$${r.pnl.toFixed(2)}</td></tr>
+                <tr><td>P&L %</td><td class="${r.pnl_pct >= 0 ? 'text-success' : 'text-danger'}">${r.pnl_pct.toFixed(2)}%</td></tr>
+                <tr><td>Trades</td><td>${r.trades}</td></tr>
+                <tr><td>Final Value</td><td>$${r.final_value.toFixed(2)}</td></tr>
+                <tr><td>vs Buy & Hold</td><td>${(r.pnl_pct - r.buy_hold_pct).toFixed(2)}%</td></tr>
+              </table>
+              ${Object.keys(result.parameters).length > 0 ? `
+                <h4 style="margin-top: 1rem;">Parameters</h4>
+                <table class="params-table">
+                  ${Object.entries(result.parameters).map(([k, v]) => `
+                    <tr><td>${k}</td><td>${typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v}</td></tr>
+                  `).join('')}
+                </table>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+    
+    document.getElementById('comparison-modal').style.display = 'block';
+  }
+  
+  function closeComparison() {
+    document.getElementById('comparison-modal').style.display = 'none';
+  }
+  
+  function clearResults() {
+    if (confirm('Are you sure you want to clear all backtest results?')) {
+      selectedResults.clear();
+      document.getElementById('selected-count').textContent = '0';
+      document.getElementById('compare-btn').disabled = true;
+      // In a full implementation, would call API to clear results
+      loadResults();
+    }
+  }
+  
+  // Initial load
+  loadResults();
+  setInterval(loadResults, 5000); // Refresh every 5 seconds
+</script>
+{% endblock %}
+

@@ -1,7 +1,9 @@
 import logging as flask_logging
 import os
 import threading
+import json
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional
 
 from flask import Flask, jsonify, render_template, request
 
@@ -25,6 +27,14 @@ _state = {
 }
 _history = []
 _max_history = 250
+
+# Backtest results storage
+_backtest_results = []
+_max_backtest_results = 50
+
+# Backtest running state
+_backtest_running = False
+_current_backtest_id = None
 
 
 @app.route("/state")
@@ -183,6 +193,185 @@ def get_performance():
         return jsonify(stats)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/config")
+def get_config():
+    """Get current bot configuration"""
+    try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        # Convert to dict (excluding sensitive data)
+        config_dict = {
+            "symbol": config.symbol,
+            "timeframe": config.timeframe,
+            "short_window": config.short_window,
+            "long_window": config.long_window,
+            "order_pct": config.order_pct,
+            "initial_usdt": config.initial_usdt,
+            "fee_rate": config.fee_rate,
+            "slippage": config.slippage,
+            "min_trend_strength": config.min_trend_strength,
+            "rsi_period": config.rsi_period,
+            "rsi_oversold": config.rsi_oversold,
+            "rsi_overbought": config.rsi_overbought,
+            "stop_loss_pct": config.stop_loss_pct,
+            "take_profit_pct": config.take_profit_pct,
+            "trailing_stop_pct": config.trailing_stop_pct,
+            "use_trailing_stop": config.use_trailing_stop,
+            "max_position_size": config.max_position_size,
+            "min_position_size": config.min_position_size,
+            "use_dynamic_sizing": config.use_dynamic_sizing,
+            "atr_period": config.atr_period,
+            "atr_stop_multiplier": config.atr_stop_multiplier,
+            "use_atr_stops": config.use_atr_stops,
+            "macd_fast": config.macd_fast,
+            "macd_slow": config.macd_slow,
+            "macd_signal": config.macd_signal,
+            "require_macd_confirmation": config.require_macd_confirmation,
+            "require_volume_confirmation": config.require_volume_confirmation,
+            "volume_threshold": config.volume_threshold,
+            "max_trades_per_day": config.max_trades_per_day,
+        }
+        
+        return jsonify(config_dict)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/backtest/run", methods=["POST"])
+def run_backtest_api():
+    """Run a backtest with custom parameters"""
+    global _backtest_running, _current_backtest_id
+    
+    if _backtest_running:
+        return jsonify({"error": "Backtest already running"}), 409
+    
+    try:
+        params = request.get_json() or {}
+        days_back = params.get("days_back", 30)
+        
+        # Override config with custom parameters
+        config_overrides = {}
+        for key in ["short_window", "long_window", "order_pct", "initial_usdt",
+                    "stop_loss_pct", "take_profit_pct", "trailing_stop_pct",
+                    "use_trailing_stop", "min_position_size", "max_position_size",
+                    "use_dynamic_sizing", "atr_stop_multiplier", "use_atr_stops",
+                    "require_macd_confirmation", "require_volume_confirmation",
+                    "volume_threshold", "min_trend_strength", "rsi_oversold",
+                    "rsi_overbought"]:
+            if key in params:
+                config_overrides[key] = params[key]
+        
+        # Run backtest in background thread
+        backtest_id = datetime.utcnow().isoformat()
+        _current_backtest_id = backtest_id
+        _backtest_running = True
+        
+        def run_backtest_thread():
+            global _backtest_running, _backtest_results
+            try:
+                import logging
+                from backtest import run_backtest
+                from config import BotConfig
+                import os
+                
+                # Temporarily override environment variables
+                original_env = {}
+                for key, value in config_overrides.items():
+                    env_key = f"BOT_{key.upper()}"
+                    original_env[env_key] = os.environ.get(env_key)
+                    os.environ[env_key] = str(value)
+                
+                # Run backtest
+                result = run_backtest(days_back=days_back, use_database=False)
+                
+                # Restore environment
+                for env_key, original_value in original_env.items():
+                    if original_value is None:
+                        os.environ.pop(env_key, None)
+                    else:
+                        os.environ[env_key] = original_value
+                
+                # Store result
+                result_entry = {
+                    "id": backtest_id,
+                    "timestamp": backtest_id,
+                    "days_back": days_back,
+                    "parameters": config_overrides,
+                    "result": result,
+                    "status": "completed"
+                }
+                
+                _backtest_results.insert(0, result_entry)
+                if len(_backtest_results) > _max_backtest_results:
+                    _backtest_results.pop()
+                
+            except Exception as e:
+                logging.error(f"Backtest failed: {e}")
+                result_entry = {
+                    "id": backtest_id,
+                    "timestamp": backtest_id,
+                    "days_back": days_back,
+                    "parameters": config_overrides,
+                    "error": str(e),
+                    "status": "failed"
+                }
+                _backtest_results.insert(0, result_entry)
+            finally:
+                _backtest_running = False
+        
+        thread = threading.Thread(target=run_backtest_thread, daemon=True)
+        thread.start()
+        
+        return jsonify({
+            "message": "Backtest started",
+            "backtest_id": backtest_id
+        }), 202
+        
+    except Exception as e:
+        _backtest_running = False
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/backtest/status")
+def get_backtest_status():
+    """Get current backtest status"""
+    return jsonify({
+        "running": _backtest_running,
+        "current_id": _current_backtest_id
+    })
+
+
+@app.route("/api/backtest/results")
+def get_backtest_results():
+    """Get all backtest results"""
+    return jsonify({
+        "results": _backtest_results,
+        "count": len(_backtest_results)
+    })
+
+
+@app.route("/api/backtest/results/<backtest_id>")
+def get_backtest_result(backtest_id):
+    """Get specific backtest result"""
+    result = next((r for r in _backtest_results if r["id"] == backtest_id), None)
+    if result:
+        return jsonify(result)
+    return jsonify({"error": "Backtest not found"}), 404
+
+
+@app.route("/settings")
+def settings_page():
+    """Settings and configuration page"""
+    return render_template("settings.html")
+
+
+@app.route("/backtest")
+def backtest_page():
+    """Backtest runner page"""
+    return render_template("backtest.html")
 
 
 def _record_history(timestamp, price, signal_direction, trade_side, ohlc=None):

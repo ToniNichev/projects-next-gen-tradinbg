@@ -1,97 +1,100 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Crypto Bot Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.1.1/dist/chartjs-chart-financial.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-    <style>
-      body {
-        font-family: system-ui, sans-serif;
-        margin: 0;
-        padding: 1rem;
-        background: #0d1117;
-        color: #e1e8ff;
-      }
-      main {
-        max-width: 960px;
-        margin: 0 auto;
-      }
-      .summary {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1rem;
-      }
-      .card {
-        flex: 1;
-        min-width: 200px;
-        padding: 0.75rem 1rem;
-        border-radius: 0.75rem;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-      }
-      .chart-container {
-        position: relative;
-        height: 400px;
-        width: 100%;
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 0.75rem;
-        padding: 1rem;
-        margin-top: 1rem;
-      }
-      .chart-controls {
-        display: flex;
-        gap: 0.5rem;
-        margin-bottom: 0.5rem;
-        justify-content: flex-end;
-      }
-      .chart-controls button {
-        padding: 0.5rem 1rem;
-        background: rgba(88, 214, 141, 0.2);
-        border: 1px solid rgba(88, 214, 141, 0.4);
-        border-radius: 0.5rem;
-        color: #58D68D;
-        cursor: pointer;
-        font-size: 0.875rem;
-        transition: all 0.2s;
-      }
-      .chart-controls button:hover {
-        background: rgba(88, 214, 141, 0.3);
-        border-color: rgba(88, 214, 141, 0.6);
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Crypto Bot Chart</h1>
-      <div class="summary">
-        <div class="card">
-          <p>Last signal</p>
-          <h2 id="signal-text">--</h2>
-          <p id="signal-detail"></p>
-        </div>
-        <div class="card">
-          <p>Last trade</p>
-          <h2 id="trade-text">--</h2>
-          <p id="trade-detail"></p>
-        </div>
-      </div>
-      <div class="chart-container">
-        <div class="chart-controls">
-          <button onclick="resetZoom()">Reset Zoom</button>
-          <button onclick="zoomIn()">Zoom In (+)</button>
-          <button onclick="zoomOut()">Zoom Out (-)</button>
-        </div>
-        <canvas id="priceChart"></canvas>
-      </div>
-    </main>
-    <script>
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Crypto Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .summary .card {
+    flex: 1;
+    min-width: 200px;
+  }
+  .summary .card h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  .summary .card .value {
+    font-size: 1.75rem;
+    font-weight: 600;
+    margin: 0;
+  }
+  .summary .card .detail {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0.5rem 0 0 0;
+  }
+  .chart-container {
+    position: relative;
+    height: 500px;
+    width: 100%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-top: 1rem;
+  }
+  .chart-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    justify-content: flex-end;
+  }
+  .chart-controls button {
+    padding: 0.5rem 1rem;
+    background: rgba(88, 214, 141, 0.2);
+    border: 1px solid rgba(88, 214, 141, 0.4);
+    border-radius: 0.5rem;
+    color: #58D68D;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+  }
+  .chart-controls button:hover {
+    background: rgba(88, 214, 141, 0.3);
+    border-color: rgba(88, 214, 141, 0.6);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Live Dashboard</h1>
+
+<div class="summary">
+  <div class="card">
+    <h3>Last Signal</h3>
+    <div class="value" id="signal-text">--</div>
+    <div class="detail" id="signal-detail"></div>
+  </div>
+  <div class="card">
+    <h3>Last Trade</h3>
+    <div class="value" id="trade-text">--</div>
+    <div class="detail" id="trade-detail"></div>
+  </div>
+  <div class="card">
+    <h3>Balance</h3>
+    <div class="value" id="balance-text">--</div>
+    <div class="detail" id="balance-detail"></div>
+  </div>
+</div>
+
+<div class="chart-container">
+  <div class="chart-controls">
+    <button onclick="resetZoom()">Reset Zoom</button>
+    <button onclick="zoomIn()">Zoom In (+)</button>
+    <button onclick="zoomOut()">Zoom Out (-)</button>
+  </div>
+  <canvas id="priceChart"></canvas>
+</div>
+
+<script>
       console.log("Chart.js version:", Chart.version);
       console.log("Available chart types:", Object.keys(Chart.registry.controllers.items));
       
@@ -285,6 +288,15 @@
               2
             )} USDT`;
           }
+          
+          // Update balance
+          const state = await (await fetch('/state')).json();
+          if (state.balances) {
+            const totalUSDT = state.balances.USDT + (state.balances.BASE * (lastSignal ? lastSignal.price : 0));
+            document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
+            document.getElementById("balance-detail").textContent = 
+              `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
+          }
         } catch (err) {
           console.error("Error refreshing chart:", err);
         }
@@ -303,8 +315,7 @@
       }
 
       refresh();
-      setInterval(refresh, 15000); // Poll every 15 seconds instead of 5
+      setInterval(refresh, 15000); // Poll every 15 seconds
     </script>
-  </body>
-</html>
+{% endblock %}
 
