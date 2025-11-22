@@ -427,3 +427,4 @@ python3 backtest.py 90
 **Bottom Line**: Your 5-minute timeframe is killing your results. Switch to 1-hour and disable MACD confirmation. That's it. Run a 90-day backtest and you'll see 10x better results! 🚀
 
 
+
