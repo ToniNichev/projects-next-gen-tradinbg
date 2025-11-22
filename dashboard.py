@@ -6,6 +6,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from flask import Flask, jsonify, render_template, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_cors import CORS
 
 try:
     from database import get_database
@@ -13,11 +16,33 @@ try:
 except ImportError:
     DATABASE_AVAILABLE = False
 
+try:
+    from auth import require_auth, is_auth_enabled, get_auth_config
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+    flask_logging.warning("Authentication module not available. Dashboard will be unsecured!")
+    
+    # Create a no-op decorator if auth is not available
+    def require_auth(f):
+        return f
+
 app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "templates"))
 
 # Reduce Flask logging noise - only show errors
 log = flask_logging.getLogger('werkzeug')
 log.setLevel(flask_logging.ERROR)
+
+# Initialize rate limiting
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["60 per minute"],  # Default rate limit
+    storage_uri="memory://",
+)
+
+# Initialize CORS - will be configured on startup
+cors = None
 
 _state = {
     "balances": {"USDT": 0.0, "BASE": 0.0},
@@ -37,12 +62,20 @@ _backtest_running = False
 _current_backtest_id = None
 
 
+@app.route("/health")
+def health_check():
+    """Health check endpoint - no authentication required"""
+    return jsonify({"status": "ok", "timestamp": datetime.utcnow().isoformat()})
+
+
 @app.route("/state")
+@require_auth
 def get_state():
     return jsonify(_state)
 
 
 @app.route("/history")
+@require_auth
 def get_history():
     return jsonify(
         {
@@ -54,11 +87,14 @@ def get_history():
 
 
 @app.route("/ui")
+@require_auth
 def get_ui():
     return render_template("ui.html")
 
 
 @app.route("/api/trades")
+@require_auth
+@limiter.limit("30 per minute")
 def get_trades():
     """Get filtered trade history from database"""
     if not DATABASE_AVAILABLE:
@@ -113,6 +149,8 @@ def get_trades():
 
 
 @app.route("/api/stats")
+@require_auth
+@limiter.limit("30 per minute")
 def get_stats():
     """Get trading statistics from database"""
     if not DATABASE_AVAILABLE:
@@ -127,6 +165,8 @@ def get_stats():
 
 
 @app.route("/api/positions")
+@require_auth
+@limiter.limit("30 per minute")
 def get_positions():
     """Get open positions from database"""
     if not DATABASE_AVAILABLE:
@@ -156,6 +196,8 @@ def get_positions():
 
 
 @app.route("/api/performance")
+@require_auth
+@limiter.limit("30 per minute")
 def get_performance():
     """Get performance metrics"""
     if not DATABASE_AVAILABLE:
@@ -196,6 +238,8 @@ def get_performance():
 
 
 @app.route("/api/config")
+@require_auth
+@limiter.limit("30 per minute")
 def get_config():
     """Get current bot configuration"""
     try:
@@ -241,6 +285,8 @@ def get_config():
 
 
 @app.route("/api/backtest/run", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")
 def run_backtest_api():
     """Run a backtest with custom parameters"""
     global _backtest_running, _current_backtest_id
@@ -336,6 +382,8 @@ def run_backtest_api():
 
 
 @app.route("/api/backtest/status")
+@require_auth
+@limiter.limit("30 per minute")
 def get_backtest_status():
     """Get current backtest status"""
     return jsonify({
@@ -345,6 +393,8 @@ def get_backtest_status():
 
 
 @app.route("/api/backtest/results")
+@require_auth
+@limiter.limit("30 per minute")
 def get_backtest_results():
     """Get all backtest results"""
     return jsonify({
@@ -354,6 +404,8 @@ def get_backtest_results():
 
 
 @app.route("/api/backtest/results/<backtest_id>")
+@require_auth
+@limiter.limit("30 per minute")
 def get_backtest_result(backtest_id):
     """Get specific backtest result"""
     result = next((r for r in _backtest_results if r["id"] == backtest_id), None)
@@ -363,12 +415,14 @@ def get_backtest_result(backtest_id):
 
 
 @app.route("/settings")
+@require_auth
 def settings_page():
     """Settings and configuration page"""
     return render_template("settings.html")
 
 
 @app.route("/backtest")
+@require_auth
 def backtest_page():
     """Backtest runner page"""
     return render_template("backtest.html")
@@ -429,6 +483,47 @@ def update_state(
 
 
 def start_dashboard(host="0.0.0.0", port=8000):
+    """Start the Flask dashboard with security configuration"""
+    global cors
+    
+    # Load config to get CORS settings
+    try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        # Configure CORS
+        allowed_origins = config.allowed_origins
+        if allowed_origins == "*":
+            cors = CORS(app, resources={r"/*": {"origins": "*"}})
+        else:
+            origins_list = [origin.strip() for origin in allowed_origins.split(",")]
+            cors = CORS(app, resources={r"/*": {"origins": origins_list}})
+        
+        # Configure rate limiting
+        if not config.enable_rate_limiting:
+            limiter.enabled = False
+        else:
+            limiter.limit(f"{config.rate_limit_per_minute} per minute")
+        
+        # Log security status
+        if AUTH_AVAILABLE and config.dashboard_auth_enabled:
+            flask_logging.info("🔒 Dashboard authentication is ENABLED")
+            flask_logging.info(f"   Username: {config.dashboard_username}")
+        else:
+            flask_logging.warning("⚠️  Dashboard authentication is DISABLED - all endpoints are public!")
+        
+        if config.enable_rate_limiting:
+            flask_logging.info(f"🚦 Rate limiting enabled: {config.rate_limit_per_minute} requests/minute")
+        else:
+            flask_logging.info("⚠️  Rate limiting is DISABLED")
+        
+        flask_logging.info(f"🌐 CORS origins: {allowed_origins}")
+        
+    except Exception as e:
+        flask_logging.error(f"Failed to load dashboard config: {e}")
+        # Use defaults
+        cors = CORS(app, resources={r"/*": {"origins": "*"}})
+    
     def runner():
         app.run(host=host, port=port, debug=False, use_reloader=False)
 

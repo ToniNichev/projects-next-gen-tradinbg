@@ -442,3 +442,5 @@ Planned features:
 **Compatible with**: Trading Bot v1.0+
 
 
+
+

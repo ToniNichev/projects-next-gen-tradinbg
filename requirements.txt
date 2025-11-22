@@ -2,7 +2,11 @@ ccxt>=2.0.0
 pandas>=2.1.0
 Flask>=3.0.0
 python-dotenv>=1.0.0
-python-binance>=2.0.0
+python-binance>=1.0.0
 sqlalchemy>=2.0.0
 alembic>=1.12.0
+Flask-HTTPAuth>=4.8.0
+Flask-Limiter>=3.5.0
+Flask-CORS>=4.0.0
+bcrypt>=4.1.0
 

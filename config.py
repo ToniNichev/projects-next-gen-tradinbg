@@ -61,6 +61,16 @@ class BotConfig:
     require_volume_confirmation: bool = True
     volume_threshold: float = 1.1  # Require 110% of average volume (lowered from 120%)
     max_trades_per_day: int = 5  # Prevent overtrading
+    
+    # Dashboard Security Settings
+    dashboard_auth_enabled: bool = True  # Enable/disable authentication
+    dashboard_username: str = "admin"  # Username for dashboard access
+    dashboard_password: str = ""  # Password (can be bcrypt hash or plaintext)
+    dashboard_api_key: str = ""  # API key for programmatic access
+    dashboard_require_https: bool = False  # Require HTTPS for dashboard access
+    enable_rate_limiting: bool = True  # Enable rate limiting
+    rate_limit_per_minute: int = 60  # Max requests per minute
+    allowed_origins: str = "*"  # CORS allowed origins (comma-separated)
 
     @classmethod
     def load(cls) -> "BotConfig":
@@ -111,5 +121,14 @@ class BotConfig:
             database_url=env.get("BOT_DATABASE_URL", "sqlite:///data/trading.db"),
             enable_database=env.get("BOT_ENABLE_DATABASE", "true").lower() == "true",
             enable_csv_logging=env.get("BOT_ENABLE_CSV_LOGGING", "true").lower() == "true",
+            # Dashboard Security
+            dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
+            dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),
+            dashboard_password=env.get("DASHBOARD_PASSWORD", ""),
+            dashboard_api_key=env.get("DASHBOARD_API_KEY", ""),
+            dashboard_require_https=env.get("DASHBOARD_REQUIRE_HTTPS", "false").lower() == "true",
+            enable_rate_limiting=env.get("DASHBOARD_ENABLE_RATE_LIMITING", "true").lower() == "true",
+            rate_limit_per_minute=int(env.get("DASHBOARD_RATE_LIMIT_PER_MINUTE", 60)),
+            allowed_origins=env.get("DASHBOARD_ALLOWED_ORIGINS", "*"),
         )
 
