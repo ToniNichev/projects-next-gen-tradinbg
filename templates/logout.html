@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logged Out - Trading Bot Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .logout-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 48px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .logout-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 40px;
+        }
+        
+        h1 {
+            color: #1a202c;
+            font-size: 28px;
+            margin-bottom: 16px;
+        }
+        
+        .message {
+            color: #4a5568;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+        
+        .info-box {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+        
+        .info-box h3 {
+            color: #2d3748;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        .info-box ul {
+            color: #4a5568;
+            font-size: 14px;
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .info-box li {
+            padding: 6px 0;
+            padding-left: 24px;
+            position: relative;
+        }
+        
+        .info-box li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #48bb78;
+            font-weight: bold;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-direction: column;
+        }
+        
+        .btn {
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+        
+        .btn-secondary:hover {
+            background: #f7fafc;
+        }
+        
+        .security-note {
+            margin-top: 24px;
+            padding: 16px;
+            background: #fff5f5;
+            border: 1px solid #feb2b2;
+            border-radius: 8px;
+            color: #742a2a;
+            font-size: 13px;
+        }
+        
+        .security-note strong {
+            display: block;
+            margin-bottom: 6px;
+        }
+        
+        @media (max-width: 600px) {
+            .logout-container {
+                padding: 32px 24px;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="logout-container">
+        <div class="logout-icon">👋</div>
+        <h1>Logged Out Successfully</h1>
+        <p class="message">
+            You have been logged out of the Trading Bot Dashboard.
+        </p>
+        
+        <div class="info-box">
+            <h3>For Complete Logout:</h3>
+            <ul>
+                <li>Close all browser tabs and windows</li>
+                <li>Clear your browser cache (optional)</li>
+                <li>Your API keys remain valid if set</li>
+            </ul>
+        </div>
+        
+        <div class="button-group">
+            <a href="/ui" class="btn btn-primary" id="loginBtn">
+                Login Again
+            </a>
+            <button onclick="clearAuthAndRedirect()" class="btn btn-secondary">
+                Clear Credentials & Login
+            </button>
+        </div>
+        
+        <div class="security-note">
+            <strong>🔒 Security Note</strong>
+            If you're on a shared computer, please close all browser windows and clear your browser history.
+        </div>
+    </div>
+    
+    <script>
+        // Function to clear HTTP Basic Auth credentials
+        function clearAuthAndRedirect() {
+            // Method 1: Try to trigger 401 response to clear browser auth cache
+            fetch('/logout/clear', {
+                method: 'GET',
+            }).then(() => {
+                // Wait a moment then redirect to login
+                setTimeout(() => {
+                    window.location.href = '/ui';
+                }, 500);
+            }).catch(() => {
+                // If that fails, just redirect (browser will prompt for auth)
+                window.location.href = '/ui';
+            });
+        }
+        
+        // Clear any stored credentials in sessionStorage/localStorage on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            sessionStorage.clear();
+            localStorage.removeItem('dashboard_auth');
+            localStorage.removeItem('auth_token');
+            
+            // Also clear any API keys that might be stored
+            localStorage.removeItem('api_key');
+        });
+        
+        // Add keyboard shortcut for quick logout (Ctrl+L or Cmd+L)
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+                e.preventDefault();
+                clearAuthAndRedirect();
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -62,6 +62,14 @@ _backtest_running = False
 _current_backtest_id = None
 
 
+@app.route("/")
+@require_auth
+def home():
+    """Homepage - redirects to main dashboard UI"""
+    from flask import redirect
+    return redirect("/ui", code=302)
+
+
 @app.route("/health")
 def health_check():
     """Health check endpoint - no authentication required"""
@@ -414,6 +422,20 @@ def get_backtest_result(backtest_id):
     return jsonify({"error": "Backtest not found"}), 404
 
 
+@app.route("/api/backtest/clear", methods=["POST", "DELETE"])
+@require_auth
+@limiter.limit("10 per minute")
+def clear_backtest_results():
+    """Clear all backtest results"""
+    global _backtest_results
+    count = len(_backtest_results)
+    _backtest_results.clear()
+    return jsonify({
+        "message": f"Cleared {count} backtest result(s)",
+        "count": count
+    }), 200
+
+
 @app.route("/settings")
 @require_auth
 def settings_page():
@@ -426,6 +448,50 @@ def settings_page():
 def backtest_page():
     """Backtest runner page"""
     return render_template("backtest.html")
+
+
+@app.route("/logout")
+def logout():
+    """
+    Logout endpoint - displays logout page and instructions.
+    Note: HTTP Basic Auth credentials are cached by the browser,
+    so complete logout requires closing all browser windows.
+    """
+    from flask import make_response
+    
+    # If this is an API request (JSON), return JSON response
+    if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+        return jsonify({
+            "message": "Logged out successfully",
+            "note": "For API key auth, simply stop sending the key. For Basic Auth, close all browser windows."
+        }), 200
+    
+    # For browser requests, show the logout page
+    response = make_response(render_template("logout.html"))
+    
+    # Add headers to prevent caching of the logout page
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    return response
+
+
+@app.route("/logout/clear")
+def logout_clear():
+    """
+    Endpoint that returns 401 to force browser to clear Basic Auth credentials.
+    This is called by JavaScript from the logout page.
+    """
+    from flask import Response
+    
+    # Return 401 with WWW-Authenticate to clear browser auth cache
+    response = Response(
+        'Authentication cleared. Please close all browser windows for complete logout.',
+        401,
+        {'WWW-Authenticate': 'Basic realm="Dashboard Login Required"'}
+    )
+    return response
 
 
 def _record_history(timestamp, price, signal_direction, trade_side, ohlc=None):

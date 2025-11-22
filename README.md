@@ -37,19 +37,24 @@ python3 main.py
 The bot now relies on Binance's kline websocket stream instead of polling. Whenever a closed candle arrives on `<symbol>@kline_<timeframe>`, it recomputes the signal, feeds the paper trader, writes to `data/trade_log.csv`, and updates the dashboard. The dashboard starts automatically and listens on `BOT_DASHBOARD_HOST:BOT_DASHBOARD_PORT` (default `0.0.0.0:8000`).
 
 ## Dashboard
-Visit `http://<host>:<port>/state` to retrieve JSON with the latest balances, signal, and trade summary. The new UI at `http://<host>:<port>/ui` renders a live price chart with buy/sell markers and the most recent trade summary.
+The dashboard automatically starts on `http://localhost:8000` by default. Simply visit `http://localhost:8000` in your browser to access the main UI with live price charts, buy/sell markers, and trade summaries. You can also access the JSON API at `http://<host>:<port>/state` to retrieve the latest balances, signal, and trade summary programmatically.
 
 ### Available Endpoints
-- `/health` - Health check (no authentication required)
+- `/` - Homepage (redirects to main dashboard)
 - `/ui` - Main dashboard UI with live chart
+- `/health` - Health check (no authentication required)
 - `/state` - Current bot state (JSON)
 - `/history` - Trade history with price data
 - `/api/trades` - Query trades with filters
 - `/api/stats` - Trading statistics
 - `/api/positions` - Open positions
 - `/api/config` - Current configuration
+- `/api/backtest/run` - Run backtest (POST)
+- `/api/backtest/results` - Get backtest results
+- `/api/backtest/clear` - Clear all backtest results (POST/DELETE)
 - `/backtest` - Backtest runner page
 - `/settings` - Settings page
+- `/logout` - Logout (clears browser credentials)
 
 Rate limiting: 60 requests/minute by default (configurable)
 
@@ -63,7 +68,7 @@ All dashboard endpoints require authentication (except `/health`). Two methods a
 **1. Basic HTTP Authentication (for browser access):**
 ```bash
 # Access in browser - you'll be prompted for username/password
-http://localhost:8000/ui
+http://localhost:8000
 
 # Or use curl with credentials
 curl -u admin:changeme http://localhost:8000/api/stats
@@ -113,6 +118,14 @@ DASHBOARD_ALLOWED_ORIGINS=*
 4. **Use strong API keys** with sufficient entropy (32+ random characters)
 
 5. **Keep credentials secure** - never commit `.env` to version control
+
+### Logging Out
+To logout from the dashboard:
+- **Browser**: Click the "Logout" link in the navigation menu or visit `http://localhost:8000/logout`
+- **Complete logout**: Close all browser tabs/windows after logging out
+- **API Keys**: Simply stop including the API key in your requests
+
+The logout page will guide you through clearing browser-cached credentials.
 
 ### Disabling Authentication (Development Only)
 For local development, you can disable authentication:

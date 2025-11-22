@@ -366,7 +366,7 @@ def main():
         logger.info("1. Install dependencies: pip install -r requirements.txt")
         logger.info("2. Copy env.example to .env and configure credentials")
         logger.info("3. Start the bot: python main.py")
-        logger.info("4. Access dashboard: http://localhost:8000/ui")
+        logger.info("4. Access dashboard: http://localhost:8000")
         logger.info("=" * 70)
         return 0
     else:
