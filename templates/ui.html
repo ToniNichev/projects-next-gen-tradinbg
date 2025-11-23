@@ -140,7 +140,8 @@
       <hr>
       <strong>Smooth Navigation:</strong><br>
       • Click & drag to scroll smoothly<br>
-      • Mouse wheel for smooth zoom<br>
+      • Shift + mouse wheel to scroll left/right<br>
+      • Mouse wheel (no shift) to zoom<br>
       • Hold arrow keys for smooth scrolling<br>
       • +/- keys to zoom in/out<br>
       • Press 0 to reset view
@@ -151,9 +152,9 @@
 <div class="chart-container">
   <div class="chart-controls">
     <div class="nav-group">
-      <button onclick="panLeft()" title="Pan left (or use ← arrow key)">◀ Left</button>
-      <button onclick="panRight()" title="Pan right (or use → arrow key)">Right ▶</button>
-      <span class="kbd-hint">💡 Click & drag to scroll smoothly | Hold arrow keys | Mouse wheel to zoom</span>
+      <button onclick="panLeft()" title="Pan left (← arrow key or Shift+Wheel)">◀ Left</button>
+      <button onclick="panRight()" title="Pan right (→ arrow key or Shift+Wheel)">Right ▶</button>
+      <span class="kbd-hint">💡 Drag to scroll | Shift+Wheel to scroll | Wheel to zoom | Hold arrows</span>
     </div>
     <div class="zoom-group">
       <button onclick="resetZoom()">Reset Zoom</button>
@@ -251,26 +252,26 @@
             },
             zoom: {
               pan: {
-                enabled: true,
-                mode: 'x',  // Only horizontal panning for time series
-                modifierKey: null,  // No modifier key required - just drag
-                threshold: 5,  // Minimum pixels to move before panning starts
+                enabled: false,  // Disabled - using custom drag handler instead
+                mode: 'x',
               },
               zoom: {
                 wheel: {
                   enabled: true,
-                  speed: 0.05,  // Slower, smoother zoom
+                  speed: 0.05,
                 },
                 pinch: {
                   enabled: true,
                 },
-                mode: 'x',  // Only horizontal zoom for time series
+                mode: 'x',
                 drag: {
-                  enabled: false,  // Disable drag zoom to avoid conflicts
+                  enabled: false,
                 },
               },
               limits: {
-                x: { minRange: 60 * 1000 }, // Minimum 1 minute
+                x: {
+                  minRange: 60 * 1000,
+                },
               },
             },
           },
@@ -313,15 +314,30 @@
             console.log("Setting Y scale:", chart.options.scales.y.min, "to", chart.options.scales.y.max);
           }
           
-          // If only one data point, adjust time scale bounds for visibility
-          if (candleData.length === 1) {
-            const timestamp = candleData[0].x;
-            const hourInMs = 60 * 60 * 1000;
-            chart.options.scales.x.min = timestamp - hourInMs;
-            chart.options.scales.x.max = timestamp + hourInMs;
-          } else {
-            chart.options.scales.x.min = undefined;
-            chart.options.scales.x.max = undefined;
+          // Set up pan limits - extend range beyond visible data for panning
+          if (candleData.length > 0) {
+            const timestamps = candleData.map(d => d.x);
+            const minTime = Math.min(...timestamps);
+            const maxTime = Math.max(...timestamps);
+            const timeRange = maxTime - minTime;
+            
+            // Add 20% padding on each side for panning capability
+            const padding = timeRange * 0.2 || 3600000; // Default 1 hour if no range
+            
+            // Set pan limits (wider than visible range)
+            chart.options.plugins.zoom.limits.x.min = minTime - padding * 2;
+            chart.options.plugins.zoom.limits.x.max = maxTime + padding * 2;
+            
+            // For single data point, show a window around it
+            if (candleData.length === 1) {
+              const hourInMs = 60 * 60 * 1000;
+              chart.options.scales.x.min = minTime - hourInMs;
+              chart.options.scales.x.max = maxTime + hourInMs;
+            } else {
+              // Show all data initially, but with pan limits set
+              chart.options.scales.x.min = undefined;
+              chart.options.scales.x.max = undefined;
+            }
           }
           
           // Add signals dataset if not exists
@@ -393,7 +409,10 @@
       }
 
       function resetZoom() {
-        chart.resetZoom();
+        // Reset to show all data
+        chart.options.scales.x.min = undefined;
+        chart.options.scales.x.max = undefined;
+        chart.update('default');
       }
       
       function zoomIn() {
@@ -497,6 +516,93 @@
           keyRepeatInterval = null;
         }
       });
+      
+      // Custom drag-to-pan implementation that works at all zoom levels
+      const canvas = document.getElementById('priceChart');
+      let isDragging = false;
+      let dragStartX = 0;
+      let dragStartMin = 0;
+      let dragStartMax = 0;
+      
+      canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        dragStartX = e.clientX;
+        const xScale = chart.scales.x;
+        dragStartMin = xScale.min;
+        dragStartMax = xScale.max;
+        canvas.style.cursor = 'grabbing';
+      });
+      
+      canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        
+        e.preventDefault();
+        const xScale = chart.scales.x;
+        const chartArea = chart.chartArea;
+        
+        // Calculate how much we've dragged in pixels
+        const deltaX = e.clientX - dragStartX;
+        
+        // Convert pixels to time units
+        const chartWidth = chartArea.right - chartArea.left;
+        const timeRange = dragStartMax - dragStartMin;
+        const timePerPixel = timeRange / chartWidth;
+        const timeDelta = deltaX * timePerPixel;
+        
+        // Apply the pan
+        const newMin = dragStartMin - timeDelta;
+        const newMax = dragStartMax - timeDelta;
+        
+        // Check pan limits if they exist
+        const limits = chart.options.plugins.zoom.limits.x;
+        let clampedMin = newMin;
+        let clampedMax = newMax;
+        
+        if (limits.min !== undefined && newMin < limits.min) {
+          clampedMin = limits.min;
+          clampedMax = clampedMin + timeRange;
+        }
+        if (limits.max !== undefined && newMax > limits.max) {
+          clampedMax = limits.max;
+          clampedMin = clampedMax - timeRange;
+        }
+        
+        // Update the scale
+        chart.options.scales.x.min = clampedMin;
+        chart.options.scales.x.max = clampedMax;
+        chart.update('none');  // Update without animation for smooth dragging
+      });
+      
+      const stopDragging = () => {
+        if (isDragging) {
+          isDragging = false;
+          canvas.style.cursor = 'grab';
+        }
+      };
+      
+      canvas.addEventListener('mouseup', stopDragging);
+      canvas.addEventListener('mouseleave', stopDragging);
+      
+      // Add horizontal mouse wheel scrolling support
+      canvas.addEventListener('wheel', (e) => {
+        // Check if it's a horizontal scroll (shift + wheel or trackpad horizontal)
+        if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+          e.preventDefault();
+          
+          const xScale = chart.scales.x;
+          const range = xScale.max - xScale.min;
+          
+          // Determine scroll direction and amount
+          const deltaX = e.deltaX || (e.shiftKey ? e.deltaY : 0);
+          const scrollAmount = (deltaX / 1000) * range; // Adjust sensitivity
+          
+          // Apply smooth horizontal scroll
+          chart.zoomScale('x', {
+            min: xScale.min + scrollAmount,
+            max: xScale.max + scrollAmount
+          }, 'none');
+        }
+      }, { passive: false });
 
       refresh();
       setInterval(refresh, 15000); // Poll every 15 seconds
