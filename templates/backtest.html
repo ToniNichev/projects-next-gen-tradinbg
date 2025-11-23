@@ -189,7 +189,12 @@
         Days of History
         <span class="info-icon">i
           <span class="info-tooltip">
-            Amount of historical data to test the strategy on. More days = more reliable results but longer processing time. 30 days is a good balance for quick validation.
+            Amount of historical data to test the strategy on. More days = more reliable results but longer processing time.
+            <hr>
+            <strong>Recommended ranges:</strong><br>
+            <span class="risk-low">7-14 days</span> Quick test<br>
+            <span class="risk-medium">30 days</span> Balanced validation<br>
+            <span class="risk-high">60-90 days</span> Thorough analysis
           </span>
         </span>
       </label>
@@ -225,7 +230,12 @@
           Position Size (%)
           <span class="info-icon">i
             <span class="info-tooltip">
-              Percentage of your total portfolio to use for each trade. Lower = safer but slower growth. Higher = more aggressive but riskier. Range: 5-100%.
+              Percentage of your total portfolio to use for each trade. Lower = safer but slower growth, higher = more aggressive but riskier.
+              <hr>
+              <strong>Risk levels:</strong><br>
+              <span class="risk-low">5-15%</span> Conservative<br>
+              <span class="risk-medium">20-30%</span> Balanced<br>
+              <span class="risk-high">40-100%</span> Aggressive
             </span>
           </span>
         </label>
@@ -236,7 +246,12 @@
           Stop Loss (%)
           <span class="info-icon">i
             <span class="info-tooltip">
-              Maximum loss per trade before automatically selling. Lower values protect capital but may exit too early. Higher values give trades more room but risk bigger losses. Range: 0.5-10%.
+              Maximum loss per trade before automatically selling. Protects capital but tighter stops may exit prematurely.
+              <hr>
+              <strong>Risk levels:</strong><br>
+              <span class="risk-low">3-5%</span> Safe, wider stops<br>
+              <span class="risk-medium">2-2.5%</span> Balanced<br>
+              <span class="risk-high">0.5-1.5%</span> Tight, frequent exits
             </span>
           </span>
         </label>
@@ -247,7 +262,12 @@
           Take Profit (%)
           <span class="info-icon">i
             <span class="info-tooltip">
-              Target profit per trade before automatically selling. Lower = quicker small gains. Higher = waiting for bigger moves but may miss opportunities. Range: 1-20%.
+              Target profit per trade before automatically selling. Lower = quicker gains, higher = waiting for bigger moves.
+              <hr>
+              <strong>Trading styles:</strong><br>
+              <span class="risk-low">1-2%</span> Quick scalping<br>
+              <span class="risk-medium">3-6%</span> Balanced gains<br>
+              <span class="risk-high">10-20%</span> Patient, big moves
             </span>
           </span>
         </label>
@@ -258,7 +278,12 @@
           Short EMA
           <span class="info-icon">i
             <span class="info-tooltip">
-              Fast-moving average period for trend detection. Lower values = more sensitive to recent price changes. Used with Long EMA to identify buy/sell signals. Range: 5-50 periods.
+              Fast-moving average period for trend detection. Lower values are more sensitive to recent price changes. Used with Long EMA for crossover signals.
+              <hr>
+              <strong>Sensitivity levels:</strong><br>
+              <span class="risk-high">5-9</span> Very sensitive<br>
+              <span class="risk-medium">12-15</span> Standard<br>
+              <span class="risk-low">20-30</span> Smooth, less noise
             </span>
           </span>
         </label>
@@ -269,7 +294,12 @@
           Long EMA
           <span class="info-icon">i
             <span class="info-tooltip">
-              Slow-moving average period for trend detection. Higher values = smoother, less reactive to noise. Buy signal when Short EMA crosses above Long EMA. Range: 10-200 periods.
+              Slow-moving average period for trend detection. Higher values smooth out noise. Buy signal occurs when Short EMA crosses above Long EMA.
+              <hr>
+              <strong>Smoothness levels:</strong><br>
+              <span class="risk-high">20-30</span> Fast response<br>
+              <span class="risk-medium">50-100</span> Standard<br>
+              <span class="risk-low">150-200</span> Very smooth
             </span>
           </span>
         </label>
@@ -280,7 +310,12 @@
           ATR Multiplier
           <span class="info-icon">i
             <span class="info-tooltip">
-              Average True Range multiplier for dynamic stop losses. Higher values = wider stops that accommodate volatility. Lower = tighter stops but more frequent exits. Range: 1-5x.
+              Average True Range multiplier for dynamic stop losses. Higher values give volatile markets more room, lower values provide tighter risk control.
+              <hr>
+              <strong>Stop distance:</strong><br>
+              <span class="risk-high">1.0-1.5x</span> Tight control<br>
+              <span class="risk-medium">2.0-2.5x</span> Balanced<br>
+              <span class="risk-low">3.0-5.0x</span> Room for volatility
             </span>
           </span>
         </label>

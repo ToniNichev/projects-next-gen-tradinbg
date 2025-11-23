@@ -18,7 +18,14 @@
       <h2>Trading Parameters</h2>
       
       <div class="form-group">
-        <label for="symbol">Trading Symbol</label>
+        <label for="symbol">
+          Trading Symbol
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              The cryptocurrency pair to trade. BTC/USDT is Bitcoin paired with USDT stablecoin. Choose based on your market knowledge and liquidity needs.
+            </span>
+          </span>
+        </label>
         <select id="symbol" name="symbol">
           <option value="BTC/USDT">BTC/USDT</option>
           <option value="ETH/USDT">ETH/USDT</option>
@@ -27,7 +34,14 @@
       </div>
       
       <div class="form-group">
-        <label for="timeframe">Timeframe</label>
+        <label for="timeframe">
+          Timeframe
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Candlestick interval for analysis. Shorter timeframes (5m-15m) for active trading, longer (1h-1d) for swing trading. Affects signal frequency and noise levels.
+            </span>
+          </span>
+        </label>
         <select id="timeframe" name="timeframe">
           <option value="5m">5 minutes</option>
           <option value="15m">15 minutes</option>
@@ -39,7 +53,14 @@
       </div>
       
       <div class="form-group">
-        <label for="initial_usdt">Initial Capital (USDT)</label>
+        <label for="initial_usdt">
+          Initial Capital (USDT)
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Starting balance for trading/backtesting in USDT. This determines position sizes and overall portfolio value. Minimum 100 USDT recommended.
+            </span>
+          </span>
+        </label>
         <input type="number" id="initial_usdt" name="initial_usdt" step="100" min="100">
       </div>
     </div>
@@ -50,38 +71,117 @@
       
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
         <div class="form-group">
-          <label for="short_window">Short EMA Period</label>
+          <label for="short_window">
+            Short EMA Period
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Fast-moving Exponential Moving Average period. Lower values react quickly to price changes, used with Long EMA for trend crossovers.
+                <hr>
+                <strong>Sensitivity:</strong><br>
+                <span class="risk-high">5-9</span> Very reactive<br>
+                <span class="risk-medium">12-15</span> Standard<br>
+                <span class="risk-low">20-30</span> Smooth
+              </span>
+            </span>
+          </label>
           <input type="number" id="short_window" name="short_window" min="5" max="50">
         </div>
         
         <div class="form-group">
-          <label for="long_window">Long EMA Period</label>
+          <label for="long_window">
+            Long EMA Period
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Slow-moving Exponential Moving Average period. Higher values smooth out noise. Bullish when Short EMA crosses above Long EMA.
+                <hr>
+                <strong>Smoothness:</strong><br>
+                <span class="risk-high">20-30</span> Fast signals<br>
+                <span class="risk-medium">50-100</span> Standard<br>
+                <span class="risk-low">150-200</span> Very smooth
+              </span>
+            </span>
+          </label>
           <input type="number" id="long_window" name="long_window" min="10" max="200">
         </div>
         
         <div class="form-group">
-          <label for="rsi_period">RSI Period</label>
+          <label for="rsi_period">
+            RSI Period
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Relative Strength Index lookback period. Measures momentum to identify overbought/oversold conditions. Standard is 14.
+                <hr>
+                <strong>Responsiveness:</strong><br>
+                <span class="risk-high">5-9</span> Very sensitive<br>
+                <span class="risk-medium">14</span> Standard<br>
+                <span class="risk-low">21-30</span> Smooth signals
+              </span>
+            </span>
+          </label>
           <input type="number" id="rsi_period" name="rsi_period" min="5" max="30">
         </div>
         
         <div class="form-group">
-          <label for="atr_period">ATR Period</label>
+          <label for="atr_period">
+            ATR Period
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Average True Range lookback period. Measures volatility for dynamic stop-loss sizing. Standard is 14, used to adapt to market conditions.
+                <hr>
+                <strong>Volatility tracking:</strong><br>
+                <span class="risk-high">7-10</span> Fast adaptation<br>
+                <span class="risk-medium">14</span> Standard<br>
+                <span class="risk-low">20-30</span> Stable readings
+              </span>
+            </span>
+          </label>
           <input type="number" id="atr_period" name="atr_period" min="5" max="30">
         </div>
         
         <div class="form-group">
-          <label for="rsi_oversold">RSI Oversold Level</label>
+          <label for="rsi_oversold">
+            RSI Oversold Level
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                RSI threshold for oversold conditions (potential buy signal). Standard is 30. Lower values catch stronger signals but less frequently.
+                <hr>
+                <strong>Signal frequency:</strong><br>
+                <span class="risk-high">35-40</span> Frequent signals<br>
+                <span class="risk-medium">30</span> Standard<br>
+                <span class="risk-low">20-25</span> Strong signals only
+              </span>
+            </span>
+          </label>
           <input type="number" id="rsi_oversold" name="rsi_oversold" min="10" max="40" step="5">
         </div>
         
         <div class="form-group">
-          <label for="rsi_overbought">RSI Overbought Level</label>
+          <label for="rsi_overbought">
+            RSI Overbought Level
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                RSI threshold for overbought conditions (potential sell signal). Standard is 70. Higher values are more conservative, avoiding false signals.
+                <hr>
+                <strong>Signal frequency:</strong><br>
+                <span class="risk-low">75-80</span> Conservative<br>
+                <span class="risk-medium">70</span> Standard<br>
+                <span class="risk-high">60-65</span> Frequent signals
+              </span>
+            </span>
+          </label>
           <input type="number" id="rsi_overbought" name="rsi_overbought" min="60" max="90" step="5">
         </div>
       </div>
       
       <div class="form-group">
-        <label for="min_trend_strength">Minimum Trend Strength</label>
+        <label for="min_trend_strength">
+          Minimum Trend Strength
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Minimum percentage difference between EMAs to confirm a trend. Lower values generate more signals but may include weak trends. Example: 0.00005 = 0.005%.
+            </span>
+          </span>
+        </label>
         <input type="number" id="min_trend_strength" name="min_trend_strength" step="0.00001" min="0">
         <small class="text-muted">Lower values allow more signals (e.g., 0.00005 = 0.005%)</small>
       </div>
@@ -93,34 +193,96 @@
       
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
         <div class="form-group">
-          <label for="stop_loss_pct">Stop Loss (%)</label>
+          <label for="stop_loss_pct">
+            Stop Loss (%)
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Fixed percentage loss to trigger automatic exit. Protects capital but tighter stops may exit prematurely. Wider stops give trades more room.
+                <hr>
+                <strong>Protection level:</strong><br>
+                <span class="risk-low">3-5%</span> Safe, wider stops<br>
+                <span class="risk-medium">2-2.5%</span> Balanced<br>
+                <span class="risk-high">0.5-1.5%</span> Tight exits
+              </span>
+            </span>
+          </label>
           <input type="number" id="stop_loss_pct" name="stop_loss_pct" step="0.5" min="0.5" max="10">
         </div>
         
         <div class="form-group">
-          <label for="take_profit_pct">Take Profit (%)</label>
+          <label for="take_profit_pct">
+            Take Profit (%)
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Target profit percentage for automatic exit. Lower targets lock in quick gains, higher targets wait for larger moves but risk reversals.
+                <hr>
+                <strong>Trading style:</strong><br>
+                <span class="risk-low">1-2%</span> Quick scalping<br>
+                <span class="risk-medium">3-6%</span> Balanced<br>
+                <span class="risk-high">10-20%</span> Patient trading
+              </span>
+            </span>
+          </label>
           <input type="number" id="take_profit_pct" name="take_profit_pct" step="0.5" min="1" max="20">
         </div>
         
         <div class="form-group">
-          <label for="trailing_stop_pct">Trailing Stop (%)</label>
+          <label for="trailing_stop_pct">
+            Trailing Stop (%)
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Dynamic stop that follows price in profitable direction. Locks in profits while allowing trends to continue. Exits if price drops by this percentage from peak.
+                <hr>
+                <strong>Profit protection:</strong><br>
+                <span class="risk-high">0.5-1%</span> Tight lock-in<br>
+                <span class="risk-medium">1.5-2%</span> Balanced<br>
+                <span class="risk-low">3-5%</span> Room to breathe
+              </span>
+            </span>
+          </label>
           <input type="number" id="trailing_stop_pct" name="trailing_stop_pct" step="0.5" min="0.5" max="5">
         </div>
         
         <div class="form-group">
-          <label for="atr_stop_multiplier">ATR Stop Multiplier</label>
+          <label for="atr_stop_multiplier">
+            ATR Stop Multiplier
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Multiplies Average True Range to set dynamic stops. Higher multiplier gives volatile markets more room, lower provides tighter risk control in stable conditions.
+                <hr>
+                <strong>Stop distance:</strong><br>
+                <span class="risk-high">1.0-1.5x</span> Tight control<br>
+                <span class="risk-medium">2.0-2.5x</span> Standard<br>
+                <span class="risk-low">3.0-5.0x</span> Volatile markets
+              </span>
+            </span>
+          </label>
           <input type="number" id="atr_stop_multiplier" name="atr_stop_multiplier" step="0.5" min="1" max="5">
         </div>
       </div>
       
       <div class="checkbox-group mb-2">
         <input type="checkbox" id="use_trailing_stop" name="use_trailing_stop">
-        <label for="use_trailing_stop">Enable Trailing Stops</label>
+        <label for="use_trailing_stop">
+          Enable Trailing Stops
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Automatically moves stop-loss to lock in profits as price moves favorably. Helps capture trends while protecting gains from sudden reversals.
+            </span>
+          </span>
+        </label>
       </div>
       
       <div class="checkbox-group">
         <input type="checkbox" id="use_atr_stops" name="use_atr_stops">
-        <label for="use_atr_stops">Use ATR-Based Stops (instead of fixed %)</label>
+        <label for="use_atr_stops">
+          Use ATR-Based Stops (instead of fixed %)
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Replaces fixed percentage stops with volatility-based stops using ATR. Adapts to market conditions - wider in volatile markets, tighter in calm markets.
+            </span>
+          </span>
+        </label>
       </div>
     </div>
     
@@ -130,19 +292,50 @@
       
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
         <div class="form-group">
-          <label for="min_position_size">Minimum Position Size (%)</label>
+          <label for="min_position_size">
+            Minimum Position Size (%)
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Smallest percentage of portfolio to risk per trade. Prevents overexposure but may limit growth potential. Used when signal confidence is low.
+                <hr>
+                <strong>Risk appetite:</strong><br>
+                <span class="risk-low">5-10%</span> Very conservative<br>
+                <span class="risk-medium">15-20%</span> Balanced<br>
+                <span class="risk-high">25-35%</span> Aggressive
+              </span>
+            </span>
+          </label>
           <input type="number" id="min_position_size" name="min_position_size" step="5" min="5" max="50">
         </div>
         
         <div class="form-group">
-          <label for="max_position_size">Maximum Position Size (%)</label>
+          <label for="max_position_size">
+            Maximum Position Size (%)
+            <span class="info-icon">i
+              <span class="info-tooltip">
+                Largest percentage of portfolio to risk per trade. Higher values maximize opportunities but increase risk exposure. Used when signal confidence is high.
+                <hr>
+                <strong>Maximum exposure:</strong><br>
+                <span class="risk-low">15-25%</span> Conservative<br>
+                <span class="risk-medium">30-40%</span> Balanced<br>
+                <span class="risk-high">50-100%</span> All-in trades
+              </span>
+            </span>
+          </label>
           <input type="number" id="max_position_size" name="max_position_size" step="5" min="10" max="100">
         </div>
       </div>
       
       <div class="checkbox-group">
         <input type="checkbox" id="use_dynamic_sizing" name="use_dynamic_sizing">
-        <label for="use_dynamic_sizing">Enable Dynamic Position Sizing</label>
+        <label for="use_dynamic_sizing">
+          Enable Dynamic Position Sizing
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Adjusts position size based on signal strength and volatility. Larger positions for high-confidence signals, smaller for weak signals. Optimizes risk/reward ratio.
+            </span>
+          </span>
+        </label>
       </div>
     </div>
     
@@ -151,19 +344,45 @@
       <h2>Signal Filters</h2>
       
       <div class="form-group">
-        <label for="volume_threshold">Volume Threshold (multiplier)</label>
+          <label for="volume_threshold">
+          Volume Threshold (multiplier)
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Required volume level as a multiple of average. Higher values filter weak signals from low-liquidity movements. 1.2 = 120% of average volume required.
+              <hr>
+              <strong>Signal filtering:</strong><br>
+              <span class="risk-high">1.0-1.1x</span> Allow all<br>
+              <span class="risk-medium">1.2-1.5x</span> Standard filter<br>
+              <span class="risk-low">1.8-3.0x</span> Strong only
+            </span>
+          </span>
+        </label>
         <input type="number" id="volume_threshold" name="volume_threshold" step="0.1" min="1" max="3">
         <small class="text-muted">Require volume above average (e.g., 1.2 = 120% of average)</small>
       </div>
       
       <div class="checkbox-group mb-2">
         <input type="checkbox" id="require_volume_confirmation" name="require_volume_confirmation">
-        <label for="require_volume_confirmation">Require Volume Confirmation</label>
+        <label for="require_volume_confirmation">
+          Require Volume Confirmation
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Only trade when volume exceeds threshold. Confirms genuine market interest and reduces false signals from low-liquidity movements. More conservative.
+            </span>
+          </span>
+        </label>
       </div>
       
       <div class="checkbox-group">
         <input type="checkbox" id="require_macd_confirmation" name="require_macd_confirmation">
-        <label for="require_macd_confirmation">Require MACD Confirmation</label>
+        <label for="require_macd_confirmation">
+          Require MACD Confirmation
+          <span class="info-icon">i
+            <span class="info-tooltip">
+              Only trade when MACD indicator confirms the signal direction. MACD measures momentum convergence/divergence. Reduces false signals but may delay entries.
+            </span>
+          </span>
+        </label>
       </div>
     </div>
     
@@ -242,6 +461,7 @@
   loadConfig();
 </script>
 {% endblock %}
+
 
 
 
