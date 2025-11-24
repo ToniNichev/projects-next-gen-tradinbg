@@ -144,3 +144,4 @@ echo -e "  ${YELLOW}rm -rf $PROJECT_DIR${NC}"
 echo ""
 echo "Thank you for using Next-Gen Trading Bot! 👋"
 
+

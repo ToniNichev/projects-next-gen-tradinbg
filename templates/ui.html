@@ -250,6 +250,27 @@
                 color: "#e1e8ff",
               },
             },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  // Format OHLC data on separate lines for candlestick dataset
+                  if (context.dataset.label === "BTC/USDT" && context.raw) {
+                    const data = context.raw;
+                    return [
+                      `O: $${data.o.toFixed(2)}`,
+                      `H: $${data.h.toFixed(2)}`,
+                      `L: $${data.l.toFixed(2)}`,
+                      `C: $${data.c.toFixed(2)}`
+                    ];
+                  }
+                  // For signal markers
+                  if (context.dataset.label === "Signals") {
+                    return `Signal: ${context.raw.y.toFixed(2)}`;
+                  }
+                  return context.formattedValue;
+                }
+              }
+            },
             zoom: {
               pan: {
                 enabled: false,  // Disabled - using custom drag handler instead
