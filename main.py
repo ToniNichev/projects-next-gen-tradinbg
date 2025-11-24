@@ -1,7 +1,7 @@
 import logging
 import signal
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 import ccxt
 from binance import ThreadedWebsocketManager
@@ -122,7 +122,7 @@ def main():
                 from dashboard import _record_history
                 for candle in candle_buffer[-100:]:
                     _record_history(
-                        timestamp=datetime.utcfromtimestamp(candle[0] / 1000).isoformat(),
+                        timestamp=datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc).isoformat(),
                         price=float(candle[4]),  # close price
                         signal_direction="neutral",
                         trade_side=None,

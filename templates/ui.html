@@ -181,18 +181,22 @@
             {
               label: "BTC/USDT",
               data: [],
+              // Candlestick body colors (filled)
               color: {
-                up: "#58D68D",
-                down: "#ff5e57",
-                unchanged: "#999",
+                up: "#58D68D",      // Green for bullish
+                down: "#ff5e57",    // Red for bearish
+                unchanged: "#999",  // Gray for neutral
               },
+              // Border/wick colors
               borderColor: {
                 up: "#58D68D",
                 down: "#ff5e57",
                 unchanged: "#999",
               },
-              barPercentage: 0.9,
-              categoryPercentage: 1.0,
+              borderWidth: 1.5,
+              // Width settings for proper display
+              barPercentage: 0.7,
+              categoryPercentage: 0.8,
             },
           ],
         },
@@ -214,12 +218,18 @@
           scales: {
             x: {
               type: "time",
+              adapters: {
+                date: {
+                  zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                }
+              },
               time: {
                 unit: "minute",
                 displayFormats: {
                   minute: "MMM dd HH:mm",
+                  hour: "MMM dd HH:mm",
                 },
-                tooltipFormat: "MMM dd HH:mm",
+                tooltipFormat: "MMM dd, yyyy HH:mm:ss",
               },
               ticks: {
                 color: "#e1e8ff",
@@ -306,16 +316,40 @@
           const history = body.history || [];
           console.log("History data:", history);
           
-          const candleData = history.map((row) => ({
-            x: new Date(row.timestamp).getTime(),
-            o: row.open ?? row.price,
-            h: row.high ?? row.price,
-            l: row.low ?? row.price,
-            c: row.close ?? row.price,
-          }));
+          // Debug: Check timezone info
+          const now = new Date();
+          const localTZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          console.log("Browser timezone:", localTZ);
+          console.log("Current local time:", now.toLocaleString());
+          console.log("Timezone offset (minutes):", now.getTimezoneOffset());
+          
+          const candleData = history.map((row) => {
+            // Parse UTC timestamp - the 'Z' or lack thereof matters!
+            // ISO strings from backend should be treated as UTC
+            let timestamp = row.timestamp;
+            if (!timestamp.endsWith('Z') && !timestamp.includes('+') && !timestamp.includes('-', 10)) {
+              // Add 'Z' to explicitly mark as UTC if not present
+              timestamp = timestamp + 'Z';
+            }
+            const utcDate = new Date(timestamp);
+            
+            return {
+              x: utcDate.getTime(),  // This is milliseconds since epoch (timezone-agnostic)
+              o: row.open ?? row.price,
+              h: row.high ?? row.price,
+              l: row.low ?? row.price,
+              c: row.close ?? row.price,
+            };
+          });
           
           console.log("Candlestick data:", candleData);
-          console.log("First candle:", candleData[0]);
+          if (candleData.length > 0) {
+            console.log("First candle:", candleData[0]);
+            console.log("First candle time:", new Date(candleData[0].x).toLocaleString());
+            console.log("Last candle:", candleData[candleData.length - 1]);
+            console.log("Last candle time:", new Date(candleData[candleData.length - 1].x).toLocaleString());
+            console.log("Last candle UTC:", new Date(candleData[candleData.length - 1].x).toUTCString());
+          }
           console.log("Data length:", candleData.length);
           
           chart.data.datasets[0].data = candleData;
@@ -399,21 +433,21 @@
           if (lastSignal) {
             document.getElementById("signal-text").textContent =
               lastSignal.signal_direction.toUpperCase();
+            // Format time in local timezone
+            const signalTime = new Date(lastSignal.timestamp);
             document.getElementById(
               "signal-detail"
-            ).textContent = `${new Date(lastSignal.timestamp).toLocaleTimeString()} · price ${lastSignal.price.toFixed(
-              2
-            )}`;
+            ).textContent = `${signalTime.toLocaleString()} · price $${lastSignal.price.toFixed(2)}`;
           }
           const lastTrade = body.last_trade;
           if (lastTrade) {
             document.getElementById("trade-text").textContent =
               lastTrade.side.toUpperCase();
+            // Format time in local timezone
+            const tradeTime = new Date(lastTrade.timestamp);
             document.getElementById(
               "trade-detail"
-            ).textContent = `${lastTrade.timestamp} · ${lastTrade.usdt_balance.toFixed(
-              2
-            )} USDT`;
+            ).textContent = `${tradeTime.toLocaleString()} · ${lastTrade.usdt_balance.toFixed(2)} USDT`;
           }
           
           // Update balance

@@ -2,7 +2,7 @@ import csv
 import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -271,7 +271,7 @@ class PaperTrader:
                 pnl_percent = (pnl / (self.open_position.amount * self.open_position.entry_price) * 100) if self.open_position else 0.0
                 updates = {
                     "exit_price": exit_price,
-                    "exit_time": datetime.utcnow(),
+                    "exit_time": datetime.now(timezone.utc),
                     "exit_reason": exit_reason,
                     "pnl": pnl,
                     "pnl_percent": pnl_percent,
@@ -332,7 +332,7 @@ class PaperTrader:
             slippage=abs(fill_price - current_price),
             usdt_balance=self.usdt_balance,
             base_balance=self.base_balance,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             signal={},
             exit_reason=exit_reason,
             pnl=pnl,
@@ -388,7 +388,7 @@ class PaperTrader:
             side="long",
             entry_price=fill_price,
             amount=amount,
-            entry_time=datetime.utcnow().isoformat(),
+            entry_time=datetime.now(timezone.utc).isoformat(),
             stop_loss=signal.stop_loss if signal.stop_loss > 0 else fill_price * 0.98,
             take_profit=signal.take_profit if signal.take_profit > 0 else fill_price * 1.04,
             trailing_stop=fill_price * (1 - self.trailing_stop_pct),
@@ -408,7 +408,7 @@ class PaperTrader:
             slippage=fill_price - price,
             usdt_balance=self.usdt_balance,
             base_balance=self.base_balance,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             signal=signal.to_dict(),
         )
         self._log_trade(trade)
@@ -446,7 +446,7 @@ class PaperTrader:
                 side="short",
                 entry_price=fill_price,
                 amount=abs(self.base_balance),
-                entry_time=datetime.utcnow().isoformat(),
+                entry_time=datetime.now(timezone.utc).isoformat(),
                 stop_loss=signal.stop_loss if signal.stop_loss > 0 else fill_price * 1.02,
                 take_profit=signal.take_profit if signal.take_profit > 0 else fill_price * 0.96,
                 trailing_stop=fill_price * (1 + self.trailing_stop_pct),
@@ -466,7 +466,7 @@ class PaperTrader:
             slippage=price - fill_price,
             usdt_balance=self.usdt_balance,
             base_balance=self.base_balance,
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             signal=signal.to_dict(),
         )
         self._log_trade(trade)

@@ -2,7 +2,7 @@ import logging as flask_logging
 import os
 import threading
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from flask import Flask, jsonify, render_template, request
@@ -73,7 +73,7 @@ def home():
 @app.route("/health")
 def health_check():
     """Health check endpoint - no authentication required"""
-    return jsonify({"status": "ok", "timestamp": datetime.utcnow().isoformat()})
+    return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
 
 
 @app.route("/state")
@@ -124,7 +124,7 @@ def get_trades():
         if exit_reason:
             filters["exit_reason"] = exit_reason
         if days_back:
-            start_date = datetime.utcnow() - timedelta(days=int(days_back))
+            start_date = datetime.now(timezone.utc) - timedelta(days=int(days_back))
             filters["start_date"] = start_date
         
         # Query trades
@@ -319,7 +319,7 @@ def run_backtest_api():
                 config_overrides[key] = params[key]
         
         # Run backtest in background thread
-        backtest_id = datetime.utcnow().isoformat()
+        backtest_id = datetime.now(timezone.utc).isoformat()
         _current_backtest_id = backtest_id
         _backtest_running = True
         
@@ -536,11 +536,11 @@ def update_state(
     if last_trade is not None:
         _state["last_trade"] = last_trade
     _state["updated_at"] = (
-        updated_at or datetime.utcnow().isoformat()
+        updated_at or datetime.now(timezone.utc).isoformat()
     )
     if price is not None and signal_direction is not None:
         _record_history(
-            timestamp or datetime.utcnow().isoformat(),
+            timestamp or datetime.now(timezone.utc).isoformat(),
             price,
             signal_direction,
             trade_side,

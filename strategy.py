@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Literal
 
 import pandas as pd
@@ -264,7 +264,7 @@ def compute_signal(
         short_ema=float(last.short_ema),
         long_ema=float(last.long_ema),
         trend_strength=trend_strength,
-        timestamp=datetime.utcfromtimestamp(int(last.timestamp) / 1000),
+        timestamp=datetime.fromtimestamp(int(last.timestamp) / 1000, tz=timezone.utc),
         info=info,
         stop_loss=stop_loss,
         take_profit=take_profit,
