@@ -26,12 +26,51 @@ Lightweight Python engine that reads Binance.US market data, applies a moving-av
    - `BOT_INITIAL_USDT` (paper starting cash)
    - `BOT_TRADES_LOG_PATH` (CSV append path, default `data/trade_log.csv`)
 
+## macOS Server Deployment 🚀
+
+**New!** Automated deployment scripts for running as a background service on macOS.
+
+### Quick Deploy
+```bash
+./deploy.sh install
+```
+
+This will:
+- ✅ Setup virtual environment
+- ✅ Install all dependencies
+- ✅ Initialize database
+- ✅ Create macOS LaunchAgent (auto-start service)
+- ✅ Generate management scripts
+
+### Management Commands
+```bash
+./start.sh      # Start bot as background service
+./stop.sh       # Stop bot service
+./restart.sh    # Restart bot service
+./status.sh     # Check status and view logs
+./monitor.sh    # Health check and diagnostics
+./backup.sh     # Backup data and configuration
+./run.sh        # Run in foreground (testing)
+```
+
+### Documentation
+- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Comprehensive deployment guide
+- **[DEPLOYMENT_SUMMARY.md](DEPLOYMENT_SUMMARY.md)** - Scripts overview
+
 ## Running
 
 Execute the orchestrator:
 
 ```
 python3 main.py
+```
+
+Or use the deployment scripts (recommended for macOS server):
+
+```bash
+./run.sh        # Foreground (testing)
+./start.sh      # Background service (production)
 ```
 
 The bot now relies on Binance's kline websocket stream instead of polling. Whenever a closed candle arrives on `<symbol>@kline_<timeframe>`, it recomputes the signal, feeds the paper trader, writes to `data/trade_log.csv`, and updates the dashboard. The dashboard starts automatically and listens on `BOT_DASHBOARD_HOST:BOT_DASHBOARD_PORT` (default `0.0.0.0:8000`).

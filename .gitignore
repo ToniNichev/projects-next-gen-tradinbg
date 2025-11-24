@@ -24,3 +24,25 @@ data/
 # Alembic migrations (if generated)
 alembic/versions/*.pyc
 
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Backup files
+backups/
+*.backup
+*.tar.gz
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
