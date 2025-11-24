@@ -62,15 +62,48 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
     
     trade_count = 0
     
+    # Chart data storage for visualization
+    chart_data = {
+        "candles": [],  # OHLC data with timestamps
+        "portfolio_values": [],  # Portfolio value at each timestamp
+        "trades": [],  # Trade markers (entry/exit points)
+    }
+    
     # Process each candle (simulating closed candles)
     for i in range(config.long_window, len(all_candles)):
         current_candle = all_candles[i]
         current_price = current_candle[4]  # Close price
+        candle_timestamp = datetime.utcfromtimestamp(current_candle[0] / 1000)
+        
+        # Record candle data for chart
+        chart_data["candles"].append({
+            "timestamp": candle_timestamp.isoformat() + "Z",
+            "open": current_candle[1],
+            "high": current_candle[2],
+            "low": current_candle[3],
+            "close": current_candle[4],
+            "volume": current_candle[5],
+        })
+        
+        # Calculate and record portfolio value
+        portfolio_value = trader.usdt_balance + (trader.base_balance * current_price)
+        chart_data["portfolio_values"].append({
+            "timestamp": candle_timestamp.isoformat() + "Z",
+            "value": portfolio_value,
+        })
         
         # Check for position exits (stop loss, take profit, trailing stop)
         exit_trade = trader.update_position(current_price)
         if exit_trade:
             trade_count += 1
+            # Record exit trade marker
+            chart_data["trades"].append({
+                "timestamp": candle_timestamp.isoformat() + "Z",
+                "side": exit_trade.side,
+                "price": exit_trade.price,
+                "reason": exit_trade.exit_reason,
+                "pnl": exit_trade.pnl,
+            })
         
         # Get window of candles for signal computation
         candle_window = all_candles[max(0, i - config.long_window * 2):i + 1]
@@ -112,6 +145,15 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
             current_price = all_candles[i][4]
             portfolio_value = trader.usdt_balance + (trader.base_balance * current_price)
             
+            # Record entry trade marker
+            chart_data["trades"].append({
+                "timestamp": candle_time.isoformat() + "Z",
+                "side": trade.side,
+                "price": trade.price,
+                "reason": "signal",
+                "pnl": None,
+            })
+            
             logging.info(
                 f"[{candle_time}] Trade #{trade_count}: {trade.side.upper()} "
                 f"{trade.amount:.6f} @ ${trade.price:.2f} | "
@@ -125,6 +167,14 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
         final_exit = trader._close_position(final_price, "backtest_end")
         if final_exit:
             trade_count += 1
+            final_timestamp = datetime.utcfromtimestamp(all_candles[-1][0] / 1000)
+            chart_data["trades"].append({
+                "timestamp": final_timestamp.isoformat() + "Z",
+                "side": final_exit.side,
+                "price": final_exit.price,
+                "reason": final_exit.exit_reason,
+                "pnl": final_exit.pnl,
+            })
     
     # Final results
     total_value = trader.usdt_balance + (trader.base_balance * final_price)
@@ -180,12 +230,19 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
     logging.info(f"Trade log saved to: {trader.log_path}")
     logging.info("=" * 80)
     
+    # Limit chart data to last 500 candles to avoid memory issues
+    if len(chart_data["candles"]) > 500:
+        chart_data["candles"] = chart_data["candles"][-500:]
+        chart_data["portfolio_values"] = chart_data["portfolio_values"][-500:]
+        # Keep all trades regardless of limit
+    
     return {
         "trades": trade_count,
         "final_value": total_value,
         "pnl": pnl,
         "pnl_pct": pnl_pct,
         "buy_hold_pct": buy_hold_pct,
+        "chart_data": chart_data,
     }
 
 

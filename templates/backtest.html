@@ -172,6 +172,97 @@
     display: flex;
     align-items: center;
   }
+  
+  .result-card.has-chart {
+    cursor: pointer;
+    position: relative;
+  }
+  
+  .result-card.has-chart::after {
+    content: "📊 Click to view chart";
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--accent-blue);
+    background: var(--bg-tertiary);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  
+  .result-card.has-chart:hover::after {
+    opacity: 1;
+  }
+  
+  .chart-container {
+    position: relative;
+    height: 500px;
+    width: 100%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+  }
+  
+  .chart-container canvas {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+  
+  .chart-container canvas:active {
+    cursor: grabbing;
+  }
+  
+  .chart-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  
+  .chart-controls .nav-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  
+  .chart-controls .zoom-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  
+  .chart-controls button {
+    padding: 0.5rem 1rem;
+    background: rgba(88, 214, 141, 0.2);
+    border: 1px solid rgba(88, 214, 141, 0.4);
+    border-radius: 0.5rem;
+    color: #58D68D;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+    font-weight: 500;
+  }
+  
+  .chart-controls button:hover {
+    background: rgba(88, 214, 141, 0.3);
+    border-color: rgba(88, 214, 141, 0.6);
+  }
+  
+  .chart-controls button:active {
+    transform: scale(0.95);
+  }
+  
+  .chart-controls .kbd-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    padding: 0.5rem;
+  }
 </style>
 {% endblock %}
 
@@ -375,6 +466,36 @@
   </div>
   
   <div id="backtest-status" style="margin-top: 1rem;"></div>
+</div>
+
+<!-- Chart Section (Hidden until result selected) -->
+<div id="chart-section" style="display: none; margin-bottom: 2rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h2>Backtest Chart</h2>
+    <button onclick="closeChart()" class="secondary">Close Chart</button>
+  </div>
+  
+  <div class="chart-container">
+    <div class="chart-controls">
+      <div class="nav-group">
+        <button onclick="panLeftChart()" title="Pan left">◀ Left</button>
+        <button onclick="panRightChart()" title="Pan right">Right ▶</button>
+        <span class="kbd-hint">💡 Drag to scroll | Wheel to zoom</span>
+      </div>
+      <div class="zoom-group">
+        <button onclick="resetZoomChart()">Reset</button>
+        <button onclick="zoomInChart()" title="Zoom in">+ Zoom</button>
+        <button onclick="zoomOutChart()" title="Zoom out">- Zoom</button>
+      </div>
+    </div>
+    <canvas id="backtestChart"></canvas>
+  </div>
+  
+  <!-- Equity Curve Chart -->
+  <div class="chart-container" style="margin-top: 1rem;">
+    <h3 style="margin: 0 0 1rem 0;">Portfolio Value Over Time</h3>
+    <canvas id="equityChart"></canvas>
+  </div>
 </div>
 
 <!-- Results Section -->
@@ -623,13 +744,15 @@
         const r = result.result;
         const pnlClass = r.pnl >= 0 ? 'text-success' : 'text-danger';
         const selected = selectedResults.has(result.id) ? 'selected' : '';
+        const hasChart = r.chart_data && r.chart_data.candles && r.chart_data.candles.length > 0;
         
         return `
-          <div class="result-card ${selected}" onclick="toggleSelection('${result.id}')">
+          <div class="result-card ${selected} ${hasChart ? 'has-chart' : ''}" onclick="toggleSelection('${result.id}')">
             <div class="result-header">
               <div>
                 <strong>${new Date(result.timestamp).toLocaleString()}</strong>
                 <span class="text-muted"> · ${result.days_back} days</span>
+                ${hasChart ? `<button onclick="event.stopPropagation(); showChart('${result.id}')" class="secondary" style="margin-left: 1rem; padding: 0.25rem 0.75rem; font-size: 0.875rem;">📊 View Chart</button>` : ''}
               </div>
               <div>
                 <span class="status ${r.pnl >= 0 ? 'success' : 'danger'}">
@@ -772,6 +895,398 @@
   // Initial load
   loadResults();
   setInterval(loadResults, 5000); // Refresh every 5 seconds
+  
+  // ========== CHART FUNCTIONALITY ==========
+  
+  let backtestChart = null;
+  let equityChart = null;
+  let currentChartData = null;
+  
+  function showChart(backtestId) {
+    // Find the result
+    fetch('/api/backtest/results')
+      .then(res => res.json())
+      .then(data => {
+        const result = data.results.find(r => r.id === backtestId);
+        if (!result || !result.result || !result.result.chart_data) {
+          alert('Chart data not available for this backtest');
+          return;
+        }
+        
+        currentChartData = result.result.chart_data;
+        
+        // Show chart section
+        document.getElementById('chart-section').style.display = 'block';
+        
+        // Scroll to chart
+        document.getElementById('chart-section').scrollIntoView({ behavior: 'smooth' });
+        
+        // Initialize or update charts
+        renderPriceChart(currentChartData);
+        renderEquityChart(currentChartData);
+      })
+      .catch(error => {
+        console.error('Error loading chart:', error);
+        alert('Failed to load chart data');
+      });
+  }
+  
+  function closeChart() {
+    document.getElementById('chart-section').style.display = 'none';
+    currentChartData = null;
+    
+    if (backtestChart) {
+      backtestChart.destroy();
+      backtestChart = null;
+    }
+    if (equityChart) {
+      equityChart.destroy();
+      equityChart = null;
+    }
+  }
+  
+  function renderPriceChart(chartData) {
+    const ctx = document.getElementById('backtestChart').getContext('2d');
+    
+    // Destroy existing chart
+    if (backtestChart) {
+      backtestChart.destroy();
+    }
+    
+    // Prepare candlestick data
+    const candleData = chartData.candles.map(candle => ({
+      x: new Date(candle.timestamp).getTime(),
+      o: candle.open,
+      h: candle.high,
+      l: candle.low,
+      c: candle.close,
+    }));
+    
+    // Prepare trade markers
+    const buyTrades = chartData.trades
+      .filter(t => t.side === 'buy')
+      .map(t => ({
+        x: new Date(t.timestamp).getTime(),
+        y: t.price,
+      }));
+    
+    const sellTrades = chartData.trades
+      .filter(t => t.side === 'sell')
+      .map(t => ({
+        x: new Date(t.timestamp).getTime(),
+        y: t.price,
+      }));
+    
+    backtestChart = new Chart(ctx, {
+      type: 'candlestick',
+      data: {
+        datasets: [
+          {
+            label: 'BTC/USDT',
+            data: candleData,
+            color: {
+              up: '#58D68D',
+              down: '#ff5e57',
+              unchanged: '#999',
+            },
+            borderColor: {
+              up: '#58D68D',
+              down: '#ff5e57',
+              unchanged: '#999',
+            },
+            borderWidth: 1.5,
+            barPercentage: 0.7,
+            categoryPercentage: 0.8,
+          },
+          {
+            label: 'Buy',
+            type: 'scatter',
+            data: buyTrades,
+            pointStyle: 'triangle',
+            pointRadius: 8,
+            pointRotation: 0,
+            backgroundColor: '#33ff8a',
+            showLine: false,
+          },
+          {
+            label: 'Sell',
+            type: 'scatter',
+            data: sellTrades,
+            pointStyle: 'triangle',
+            pointRadius: 8,
+            pointRotation: 180,
+            backgroundColor: '#ff5e57',
+            showLine: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'hour',
+              displayFormats: {
+                hour: 'MMM dd HH:mm',
+              },
+              tooltipFormat: 'MMM dd, yyyy HH:mm',
+            },
+            ticks: {
+              color: '#e1e8ff',
+              autoSkip: true,
+              maxRotation: 0,
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.1)',
+            },
+          },
+          y: {
+            beginAtZero: false,
+            ticks: {
+              color: '#e1e8ff',
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.1)',
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            display: true,
+            labels: {
+              color: '#e1e8ff',
+            },
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              label: function(context) {
+                if (context.raw && typeof context.raw.o !== 'undefined') {
+                  const data = context.raw;
+                  return [
+                    `Open:  $${data.o.toFixed(2)}`,
+                    `High:  $${data.h.toFixed(2)}`,
+                    `Low:   $${data.l.toFixed(2)}`,
+                    `Close: $${data.c.toFixed(2)}`
+                  ];
+                }
+                return `${context.dataset.label}: $${context.parsed.y.toFixed(2)}`;
+              }
+            }
+          },
+          zoom: {
+            zoom: {
+              wheel: {
+                enabled: true,
+                speed: 0.05,
+              },
+              pinch: {
+                enabled: true,
+              },
+              mode: 'x',
+            },
+            pan: {
+              enabled: true,
+              mode: 'x',
+            },
+          },
+        },
+      },
+    });
+    
+    // Add drag-to-pan support
+    setupDragPan(backtestChart, 'backtestChart');
+  }
+  
+  function renderEquityChart(chartData) {
+    const ctx = document.getElementById('equityChart').getContext('2d');
+    
+    // Destroy existing chart
+    if (equityChart) {
+      equityChart.destroy();
+    }
+    
+    // Prepare equity curve data
+    const equityData = chartData.portfolio_values.map(pv => ({
+      x: new Date(pv.timestamp).getTime(),
+      y: pv.value,
+    }));
+    
+    equityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [
+          {
+            label: 'Portfolio Value',
+            data: equityData,
+            borderColor: '#58D68D',
+            backgroundColor: 'rgba(88, 214, 141, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'hour',
+              displayFormats: {
+                hour: 'MMM dd HH:mm',
+              },
+              tooltipFormat: 'MMM dd, yyyy HH:mm',
+            },
+            ticks: {
+              color: '#e1e8ff',
+              autoSkip: true,
+              maxRotation: 0,
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.1)',
+            },
+          },
+          y: {
+            beginAtZero: false,
+            ticks: {
+              color: '#e1e8ff',
+              callback: function(value) {
+                return '$' + value.toFixed(2);
+              },
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.1)',
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            display: true,
+            labels: {
+              color: '#e1e8ff',
+            },
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return 'Portfolio Value: $' + context.parsed.y.toFixed(2);
+              }
+            }
+          },
+          zoom: {
+            zoom: {
+              wheel: {
+                enabled: true,
+                speed: 0.05,
+              },
+              pinch: {
+                enabled: true,
+              },
+              mode: 'x',
+            },
+            pan: {
+              enabled: true,
+              mode: 'x',
+            },
+          },
+        },
+      },
+    });
+  }
+  
+  function setupDragPan(chart, canvasId) {
+    const canvas = document.getElementById(canvasId);
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartMin = 0;
+    let dragStartMax = 0;
+    
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragStartX = e.clientX;
+      const xScale = chart.scales.x;
+      dragStartMin = xScale.min;
+      dragStartMax = xScale.max;
+      canvas.style.cursor = 'grabbing';
+    });
+    
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      
+      e.preventDefault();
+      const xScale = chart.scales.x;
+      const chartArea = chart.chartArea;
+      
+      const deltaX = e.clientX - dragStartX;
+      const chartWidth = chartArea.right - chartArea.left;
+      const timeRange = dragStartMax - dragStartMin;
+      const timePerPixel = timeRange / chartWidth;
+      const timeDelta = deltaX * timePerPixel;
+      
+      chart.options.scales.x.min = dragStartMin - timeDelta;
+      chart.options.scales.x.max = dragStartMax - timeDelta;
+      chart.update('none');
+    });
+    
+    const stopDragging = () => {
+      if (isDragging) {
+        isDragging = false;
+        canvas.style.cursor = 'grab';
+      }
+    };
+    
+    canvas.addEventListener('mouseup', stopDragging);
+    canvas.addEventListener('mouseleave', stopDragging);
+  }
+  
+  // Chart navigation functions
+  function resetZoomChart() {
+    if (backtestChart) {
+      backtestChart.resetZoom();
+    }
+  }
+  
+  function zoomInChart() {
+    if (backtestChart) {
+      backtestChart.zoom(1.2);
+    }
+  }
+  
+  function zoomOutChart() {
+    if (backtestChart) {
+      backtestChart.zoom(0.8);
+    }
+  }
+  
+  function panLeftChart() {
+    if (backtestChart) {
+      const xScale = backtestChart.scales.x;
+      const range = xScale.max - xScale.min;
+      const panAmount = range * 0.15;
+      backtestChart.zoomScale('x', {
+        min: xScale.min - panAmount,
+        max: xScale.max - panAmount
+      }, 'default');
+    }
+  }
+  
+  function panRightChart() {
+    if (backtestChart) {
+      const xScale = backtestChart.scales.x;
+      const range = xScale.max - xScale.min;
+      const panAmount = range * 0.15;
+      backtestChart.zoomScale('x', {
+        min: xScale.min + panAmount,
+        max: xScale.max + panAmount
+      }, 'default');
+    }
+  }
 </script>
 {% endblock %}
 

@@ -325,21 +325,32 @@
               },
             },
             tooltip: {
+              mode: 'index',
+              intersect: false,
               callbacks: {
+                title: function(context) {
+                  // Show timestamp as title
+                  if (context[0]) {
+                    const date = new Date(context[0].parsed.x);
+                    return date.toLocaleString();
+                  }
+                  return '';
+                },
                 label: function(context) {
                   // Format OHLC data on separate lines for candlestick dataset
-                  if (context.dataset.label === "BTC/USDT" && context.raw) {
+                  // Check if this is a candlestick by looking for OHLC properties
+                  if (context.raw && typeof context.raw.o !== 'undefined') {
                     const data = context.raw;
                     return [
-                      `O: $${data.o.toFixed(2)}`,
-                      `H: $${data.h.toFixed(2)}`,
-                      `L: $${data.l.toFixed(2)}`,
-                      `C: $${data.c.toFixed(2)}`
+                      `Open:  $${data.o.toFixed(2)}`,
+                      `High:  $${data.h.toFixed(2)}`,
+                      `Low:   $${data.l.toFixed(2)}`,
+                      `Close: $${data.c.toFixed(2)}`
                     ];
                   }
                   // For signal markers
                   if (context.dataset.label === "Signals") {
-                    return `Signal: ${context.raw.y.toFixed(2)}`;
+                    return `Price: $${context.parsed.y.toFixed(2)}`;
                   }
                   return context.formattedValue;
                 }
