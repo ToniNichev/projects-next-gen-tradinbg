@@ -55,14 +55,53 @@
     margin-bottom: 1rem;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
   }
   .chart-controls .nav-group {
     display: flex;
     gap: 0.5rem;
+    align-items: center;
   }
   .chart-controls .zoom-group {
     display: flex;
     gap: 0.5rem;
+    align-items: center;
+  }
+  .chart-controls .timeframe-group {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+  }
+  .chart-controls .timeframe-group label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-right: 0.5rem;
+  }
+  .chart-controls .timeframe-group button {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    min-width: 45px;
+  }
+  .chart-controls .timeframe-group button.active {
+    background: rgba(88, 214, 141, 0.4);
+    border-color: rgba(88, 214, 141, 0.8);
+    font-weight: 600;
+  }
+  .loading-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    padding: 1rem 2rem;
+    border-radius: 0.5rem;
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    z-index: 1000;
+  }
+  .loading-indicator.show {
+    display: flex;
   }
   .chart-controls button {
     padding: 0.5rem 1rem;
@@ -133,10 +172,20 @@
 </div>
 
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-  <h2 style="margin: 0;">Price Chart</h2>
+  <div>
+    <h2 style="margin: 0;">Price Chart</h2>
+    <p style="margin: 0.25rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+      Bot trading on <span style="color: var(--accent-green); font-weight: 600;">1h</span> timeframe · Chart view: <span id="current-tf-display" style="color: var(--accent-blue); font-weight: 600;">1h</span>
+    </p>
+  </div>
   <span class="info-icon">i
     <span class="info-tooltip">
       Real-time candlestick chart with trading signals. Green/red candles show price movement. Triangle markers indicate signals.
+      <hr>
+      <strong>Timeframe Selection:</strong><br>
+      • Select different timeframes to analyze<br>
+      • Signals only shown on bot's trading timeframe (1h)<br>
+      • Historical data for other timeframes<br>
       <hr>
       <strong>Smooth Navigation:</strong><br>
       • Click & drag to scroll smoothly<br>
@@ -150,16 +199,29 @@
 </div>
 
 <div class="chart-container">
+  <div class="loading-indicator" id="chart-loading">
+    <div class="spinner"></div>
+    <span>Loading candles...</span>
+  </div>
   <div class="chart-controls">
+    <div class="timeframe-group">
+      <label>Timeframe:</label>
+      <button onclick="changeTimeframe('5m')" id="tf-5m">5m</button>
+      <button onclick="changeTimeframe('15m')" id="tf-15m">15m</button>
+      <button onclick="changeTimeframe('30m')" id="tf-30m">30m</button>
+      <button onclick="changeTimeframe('1h')" id="tf-1h" class="active">1h</button>
+      <button onclick="changeTimeframe('4h')" id="tf-4h">4h</button>
+      <button onclick="changeTimeframe('1d')" id="tf-1d">1d</button>
+    </div>
     <div class="nav-group">
       <button onclick="panLeft()" title="Pan left (← arrow key or Shift+Wheel)">◀ Left</button>
       <button onclick="panRight()" title="Pan right (→ arrow key or Shift+Wheel)">Right ▶</button>
-      <span class="kbd-hint">💡 Drag to scroll | Shift+Wheel to scroll | Wheel to zoom | Hold arrows</span>
+      <span class="kbd-hint">💡 Drag to scroll | Shift+Wheel to scroll | Wheel to zoom</span>
     </div>
     <div class="zoom-group">
-      <button onclick="resetZoom()">Reset Zoom</button>
-      <button onclick="zoomIn()" title="Zoom in (or press +)">Zoom In (+)</button>
-      <button onclick="zoomOut()" title="Zoom out (or press -)">Zoom Out (-)</button>
+      <button onclick="resetZoom()">Reset</button>
+      <button onclick="zoomIn()" title="Zoom in (or press +)">+ Zoom</button>
+      <button onclick="zoomOut()" title="Zoom out (or press -)">- Zoom</button>
     </div>
   </div>
   <canvas id="priceChart"></canvas>
@@ -173,6 +235,8 @@
       
       // Make chart global for navigation functions
       let chart = null;
+      let currentTimeframe = '1h';  // Default timeframe
+      let isLoadingTimeframe = false;
       
       chart = new Chart(ctx, {
         type: "candlestick",
@@ -309,11 +373,65 @@
         },
       });
 
+      async function changeTimeframe(timeframe) {
+        if (isLoadingTimeframe) return;
+        
+        // Update active button
+        document.querySelectorAll('.timeframe-group button').forEach(btn => {
+          btn.classList.remove('active');
+        });
+        document.getElementById(`tf-${timeframe}`).classList.add('active');
+        
+        // Update display
+        document.getElementById('current-tf-display').textContent = timeframe;
+        
+        // Show loading indicator
+        if (timeframe !== '1h') {
+          document.getElementById('chart-loading').classList.add('show');
+        }
+        
+        currentTimeframe = timeframe;
+        await refresh();
+        
+        // Hide loading indicator
+        document.getElementById('chart-loading').classList.remove('show');
+      }
+
       async function refresh() {
         try {
-          const resp = await fetch("/history");
-          const body = await resp.json();
-          const history = body.history || [];
+          // Fetch data based on selected timeframe
+          let history = [];
+          
+          if (currentTimeframe === '1h') {
+            // Use live data from bot for default timeframe
+            const resp = await fetch("/history");
+            const body = await resp.json();
+            history = body.history || [];
+          } else {
+            // Fetch historical candles for selected timeframe
+            isLoadingTimeframe = true;
+            const resp = await fetch(`/api/candles/${currentTimeframe}?limit=200`);
+            const body = await resp.json();
+            isLoadingTimeframe = false;
+            
+            if (body.error) {
+              console.error("Error fetching candles:", body.error);
+              return;
+            }
+            
+            // Convert to history format
+            history = body.candles.map(candle => ({
+              timestamp: candle.timestamp,
+              price: candle.close,
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              signal_direction: "neutral",
+              trade_side: null
+            }));
+          }
+          
           console.log("History data:", history);
           
           // Debug: Check timezone info
@@ -353,6 +471,7 @@
           console.log("Data length:", candleData.length);
           
           chart.data.datasets[0].data = candleData;
+          chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe})`;
           
           // Calculate Y scale range from data
           let minPrice = Infinity;
@@ -408,55 +527,91 @@
             });
           }
           
-          chart.data.datasets[1].data = history
-            .filter((row) => row.signal_direction !== "neutral")
-            .map((row) => ({
-              x: new Date(row.timestamp).getTime(),
-              y: row.price,
-              backgroundColor:
-                row.signal_direction === "bullish" ? "#33ff8a" : "#ff5e57",
-            }));
+          // Only show signal markers on the default timeframe (1h - bot's actual trading timeframe)
+          if (currentTimeframe === '1h') {
+            chart.data.datasets[1].data = history
+              .filter((row) => row.signal_direction !== "neutral")
+              .map((row) => ({
+                x: new Date(row.timestamp).getTime(),
+                y: row.price,
+                backgroundColor:
+                  row.signal_direction === "bullish" ? "#33ff8a" : "#ff5e57",
+              }));
+          } else {
+            // Clear signals for other timeframes
+            chart.data.datasets[1].data = [];
+          }
           
           console.log("Calling chart.update()...");
           // Use 'none' mode for data updates to prevent animation jank
           // Only animate zoom/pan interactions, not data refreshes
           chart.update('none');
           console.log("Chart updated successfully");
+          // Update time unit based on timeframe
+          const timeUnitMap = {
+            '1m': 'minute',
+            '5m': 'minute',
+            '15m': 'minute',
+            '30m': 'minute',
+            '1h': 'hour',
+            '4h': 'hour',
+            '1d': 'day',
+            '1w': 'day'
+          };
+          chart.options.scales.x.time.unit = timeUnitMap[currentTimeframe] || 'hour';
+          
           console.log("Chart scales:", chart.scales);
           console.log("Canvas dimensions:", ctx.canvas.width, "x", ctx.canvas.height);
           console.log("X scale range:", chart.scales.x.min, "to", chart.scales.x.max);
           console.log("Y scale range:", chart.scales.y.min, "to", chart.scales.y.max);
           console.log("Chart data:", chart.data);
+          console.log("Current timeframe:", currentTimeframe);
           
-          const lastSignalFromHistory = history[history.length - 1];
-          const lastSignal = lastSignalFromHistory || body.last_signal;
-          if (lastSignal) {
-            document.getElementById("signal-text").textContent =
-              lastSignal.signal_direction.toUpperCase();
-            // Format time in local timezone
-            const signalTime = new Date(lastSignal.timestamp);
-            document.getElementById(
-              "signal-detail"
-            ).textContent = `${signalTime.toLocaleString()} · price $${lastSignal.price.toFixed(2)}`;
-          }
-          const lastTrade = body.last_trade;
-          if (lastTrade) {
-            document.getElementById("trade-text").textContent =
-              lastTrade.side.toUpperCase();
-            // Format time in local timezone
-            const tradeTime = new Date(lastTrade.timestamp);
-            document.getElementById(
-              "trade-detail"
-            ).textContent = `${tradeTime.toLocaleString()} · ${lastTrade.usdt_balance.toFixed(2)} USDT`;
-          }
-          
-          // Update balance
-          const state = await (await fetch('/state')).json();
-          if (state.balances) {
-            const totalUSDT = state.balances.USDT + (state.balances.BASE * (lastSignal ? lastSignal.price : 0));
-            document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
-            document.getElementById("balance-detail").textContent = 
-              `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
+          // Update signal/trade info only on default timeframe
+          if (currentTimeframe === '1h') {
+            const resp = await fetch("/history");
+            const body = await resp.json();
+            
+            const lastSignalFromHistory = history[history.length - 1];
+            const lastSignal = lastSignalFromHistory || body.last_signal;
+            if (lastSignal) {
+              document.getElementById("signal-text").textContent =
+                lastSignal.signal_direction.toUpperCase();
+              // Format time in local timezone
+              const signalTime = new Date(lastSignal.timestamp);
+              document.getElementById(
+                "signal-detail"
+              ).textContent = `${signalTime.toLocaleString()} · price $${lastSignal.price.toFixed(2)}`;
+            }
+            const lastTrade = body.last_trade;
+            if (lastTrade) {
+              document.getElementById("trade-text").textContent =
+                lastTrade.side.toUpperCase();
+              // Format time in local timezone
+              const tradeTime = new Date(lastTrade.timestamp);
+              document.getElementById(
+                "trade-detail"
+              ).textContent = `${tradeTime.toLocaleString()} · ${lastTrade.usdt_balance.toFixed(2)} USDT`;
+            }
+            
+            // Update balance
+            const state = await (await fetch('/state')).json();
+            if (state.balances) {
+              const totalUSDT = state.balances.USDT + (state.balances.BASE * (lastSignal ? lastSignal.price : 0));
+              document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
+              document.getElementById("balance-detail").textContent = 
+                `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
+            }
+          } else {
+            // For other timeframes, just update balance with latest price
+            const latestPrice = history[history.length - 1]?.close || 0;
+            const state = await (await fetch('/state')).json();
+            if (state.balances) {
+              const totalUSDT = state.balances.USDT + (state.balances.BASE * latestPrice);
+              document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
+              document.getElementById("balance-detail").textContent = 
+                `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
+            }
           }
         } catch (err) {
           console.error("Error refreshing chart:", err);
@@ -659,8 +814,23 @@
         }
       }, { passive: false });
 
+      // Initial refresh
       refresh();
-      setInterval(refresh, 15000); // Poll every 15 seconds
+      
+      // Auto-refresh - faster for live timeframe, slower for historical views
+      setInterval(() => {
+        // Only refresh frequently if on the live trading timeframe
+        if (currentTimeframe === '1h') {
+          refresh();
+        }
+      }, 15000); // Poll every 15 seconds
+      
+      // Slower refresh for historical timeframes
+      setInterval(() => {
+        if (currentTimeframe !== '1h' && !isLoadingTimeframe) {
+          refresh();
+        }
+      }, 60000); // Poll every 60 seconds for historical data
     </script>
 {% endblock %}
 

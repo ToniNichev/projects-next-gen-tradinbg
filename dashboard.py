@@ -94,6 +94,61 @@ def get_history():
     )
 
 
+@app.route("/api/candles/<timeframe>")
+@require_auth
+@limiter.limit("30 per minute")
+def get_candles(timeframe):
+    """Fetch historical candles for a specific timeframe"""
+    try:
+        import ccxt
+        from config import BotConfig
+        
+        config = BotConfig.load()
+        
+        # Validate timeframe
+        valid_timeframes = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
+        if timeframe not in valid_timeframes:
+            return jsonify({"error": f"Invalid timeframe. Must be one of: {', '.join(valid_timeframes)}"}), 400
+        
+        # Get limit from query params (default 100, max 500)
+        limit = min(int(request.args.get("limit", 100)), 500)
+        
+        # Build exchange connection
+        exchange = ccxt.binanceus({
+            "apiKey": config.binance_api_key,
+            "secret": config.binance_api_secret,
+            "enableRateLimit": True,
+        })
+        
+        # Fetch OHLCV data
+        ohlcv = exchange.fetch_ohlcv(config.symbol, timeframe, limit=limit)
+        
+        # Convert to format expected by frontend
+        candles = [
+            {
+                "timestamp": datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc).isoformat(),
+                "open": candle[1],
+                "high": candle[2],
+                "low": candle[3],
+                "close": candle[4],
+                "volume": candle[5],
+            }
+            for candle in ohlcv
+        ]
+        
+        return jsonify({
+            "timeframe": timeframe,
+            "symbol": config.symbol,
+            "candles": candles,
+            "count": len(candles)
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/ui")
 @require_auth
 def get_ui():
