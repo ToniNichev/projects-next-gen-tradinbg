@@ -230,20 +230,18 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
     logging.info(f"Trade log saved to: {trader.log_path}")
     logging.info("=" * 80)
     
-    # Limit chart data to last 500 candles to avoid memory issues
-    if len(chart_data["candles"]) > 500:
+    # Limit chart data to last 2000 candles to show more context with trades
+    if len(chart_data["candles"]) > 2000:
         # Get the timestamp of the first candle we're keeping
-        cutoff_timestamp = chart_data["candles"][-500]["timestamp"]
+        cutoff_timestamp = chart_data["candles"][-2000]["timestamp"]
         
         # Limit candles and portfolio values
         chart_data["candles"] = chart_data["candles"][-500:]
         chart_data["portfolio_values"] = chart_data["portfolio_values"][-500:]
         
-        # Filter trades to only include those within the visible time range
-        chart_data["trades"] = [
-            trade for trade in chart_data["trades"]
-            if trade["timestamp"] >= cutoff_timestamp
-        ]
+        # Keep all trades for the chart (don't filter by time range)
+        # All trades will be displayed regardless of candle limit
+        # chart_data["trades"] remains unchanged
     
     return {
         "trades": trade_count,
