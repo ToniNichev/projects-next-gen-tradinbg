@@ -49,3 +49,4 @@ def test_backtest_markers():
 if __name__ == "__main__":
     success = test_backtest_markers()
     sys.exit(0 if success else 1)
+
