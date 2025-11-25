@@ -94,6 +94,7 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
                 "timestamp": candle_timestamp.isoformat() + "Z",
                 "side": exit_trade.side,
                 "price": exit_trade.price,
+                "amount": exit_trade.amount,
                 "reason": exit_trade.exit_reason,
                 "pnl": exit_trade.pnl,
             })
@@ -143,6 +144,7 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
                 "timestamp": candle_time.isoformat() + "Z",
                 "side": trade.side,
                 "price": trade.price,
+                "amount": trade.amount,
                 "reason": "signal",
                 "pnl": None,
             })

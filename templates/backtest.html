@@ -962,13 +962,21 @@
       .map(t => ({
         x: new Date(t.timestamp).getTime(),
         y: t.price,
+        reason: t.reason,
+        pnl: t.pnl,
+        side: t.side,
+        amount: t.amount
       }));
-    
+
     const sellTrades = chartData.trades
       .filter(t => t.side === 'sell')
       .map(t => ({
         x: new Date(t.timestamp).getTime(),
         y: t.price,
+        reason: t.reason,
+        pnl: t.pnl,
+        side: t.side,
+        amount: t.amount
       }));
     
     backtestChart = new Chart(ctx, {
@@ -1012,10 +1020,21 @@
             data: buyTrades,
             yAxisID: 'y',
             pointStyle: 'triangle',
-            pointRadius: 8,
+            pointRadius: 10,
             pointRotation: 0,
-            backgroundColor: '#33ff8a',
+            backgroundColor: '#00ff00',
+            borderColor: '#ffffff',
+            borderWidth: 2,
+            pointHoverRadius: 16,
+            pointHoverBorderWidth: 4,
+            shadowOffsetX: 1,
+            shadowOffsetY: 1,
+            shadowBlur: 4,
+            shadowColor: 'rgba(0, 0, 0, 0.6)',
+            hoverBorderColor: '#ffffff',
+            hoverBorderWidth: 3,
             showLine: false,
+            order: 10, // Ensure markers appear above other elements
           },
           {
             label: 'Sell',
@@ -1023,16 +1042,115 @@
             data: sellTrades,
             yAxisID: 'y',
             pointStyle: 'triangle',
-            pointRadius: 8,
+            pointRadius: 10,
             pointRotation: 180,
-            backgroundColor: '#ff5e57',
+            backgroundColor: '#ff4444',
+            borderColor: '#ffffff',
+            borderWidth: 2,
+            pointHoverRadius: 16,
+            pointHoverBorderWidth: 4,
+            shadowOffsetX: 1,
+            shadowOffsetY: 1,
+            shadowBlur: 4,
+            shadowColor: 'rgba(0, 0, 0, 0.6)',
+            hoverBorderColor: '#ffffff',
+            hoverBorderWidth: 3,
             showLine: false,
+            order: 10, // Ensure markers appear above other elements
           },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: {
+          duration: 1200,
+          easing: 'easeOutBounce',
+          delay: function(context) {
+            // Stagger animation for trade markers to make them appear sequentially
+            if (context.datasetIndex >= 4) { // Buy and Sell markers are at indices 4 and 5
+              return context.dataIndex * 150; // 150ms delay between each marker
+            }
+            return 0;
+          },
+          onProgress: function(animation) {
+            // Add opacity animation for smoother appearance
+          }
+        },
+        plugins: {
+          tooltip: {
+            enabled: true,
+            mode: 'nearest',
+            intersect: false,
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            titleColor: '#ffffff',
+            bodyColor: '#ffffff',
+            borderColor: '#ffffff',
+            borderWidth: 1,
+            cornerRadius: 6,
+            displayColors: true,
+            callbacks: {
+              title: function(context) {
+                // Handle both single point and multiple points
+                const point = context[0] || context;
+                const trade = point.raw;
+                const timestamp = new Date(trade.x).toLocaleString();
+                return timestamp;
+              },
+              label: function(context) {
+                const trade = context.raw;
+                const side = context.dataset.label;
+                const price = trade.y ? trade.y.toFixed(2) : 'N/A';
+                let label = `${side} @ $${price}`;
+
+                // Debug: log the trade data
+                console.log('Tooltip trade data:', trade);
+
+                // Add trade reason if available
+                if (trade.reason) {
+                  const reasonText = trade.reason.replace('_', ' ').toUpperCase();
+                  label += ` (${reasonText})`;
+                }
+
+                return label;
+              },
+              afterLabel: function(context) {
+                const trade = context.raw;
+                let lines = [];
+
+                // Add P&L for exit trades
+                if (trade.pnl !== null && trade.pnl !== undefined && trade.pnl !== 'None') {
+                  let pnlValue = trade.pnl;
+                  // Handle numpy float64 or other numeric types
+                  if (typeof pnlValue === 'number' || !isNaN(parseFloat(pnlValue))) {
+                    const pnl = parseFloat(pnlValue);
+                    const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `$${pnl.toFixed(2)}`;
+                    lines.push(`P&L: ${pnlText}`);
+                  }
+                }
+
+                // Add amount information
+                if (trade.amount !== null && trade.amount !== undefined) {
+                  const amount = parseFloat(trade.amount);
+                  if (!isNaN(amount)) {
+                    const amountText = amount.toFixed(6);
+                    const sideColor = trade.side === 'buy' ? '#00ff00' : '#ff4444';
+                    lines.push({
+                      text: `Amount: ${amountText} BTC`,
+                      color: sideColor
+                    });
+                  }
+                }
+
+                return lines;
+              }
+            }
+          },
+          legend: {
+            display: true,
+            position: 'top',
+          }
+        },
         interaction: {
           mode: 'index',
           intersect: false,
