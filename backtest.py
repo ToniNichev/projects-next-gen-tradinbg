@@ -85,13 +85,6 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
             "volume": current_candle[5],
         })
         
-        # Calculate and record portfolio value
-        portfolio_value = trader.usdt_balance + (trader.base_balance * current_price)
-        chart_data["portfolio_values"].append({
-            "timestamp": candle_timestamp.isoformat() + "Z",
-            "value": portfolio_value,
-        })
-        
         # Check for position exits (stop loss, take profit, trailing stop)
         exit_trade = trader.update_position(current_price)
         if exit_trade:
@@ -160,6 +153,13 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
                 f"Portfolio: ${portfolio_value:.2f} "
                 f"(${trader.usdt_balance:.2f} + {trader.base_balance:.6f} BTC)"
             )
+        
+        # Calculate and record portfolio value AFTER all trades on this candle
+        portfolio_value = trader.usdt_balance + (trader.base_balance * current_price)
+        chart_data["portfolio_values"].append({
+            "timestamp": candle_timestamp.isoformat() + "Z",
+            "value": portfolio_value,
+        })
     
     # Close any remaining open position at final price
     final_price = all_candles[-1][4]  # Last close price
@@ -232,9 +232,18 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
     
     # Limit chart data to last 500 candles to avoid memory issues
     if len(chart_data["candles"]) > 500:
+        # Get the timestamp of the first candle we're keeping
+        cutoff_timestamp = chart_data["candles"][-500]["timestamp"]
+        
+        # Limit candles and portfolio values
         chart_data["candles"] = chart_data["candles"][-500:]
         chart_data["portfolio_values"] = chart_data["portfolio_values"][-500:]
-        # Keep all trades regardless of limit
+        
+        # Filter trades to only include those within the visible time range
+        chart_data["trades"] = [
+            trade for trade in chart_data["trades"]
+            if trade["timestamp"] >= cutoff_timestamp
+        ]
     
     return {
         "trades": trade_count,

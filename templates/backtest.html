@@ -490,12 +490,6 @@
     </div>
     <canvas id="backtestChart"></canvas>
   </div>
-  
-  <!-- Equity Curve Chart -->
-  <div class="chart-container" style="margin-top: 1rem;">
-    <h3 style="margin: 0 0 1rem 0;">Portfolio Value Over Time</h3>
-    <canvas id="equityChart"></canvas>
-  </div>
 </div>
 
 <!-- Results Section -->
@@ -899,7 +893,6 @@
   // ========== CHART FUNCTIONALITY ==========
   
   let backtestChart = null;
-  let equityChart = null;
   let currentChartData = null;
   
   function showChart(backtestId) {
@@ -921,9 +914,8 @@
         // Scroll to chart
         document.getElementById('chart-section').scrollIntoView({ behavior: 'smooth' });
         
-        // Initialize or update charts
+        // Initialize or update chart
         renderPriceChart(currentChartData);
-        renderEquityChart(currentChartData);
       })
       .catch(error => {
         console.error('Error loading chart:', error);
@@ -938,10 +930,6 @@
     if (backtestChart) {
       backtestChart.destroy();
       backtestChart = null;
-    }
-    if (equityChart) {
-      equityChart.destroy();
-      equityChart = null;
     }
   }
   
@@ -960,6 +948,12 @@
       h: candle.high,
       l: candle.low,
       c: candle.close,
+    }));
+    
+    // Prepare portfolio value data
+    const portfolioData = chartData.portfolio_values.map(pv => ({
+      x: new Date(pv.timestamp).getTime(),
+      y: pv.value,
     }));
     
     // Prepare trade markers
@@ -984,6 +978,7 @@
           {
             label: 'BTC/USDT',
             data: candleData,
+            yAxisID: 'y',
             color: {
               up: '#58D68D',
               down: '#ff5e57',
@@ -999,9 +994,23 @@
             categoryPercentage: 0.8,
           },
           {
+            label: 'Portfolio Value',
+            type: 'line',
+            data: portfolioData,
+            yAxisID: 'y1',
+            borderColor: '#FFD700',
+            backgroundColor: 'rgba(255, 215, 0, 0.1)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+          },
+          {
             label: 'Buy',
             type: 'scatter',
             data: buyTrades,
+            yAxisID: 'y',
             pointStyle: 'triangle',
             pointRadius: 8,
             pointRotation: 0,
@@ -1012,6 +1021,7 @@
             label: 'Sell',
             type: 'scatter',
             data: sellTrades,
+            yAxisID: 'y',
             pointStyle: 'triangle',
             pointRadius: 8,
             pointRotation: 180,
@@ -1023,6 +1033,10 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
         scales: {
           x: {
             type: 'time',
@@ -1043,12 +1057,38 @@
             },
           },
           y: {
+            type: 'linear',
+            position: 'left',
             beginAtZero: false,
+            title: {
+              display: true,
+              text: 'Price (USD)',
+              color: '#e1e8ff',
+            },
             ticks: {
               color: '#e1e8ff',
             },
             grid: {
               color: 'rgba(255,255,255,0.1)',
+            },
+          },
+          y1: {
+            type: 'linear',
+            position: 'right',
+            beginAtZero: false,
+            title: {
+              display: true,
+              text: 'Portfolio Value (USD)',
+              color: '#FFD700',
+            },
+            ticks: {
+              color: '#FFD700',
+              callback: function(value) {
+                return '$' + value.toFixed(0);
+              },
+            },
+            grid: {
+              drawOnChartArea: false,
             },
           },
         },
@@ -1072,6 +1112,9 @@
                     `Low:   $${data.l.toFixed(2)}`,
                     `Close: $${data.c.toFixed(2)}`
                   ];
+                }
+                if (context.dataset.label === 'Portfolio Value') {
+                  return `Portfolio: $${context.parsed.y.toFixed(2)}`;
                 }
                 return `${context.dataset.label}: $${context.parsed.y.toFixed(2)}`;
               }
@@ -1099,105 +1142,6 @@
     
     // Add drag-to-pan support
     setupDragPan(backtestChart, 'backtestChart');
-  }
-  
-  function renderEquityChart(chartData) {
-    const ctx = document.getElementById('equityChart').getContext('2d');
-    
-    // Destroy existing chart
-    if (equityChart) {
-      equityChart.destroy();
-    }
-    
-    // Prepare equity curve data
-    const equityData = chartData.portfolio_values.map(pv => ({
-      x: new Date(pv.timestamp).getTime(),
-      y: pv.value,
-    }));
-    
-    equityChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        datasets: [
-          {
-            label: 'Portfolio Value',
-            data: equityData,
-            borderColor: '#58D68D',
-            backgroundColor: 'rgba(88, 214, 141, 0.1)',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.1,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          x: {
-            type: 'time',
-            time: {
-              unit: 'hour',
-              displayFormats: {
-                hour: 'MMM dd HH:mm',
-              },
-              tooltipFormat: 'MMM dd, yyyy HH:mm',
-            },
-            ticks: {
-              color: '#e1e8ff',
-              autoSkip: true,
-              maxRotation: 0,
-            },
-            grid: {
-              color: 'rgba(255,255,255,0.1)',
-            },
-          },
-          y: {
-            beginAtZero: false,
-            ticks: {
-              color: '#e1e8ff',
-              callback: function(value) {
-                return '$' + value.toFixed(2);
-              },
-            },
-            grid: {
-              color: 'rgba(255,255,255,0.1)',
-            },
-          },
-        },
-        plugins: {
-          legend: {
-            display: true,
-            labels: {
-              color: '#e1e8ff',
-            },
-          },
-          tooltip: {
-            callbacks: {
-              label: function(context) {
-                return 'Portfolio Value: $' + context.parsed.y.toFixed(2);
-              }
-            }
-          },
-          zoom: {
-            zoom: {
-              wheel: {
-                enabled: true,
-                speed: 0.05,
-              },
-              pinch: {
-                enabled: true,
-              },
-              mode: 'x',
-            },
-            pan: {
-              enabled: true,
-              mode: 'x',
-            },
-          },
-        },
-      },
-    });
   }
   
   function setupDragPan(chart, canvasId) {
