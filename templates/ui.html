@@ -643,6 +643,8 @@
 <script>
       console.log("Chart.js version:", Chart.version);
       console.log("Available chart types:", Object.keys(Chart.registry.controllers.items));
+      console.log("ChartUtils loaded:", typeof ChartUtils);
+      console.log("ChartUtils colors:", ChartUtils.colors);
       
       const ctx = document.getElementById("priceChart").getContext("2d");
       
@@ -894,21 +896,22 @@
             chart.data.datasets.push({
               label: "Signals",
               type: "scatter",
-              pointStyle: "triangle",
+              pointStyle: "rect",
               pointRadius: 8,
               data: [],
               showLine: false,
               yAxisID: "y",
-              order: 0, // Draw on top (in front of candlesticks)
+              order: 1, // Draw on top (in front of candlesticks)
             });
           }
           
+          console.log("Adding trade datasets...");
           // Add buy trades dataset if not exists
           if (!chart.data.datasets[2]) {
             chart.data.datasets.push({
               label: "Buy",
               type: "scatter",
-              pointStyle: "triangle",
+              pointStyle: "rect",
               pointRadius: 10,
               pointRotation: 0,
               data: [],
@@ -930,7 +933,7 @@
             chart.data.datasets.push({
               label: "Sell",
               type: "scatter",
-              pointStyle: "triangle",
+              pointStyle: "rect",
               pointRadius: 10,
               pointRotation: 180,
               data: [],
@@ -943,10 +946,10 @@
               pointHoverBorderWidth: 4,
               hoverBorderColor: ChartUtils.colors.borderWhite,
               hoverBorderWidth: 3,
-              order: 0, // Draw on top
+              order: 1, // Draw on top
             });
           }
-          
+
           // Fetch all trades (automatic and manual)
           try {
             const tradesResp = await fetch("/api/trades?limit=200");
@@ -957,7 +960,7 @@
               const allTrades = tradesData.trades || [];
               
               console.log("Fetched trades:", allTrades.length);
-              
+
               // Filter trades to match visible candlesticks timeframe
               const buyTrades = allTrades
                 .filter(t => t.side === 'buy')
@@ -969,7 +972,7 @@
                   exit_reason: t.exit_reason,
                   side: t.side,
                 }));
-              
+
               const sellTrades = allTrades
                 .filter(t => t.side === 'sell')
                 .map(t => ({
@@ -980,12 +983,17 @@
                   exit_reason: t.exit_reason,
                   side: t.side,
                 }));
-              
+
               console.log("Buy trades:", buyTrades.length, "Sell trades:", sellTrades.length);
+              console.log("Sample buy trade:", buyTrades[0]);
+              console.log("Sample sell trade:", sellTrades[0]);
+              console.log("Chart datasets before update:", chart.data.datasets.length);
               
               // Update buy and sell markers
               chart.data.datasets[2].data = buyTrades;
               chart.data.datasets[3].data = sellTrades;
+              console.log("Updated buy dataset data:", chart.data.datasets[2].data.length, "points");
+              console.log("Updated sell dataset data:", chart.data.datasets[3].data.length, "points");
             }
           } catch (error) {
             console.error("Error fetching trades:", error);
