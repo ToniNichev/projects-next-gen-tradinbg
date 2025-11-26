@@ -709,37 +709,16 @@
                   if (context.dataset.label === 'Signals') {
                     return `Signal Price: $${context.parsed.y.toFixed(2)}`;
                   }
-                  // Trade markers (Buy/Sell)
+                  // Trade markers (Buy/Sell) - use shared formatter
                   if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
-                    const trade = context.raw;
-                    const side = context.dataset.label;
-                    let label = `${side} @ $${trade.y.toFixed(2)}`;
-                    if (trade.exit_reason) {
-                      const reasonText = trade.exit_reason.replace('_', ' ').toUpperCase();
-                      label += ` (${reasonText})`;
-                    }
-                    return label;
+                    return ChartUtils.formatTradeTooltip(context);
                   }
                   return context.formattedValue;
                 },
                 afterLabel: function(context) {
-                  // Add extra details for trade markers
+                  // Add extra details for trade markers - use shared formatter
                   if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
-                    const trade = context.raw;
-                    let lines = [];
-                    
-                    // Add amount
-                    if (trade.amount !== null && trade.amount !== undefined) {
-                      lines.push(`Amount: ${trade.amount.toFixed(6)} BTC`);
-                    }
-                    
-                    // Add P&L for sell trades
-                    if (trade.pnl !== null && trade.pnl !== undefined && trade.side === 'sell') {
-                      const pnlText = trade.pnl >= 0 ? `+$${trade.pnl.toFixed(2)}` : `$${trade.pnl.toFixed(2)}`;
-                      lines.push(`P&L: ${pnlText}`);
-                    }
-                    
-                    return lines;
+                    return ChartUtils.formatTradeTooltipDetails(context);
                   }
                   return [];
                 }
@@ -905,51 +884,8 @@
             });
           }
           
-          console.log("Adding trade datasets...");
-          // Add buy trades dataset if not exists
-          if (!chart.data.datasets[2]) {
-            chart.data.datasets.push({
-              label: "Buy",
-              type: "scatter",
-              pointStyle: "rect",
-              pointRadius: 10,
-              pointRotation: 0,
-              data: [],
-              showLine: false,
-              yAxisID: "y",
-              backgroundColor: ChartUtils.colors.buyMarker,
-              borderColor: ChartUtils.colors.borderWhite,
-              borderWidth: 2,
-              pointHoverRadius: 16,
-              pointHoverBorderWidth: 4,
-              hoverBorderColor: ChartUtils.colors.borderWhite,
-              hoverBorderWidth: 3,
-              order: 0, // Draw on top
-            });
-          }
+          console.log("Adding trade datasets using shared ChartUtils...");
           
-          // Add sell trades dataset if not exists
-          if (!chart.data.datasets[3]) {
-            chart.data.datasets.push({
-              label: "Sell",
-              type: "scatter",
-              pointStyle: "rect",
-              pointRadius: 10,
-              pointRotation: 180,
-              data: [],
-              showLine: false,
-              yAxisID: "y",
-              backgroundColor: ChartUtils.colors.sellMarker,
-              borderColor: ChartUtils.colors.borderWhite,
-              borderWidth: 2,
-              pointHoverRadius: 16,
-              pointHoverBorderWidth: 4,
-              hoverBorderColor: ChartUtils.colors.borderWhite,
-              hoverBorderWidth: 3,
-              order: 1, // Draw on top
-            });
-          }
-
           // Fetch all trades (automatic and manual)
           try {
             const tradesResp = await fetch("/api/trades?limit=200");
@@ -960,46 +896,38 @@
               const allTrades = tradesData.trades || [];
               
               console.log("Fetched trades:", allTrades.length);
-
-              // Filter trades to match visible candlesticks timeframe
-              const buyTrades = allTrades
-                .filter(t => t.side === 'buy')
-                .map(t => ({
-                  x: new Date(t.timestamp).getTime(),
-                  y: t.price,
-                  amount: t.amount,
-                  pnl: t.pnl,
-                  exit_reason: t.exit_reason,
-                  side: t.side,
-                }));
-
-              const sellTrades = allTrades
-                .filter(t => t.side === 'sell')
-                .map(t => ({
-                  x: new Date(t.timestamp).getTime(),
-                  y: t.price,
-                  amount: t.amount,
-                  pnl: t.pnl,
-                  exit_reason: t.exit_reason,
-                  side: t.side,
-                }));
-
-              console.log("Buy trades:", buyTrades.length, "Sell trades:", sellTrades.length);
-              console.log("Sample buy trade:", buyTrades[0]);
-              console.log("Sample sell trade:", sellTrades[0]);
-              console.log("Chart datasets before update:", chart.data.datasets.length);
               
-              // Update buy and sell markers
-              chart.data.datasets[2].data = buyTrades;
-              chart.data.datasets[3].data = sellTrades;
-              console.log("Updated buy dataset data:", chart.data.datasets[2].data.length, "points");
-              console.log("Updated sell dataset data:", chart.data.datasets[3].data.length, "points");
+              // Add buy trades dataset if not exists (using shared utility)
+              if (!chart.data.datasets[2]) {
+                const buyDataset = ChartUtils.createTradeMarkers(allTrades, 'buy');
+                chart.data.datasets.push(buyDataset);
+              } else {
+                // Update existing dataset with new trade data
+                const buyDataset = ChartUtils.createTradeMarkers(allTrades, 'buy');
+                chart.data.datasets[2].data = buyDataset.data;
+              }
+              
+              // Add sell trades dataset if not exists (using shared utility)
+              if (!chart.data.datasets[3]) {
+                const sellDataset = ChartUtils.createTradeMarkers(allTrades, 'sell');
+                chart.data.datasets.push(sellDataset);
+              } else {
+                // Update existing dataset with new trade data
+                const sellDataset = ChartUtils.createTradeMarkers(allTrades, 'sell');
+                chart.data.datasets[3].data = sellDataset.data;
+              }
+              
+              console.log("Buy trades:", chart.data.datasets[2].data.length, "Sell trades:", chart.data.datasets[3].data.length);
             }
           } catch (error) {
             console.error("Error fetching trades:", error);
-            // Initialize empty arrays if fetch fails
-            chart.data.datasets[2].data = [];
-            chart.data.datasets[3].data = [];
+            // Initialize empty datasets if fetch fails
+            if (!chart.data.datasets[2]) {
+              chart.data.datasets.push(ChartUtils.createTradeMarkers([], 'buy'));
+            }
+            if (!chart.data.datasets[3]) {
+              chart.data.datasets.push(ChartUtils.createTradeMarkers([], 'sell'));
+            }
           }
           
           // Only show signal markers on the default timeframe (1h - bot's actual trading timeframe)

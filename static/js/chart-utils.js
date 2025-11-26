@@ -391,7 +391,8 @@ const ChartUtils = {
   },
 
   /**
-   * Create buy/sell trade markers for backtest charts
+   * Create buy/sell trade markers for both live and backtest charts
+   * Handles different data formats from /api/trades and backtest results
    */
   createTradeMarkers(trades, side = 'buy') {
     const isBuy = side === 'buy';
@@ -403,7 +404,9 @@ const ChartUtils = {
         .map(t => ({
           x: new Date(t.timestamp).getTime(),
           y: t.price,
-          reason: t.reason,
+          // Support both 'reason' (backtest) and 'exit_reason' (live API)
+          reason: t.reason || t.exit_reason,
+          exit_reason: t.exit_reason || t.reason,
           pnl: t.pnl,
           side: t.side,
           amount: t.amount
@@ -466,6 +469,48 @@ const ChartUtils = {
       '1w': 'day'
     };
     chart.options.scales.x.time.unit = timeUnitMap[timeframe] || 'hour';
+  },
+
+  /**
+   * Common tooltip formatter for trade markers
+   * Handles both buy and sell trades with P&L, amount, and exit reason
+   */
+  formatTradeTooltip(context) {
+    const trade = context.raw;
+    const side = context.dataset.label;
+    let label = `${side} @ $${trade.y.toFixed(2)}`;
+    
+    // Add exit reason if available
+    if (trade.exit_reason || trade.reason) {
+      const reasonText = (trade.exit_reason || trade.reason).replace('_', ' ').toUpperCase();
+      label += ` (${reasonText})`;
+    }
+    
+    return label;
+  },
+
+  /**
+   * Common tooltip afterLabel for trade markers (shows amount and P&L)
+   */
+  formatTradeTooltipDetails(context) {
+    const trade = context.raw;
+    const lines = [];
+    
+    // Add amount
+    if (trade.amount !== null && trade.amount !== undefined) {
+      lines.push(`Amount: ${trade.amount.toFixed(6)} BTC`);
+    }
+    
+    // Add P&L for sell trades (or any trade with pnl)
+    if (trade.pnl !== null && trade.pnl !== undefined && trade.pnl !== 'None') {
+      const pnl = parseFloat(trade.pnl);
+      if (!isNaN(pnl)) {
+        const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `$${pnl.toFixed(2)}`;
+        lines.push(`P&L: ${pnlText}`);
+      }
+    }
+    
+    return lines;
   },
 };
 

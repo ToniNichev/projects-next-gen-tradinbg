@@ -1017,42 +1017,22 @@
                 if (context.dataset.label === 'Portfolio Value') {
                   return `Portfolio: $${context.parsed.y.toFixed(2)}`;
                 }
-                // Handle trade markers
-                const trade = context.raw;
-                const side = context.dataset.label;
-                const price = trade.y ? trade.y.toFixed(2) : 'N/A';
-                let label = `${side} @ $${price}`;
-
-                if (trade.reason) {
-                  const reasonText = trade.reason.replace('_', ' ').toUpperCase();
-                  label += ` (${reasonText})`;
+                // Handle trade markers - use shared formatter
+                if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
+                  return ChartUtils.formatTradeTooltip(context);
                 }
-
-                return label;
+                
+                // Fallback for other datasets
+                const trade = context.raw;
+                const price = trade.y ? trade.y.toFixed(2) : 'N/A';
+                return `${context.dataset.label} @ $${price}`;
               },
               afterLabel: function(context) {
-                const trade = context.raw;
-                let lines = [];
-
-                // Add P&L for exit trades
-                if (trade.pnl !== null && trade.pnl !== undefined && trade.pnl !== 'None') {
-                  let pnlValue = trade.pnl;
-                  if (typeof pnlValue === 'number' || !isNaN(parseFloat(pnlValue))) {
-                    const pnl = parseFloat(pnlValue);
-                    const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `$${pnl.toFixed(2)}`;
-                    lines.push(`P&L: ${pnlText}`);
-                  }
+                // Use shared formatter for trade markers
+                if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
+                  return ChartUtils.formatTradeTooltipDetails(context);
                 }
-
-                // Add amount information
-                if (trade.amount !== null && trade.amount !== undefined) {
-                  const amount = parseFloat(trade.amount);
-                  if (!isNaN(amount)) {
-                    lines.push(`Amount: ${amount.toFixed(6)} BTC`);
-                  }
-                }
-
-                return lines;
+                return [];
               }
             }
           },
