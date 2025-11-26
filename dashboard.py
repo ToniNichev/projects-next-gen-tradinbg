@@ -191,29 +191,45 @@ def get_trades():
         # Query trades
         trades = db.get_trades(limit=limit, **filters)
         
-        # Convert to JSON-serializable format
-        trades_data = [
-            {
-                "id": t.id,
-                "timestamp": t.timestamp.isoformat(),
-                "side": t.side,
-                "price": t.price,
-                "amount": t.amount,
-                "notional": t.notional,
-                "fee": t.fee,
-                "pnl": t.pnl,
-                "exit_reason": t.exit_reason,
-                "usdt_balance": t.usdt_balance,
-                "base_balance": t.base_balance,
-                "signal_direction": t.signal_direction,
-                "rsi": t.rsi,
-                "atr": t.atr,
-            }
-            for t in trades
-        ]
+        # Convert to JSON-serializable format IMMEDIATELY while objects are still in session
+        # Access all attributes NOW to avoid detached instance errors
+        trades_data = []
+        for t in trades:
+            try:
+                # Ensure timestamp has timezone info (assume UTC if not specified)
+                timestamp = t.timestamp
+                if timestamp:
+                    # If timestamp is naive (no timezone), assume it's UTC
+                    if timestamp.tzinfo is None:
+                        timestamp = timestamp.replace(tzinfo=timezone.utc)
+                    timestamp_str = timestamp.isoformat()
+                else:
+                    timestamp_str = None
+                
+                trade_dict = {
+                    "id": t.id,
+                    "timestamp": timestamp_str,
+                    "side": t.side,
+                    "price": float(t.price) if t.price else 0.0,
+                    "amount": float(t.amount) if t.amount else 0.0,
+                    "notional": float(t.notional) if t.notional else 0.0,
+                    "fee": float(t.fee) if t.fee else 0.0,
+                    "pnl": float(t.pnl) if t.pnl is not None else None,
+                    "exit_reason": t.exit_reason,
+                    "usdt_balance": float(t.usdt_balance) if t.usdt_balance else 0.0,
+                    "base_balance": float(t.base_balance) if t.base_balance else 0.0,
+                    "signal_direction": t.signal_direction,
+                    "rsi": float(t.rsi) if t.rsi is not None else None,
+                    "atr": float(t.atr) if t.atr is not None else None,
+                }
+                trades_data.append(trade_dict)
+            except Exception as e:
+                logging.error(f"Error serializing trade {t.id}: {e}")
+                continue
         
         return jsonify({"trades": trades_data, "count": len(trades_data)})
     except Exception as e:
+        logging.error(f"Error in /api/trades: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 

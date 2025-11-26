@@ -264,7 +264,7 @@ class DatabaseManager:
             end_date: Filter trades before this date
             
         Returns:
-            List of Trade objects
+            List of Trade objects (with all attributes loaded)
         """
         with self.get_session() as session:
             query = session.query(Trade)
@@ -279,7 +279,20 @@ class DatabaseManager:
                 query = query.filter(Trade.timestamp <= end_date)
             
             query = query.order_by(desc(Trade.timestamp)).limit(limit)
-            return query.all()
+            trades = query.all()
+            
+            # Force load all attributes while session is still active
+            # This prevents "detached instance" errors later
+            for t in trades:
+                _ = (t.id, t.timestamp, t.side, t.price, t.amount, 
+                     t.notional, t.fee, t.pnl, t.exit_reason, 
+                     t.usdt_balance, t.base_balance, t.signal_direction,
+                     t.rsi, t.atr)
+            
+            # Expunge all objects from session to make them independent
+            session.expunge_all()
+            
+            return trades
 
     def get_trade_stats(self) -> Dict:
         """

@@ -522,6 +522,7 @@
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/chart-utils.js') }}"></script>
 <script>
   let selectedResults = new Set();
   
@@ -941,123 +942,25 @@
       backtestChart.destroy();
     }
     
-    // Prepare candlestick data
-    const candleData = chartData.candles.map(candle => ({
-      x: new Date(candle.timestamp).getTime(),
-      o: candle.open,
-      h: candle.high,
-      l: candle.low,
-      c: candle.close,
-    }));
+    // Prepare data using shared utilities
+    const candleData = ChartUtils.formatCandleData(chartData.candles);
+    const portfolioDataset = ChartUtils.createPortfolioLine(chartData.portfolio_values);
+    const buyDataset = ChartUtils.createTradeMarkers(chartData.trades, 'buy');
+    const sellDataset = ChartUtils.createTradeMarkers(chartData.trades, 'sell');
     
-    // Prepare portfolio value data
-    const portfolioData = chartData.portfolio_values.map(pv => ({
-      x: new Date(pv.timestamp).getTime(),
-      y: pv.value,
-    }));
-    
-    // Prepare trade markers
-    const buyTrades = chartData.trades
-      .filter(t => t.side === 'buy')
-      .map(t => ({
-        x: new Date(t.timestamp).getTime(),
-        y: t.price,
-        reason: t.reason,
-        pnl: t.pnl,
-        side: t.side,
-        amount: t.amount
-      }));
-
-    const sellTrades = chartData.trades
-      .filter(t => t.side === 'sell')
-      .map(t => ({
-        x: new Date(t.timestamp).getTime(),
-        y: t.price,
-        reason: t.reason,
-        pnl: t.pnl,
-        side: t.side,
-        amount: t.amount
-      }));
+    // Create candlestick dataset configuration
+    const candlestickDataset = ChartUtils.getCandlestickConfig('BTC/USDT');
+    candlestickDataset.data = candleData;
+    candlestickDataset.yAxisID = 'y';
     
     backtestChart = new Chart(ctx, {
       type: 'candlestick',
       data: {
         datasets: [
-          {
-            label: 'BTC/USDT',
-            data: candleData,
-            yAxisID: 'y',
-            color: {
-              up: '#58D68D',
-              down: '#ff5e57',
-              unchanged: '#999',
-            },
-            borderColor: {
-              up: '#58D68D',
-              down: '#ff5e57',
-              unchanged: '#999',
-            },
-            borderWidth: 1.5,
-            barPercentage: 0.7,
-            categoryPercentage: 0.8,
-          },
-          {
-            label: 'Portfolio Value',
-            type: 'line',
-            data: portfolioData,
-            yAxisID: 'y1',
-            borderColor: '#FFD700',
-            backgroundColor: 'rgba(255, 215, 0, 0.1)',
-            borderWidth: 2,
-            fill: false,
-            tension: 0.1,
-            pointRadius: 0,
-            pointHoverRadius: 4,
-          },
-          {
-            label: 'Buy',
-            type: 'scatter',
-            data: buyTrades,
-            yAxisID: 'y',
-            pointStyle: 'triangle',
-            pointRadius: 10,
-            pointRotation: 0,
-            backgroundColor: '#00ff00',
-            borderColor: '#ffffff',
-            borderWidth: 2,
-            pointHoverRadius: 16,
-            pointHoverBorderWidth: 4,
-            shadowOffsetX: 1,
-            shadowOffsetY: 1,
-            shadowBlur: 4,
-            shadowColor: 'rgba(0, 0, 0, 0.6)',
-            hoverBorderColor: '#ffffff',
-            hoverBorderWidth: 3,
-            showLine: false,
-            order: 10, // Ensure markers appear above other elements
-          },
-          {
-            label: 'Sell',
-            type: 'scatter',
-            data: sellTrades,
-            yAxisID: 'y',
-            pointStyle: 'triangle',
-            pointRadius: 10,
-            pointRotation: 180,
-            backgroundColor: '#ff4444',
-            borderColor: '#ffffff',
-            borderWidth: 2,
-            pointHoverRadius: 16,
-            pointHoverBorderWidth: 4,
-            shadowOffsetX: 1,
-            shadowOffsetY: 1,
-            shadowBlur: 4,
-            shadowColor: 'rgba(0, 0, 0, 0.6)',
-            hoverBorderColor: '#ffffff',
-            hoverBorderWidth: 3,
-            showLine: false,
-            order: 10, // Ensure markers appear above other elements
-          },
+          candlestickDataset,
+          portfolioDataset,
+          buyDataset,
+          sellDataset,
         ],
       },
       options: {
@@ -1068,16 +971,19 @@
           easing: 'easeOutBounce',
           delay: function(context) {
             // Stagger animation for trade markers to make them appear sequentially
-            if (context.datasetIndex >= 4) { // Buy and Sell markers are at indices 4 and 5
+            if (context.datasetIndex >= 2) { // Buy and Sell markers are at indices 2 and 3
               return context.dataIndex * 150; // 150ms delay between each marker
             }
             return 0;
           },
-          onProgress: function(animation) {
-            // Add opacity animation for smoother appearance
-          }
         },
         plugins: {
+          legend: {
+            display: true,
+            labels: {
+              color: ChartUtils.colors.textPrimary,
+            },
+          },
           tooltip: {
             enabled: true,
             mode: 'nearest',
@@ -1091,22 +997,32 @@
             displayColors: true,
             callbacks: {
               title: function(context) {
-                // Handle both single point and multiple points
                 const point = context[0] || context;
                 const trade = point.raw;
                 const timestamp = new Date(trade.x).toLocaleString();
                 return timestamp;
               },
               label: function(context) {
+                // Handle candlestick data
+                if (context.raw && typeof context.raw.o !== 'undefined') {
+                  const data = context.raw;
+                  return [
+                    `Open:  $${data.o.toFixed(2)}`,
+                    `High:  $${data.h.toFixed(2)}`,
+                    `Low:   $${data.l.toFixed(2)}`,
+                    `Close: $${data.c.toFixed(2)}`
+                  ];
+                }
+                // Handle portfolio value
+                if (context.dataset.label === 'Portfolio Value') {
+                  return `Portfolio: $${context.parsed.y.toFixed(2)}`;
+                }
+                // Handle trade markers
                 const trade = context.raw;
                 const side = context.dataset.label;
                 const price = trade.y ? trade.y.toFixed(2) : 'N/A';
                 let label = `${side} @ $${price}`;
 
-                // Debug: log the trade data
-                console.log('Tooltip trade data:', trade);
-
-                // Add trade reason if available
                 if (trade.reason) {
                   const reasonText = trade.reason.replace('_', ' ').toUpperCase();
                   label += ` (${reasonText})`;
@@ -1121,7 +1037,6 @@
                 // Add P&L for exit trades
                 if (trade.pnl !== null && trade.pnl !== undefined && trade.pnl !== 'None') {
                   let pnlValue = trade.pnl;
-                  // Handle numpy float64 or other numeric types
                   if (typeof pnlValue === 'number' || !isNaN(parseFloat(pnlValue))) {
                     const pnl = parseFloat(pnlValue);
                     const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `$${pnl.toFixed(2)}`;
@@ -1133,12 +1048,7 @@
                 if (trade.amount !== null && trade.amount !== undefined) {
                   const amount = parseFloat(trade.amount);
                   if (!isNaN(amount)) {
-                    const amountText = amount.toFixed(6);
-                    const sideColor = trade.side === 'buy' ? '#00ff00' : '#ff4444';
-                    lines.push({
-                      text: `Amount: ${amountText} BTC`,
-                      color: sideColor
-                    });
+                    lines.push(`Amount: ${amount.toFixed(6)} BTC`);
                   }
                 }
 
@@ -1146,207 +1056,49 @@
               }
             }
           },
-          legend: {
-            display: true,
-            position: 'top',
-          }
+          zoom: ChartUtils.getZoomConfig(true),
         },
         interaction: {
           mode: 'index',
           intersect: false,
         },
-        scales: {
-          x: {
-            type: 'time',
-            time: {
-              unit: 'hour',
-              displayFormats: {
-                hour: 'MMM dd HH:mm',
-              },
-              tooltipFormat: 'MMM dd, yyyy HH:mm',
-            },
-            ticks: {
-              color: '#e1e8ff',
-              autoSkip: true,
-              maxRotation: 0,
-            },
-            grid: {
-              color: 'rgba(255,255,255,0.1)',
-            },
-          },
-          y: {
-            type: 'linear',
-            position: 'left',
-            beginAtZero: false,
-            title: {
-              display: true,
-              text: 'Price (USD)',
-              color: '#e1e8ff',
-            },
-            ticks: {
-              color: '#e1e8ff',
-            },
-            grid: {
-              color: 'rgba(255,255,255,0.1)',
-            },
-          },
-          y1: {
-            type: 'linear',
-            position: 'right',
-            beginAtZero: false,
-            title: {
-              display: true,
-              text: 'Portfolio Value (USD)',
-              color: '#FFD700',
-            },
-            ticks: {
-              color: '#FFD700',
-              callback: function(value) {
-                return '$' + value.toFixed(0);
-              },
-            },
-            grid: {
-              drawOnChartArea: false,
-            },
-          },
-        },
-        plugins: {
-          legend: {
-            display: true,
-            labels: {
-              color: '#e1e8ff',
-            },
-          },
-          tooltip: {
-            mode: 'index',
-            intersect: false,
-            callbacks: {
-              label: function(context) {
-                if (context.raw && typeof context.raw.o !== 'undefined') {
-                  const data = context.raw;
-                  return [
-                    `Open:  $${data.o.toFixed(2)}`,
-                    `High:  $${data.h.toFixed(2)}`,
-                    `Low:   $${data.l.toFixed(2)}`,
-                    `Close: $${data.c.toFixed(2)}`
-                  ];
-                }
-                if (context.dataset.label === 'Portfolio Value') {
-                  return `Portfolio: $${context.parsed.y.toFixed(2)}`;
-                }
-                return `${context.dataset.label}: $${context.parsed.y.toFixed(2)}`;
-              }
-            }
-          },
-          zoom: {
-            zoom: {
-              wheel: {
-                enabled: true,
-                speed: 0.05,
-              },
-              pinch: {
-                enabled: true,
-              },
-              mode: 'x',
-            },
-            pan: {
-              enabled: true,
-              mode: 'x',
-            },
-          },
-        },
+        scales: ChartUtils.getScaleConfig(true),
       },
     });
     
-    // Add drag-to-pan support
-    setupDragPan(backtestChart, 'backtestChart');
+    // Setup drag-to-pan and keyboard navigation using shared utilities
+    ChartUtils.setupDragPan(backtestChart, 'backtestChart');
+    ChartUtils.setupKeyboardNavigation(backtestChart);
   }
   
-  function setupDragPan(chart, canvasId) {
-    const canvas = document.getElementById(canvasId);
-    let isDragging = false;
-    let dragStartX = 0;
-    let dragStartMin = 0;
-    let dragStartMax = 0;
-    
-    canvas.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      dragStartX = e.clientX;
-      const xScale = chart.scales.x;
-      dragStartMin = xScale.min;
-      dragStartMax = xScale.max;
-      canvas.style.cursor = 'grabbing';
-    });
-    
-    canvas.addEventListener('mousemove', (e) => {
-      if (!isDragging) return;
-      
-      e.preventDefault();
-      const xScale = chart.scales.x;
-      const chartArea = chart.chartArea;
-      
-      const deltaX = e.clientX - dragStartX;
-      const chartWidth = chartArea.right - chartArea.left;
-      const timeRange = dragStartMax - dragStartMin;
-      const timePerPixel = timeRange / chartWidth;
-      const timeDelta = deltaX * timePerPixel;
-      
-      chart.options.scales.x.min = dragStartMin - timeDelta;
-      chart.options.scales.x.max = dragStartMax - timeDelta;
-      chart.update('none');
-    });
-    
-    const stopDragging = () => {
-      if (isDragging) {
-        isDragging = false;
-        canvas.style.cursor = 'grab';
-      }
-    };
-    
-    canvas.addEventListener('mouseup', stopDragging);
-    canvas.addEventListener('mouseleave', stopDragging);
-  }
-  
-  // Chart navigation functions
+  // Chart navigation functions using shared utilities
   function resetZoomChart() {
     if (backtestChart) {
-      backtestChart.resetZoom();
+      ChartUtils.navigation.resetZoom(backtestChart);
     }
   }
   
   function zoomInChart() {
     if (backtestChart) {
-      backtestChart.zoom(1.2);
+      ChartUtils.navigation.zoomIn(backtestChart);
     }
   }
   
   function zoomOutChart() {
     if (backtestChart) {
-      backtestChart.zoom(0.8);
+      ChartUtils.navigation.zoomOut(backtestChart);
     }
   }
   
   function panLeftChart() {
     if (backtestChart) {
-      const xScale = backtestChart.scales.x;
-      const range = xScale.max - xScale.min;
-      const panAmount = range * 0.15;
-      backtestChart.zoomScale('x', {
-        min: xScale.min - panAmount,
-        max: xScale.max - panAmount
-      }, 'default');
+      ChartUtils.navigation.panLeft(backtestChart);
     }
   }
   
   function panRightChart() {
     if (backtestChart) {
-      const xScale = backtestChart.scales.x;
-      const range = xScale.max - xScale.min;
-      const panAmount = range * 0.15;
-      backtestChart.zoomScale('x', {
-        min: xScale.min + panAmount,
-        max: xScale.max + panAmount
-      }, 'default');
+      ChartUtils.navigation.panRight(backtestChart);
     }
   }
 </script>
