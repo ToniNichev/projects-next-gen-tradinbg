@@ -146,3 +146,4 @@ echo "Thank you for using Next-Gen Trading Bot! 👋"
 
 
 
+

@@ -467,3 +467,4 @@ Similar structure to buy, but handles both closing long positions and opening sh
 - Manual trades should appear immediately on the dashboard
 - Consider adding a "Manual Trading" section to settings to enable/disable
 
+

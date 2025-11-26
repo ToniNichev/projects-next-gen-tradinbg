@@ -330,6 +330,18 @@ class DatabaseManager:
                 "avg_pnl": float(avg_pnl),
             }
 
+    def clear_all_trades(self) -> int:
+        """
+        Delete all trade records from the database.
+
+        Returns:
+            Number of trades deleted
+        """
+        with self.get_session() as session:
+            deleted_count = session.query(Trade).delete()
+            self.logger.warning(f"Cleared {deleted_count} trade records from database")
+            return deleted_count
+
     def add_position(self, position_data: Dict) -> Position:
         """Add a position record"""
         with self.get_session() as session:

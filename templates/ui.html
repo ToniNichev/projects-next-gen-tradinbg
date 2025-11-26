@@ -552,6 +552,17 @@
         </div>
       </div>
     </div>
+
+    <!-- Database Management -->
+    <div class="trade-controls-box">
+      <h3>Database Management</h3>
+      <p style="margin-bottom: 1rem; font-size: 0.875rem; color: var(--text-secondary);">
+        ⚠️ <strong>Danger Zone:</strong> This action cannot be undone.
+      </p>
+      <button id="clear-trades-btn" class="trade-btn" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white;" onclick="clearAllTrades()">
+        🗑️ Clear All Trades
+      </button>
+    </div>
   </div>
 </div>
 
@@ -1322,28 +1333,41 @@
         confirmBtn.disabled = true;
         
         try {
-          const endpoint = pendingTradeAction.type === 'buy' ? '/api/manual/buy' : '/api/manual/sell';
-          const response = await fetch(endpoint, {
+          let endpoint, requestBody;
+
+          if (pendingTradeAction.type === 'clear_trades') {
+            endpoint = '/api/manual/clear-trades';
+            requestBody = null; // No body needed for clear trades
+          } else {
+            endpoint = pendingTradeAction.type === 'buy' ? '/api/manual/buy' : '/api/manual/sell';
+            requestBody = JSON.stringify({
+              position_size: pendingTradeAction.positionSize
+            });
+          }
+
+          const requestOptions = {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              position_size: pendingTradeAction.positionSize
-            })
-          });
-          
+            }
+          };
+
+          if (requestBody) {
+            requestOptions.body = requestBody;
+          }
+
+          const response = await fetch(endpoint, requestOptions);
           const data = await response.json();
-          
+
           if (response.ok && data.success) {
             showNotification(`✅ ${data.message}`, 'success');
             closeModal();
-            
+
             // Refresh status and chart
             await updateManualTradingStatus();
             await refresh();
           } else {
-            showNotification(`❌ ${data.error || 'Trade failed'}`, 'error');
+            showNotification(`❌ ${data.error || 'Operation failed'}`, 'error');
             confirmBtn.textContent = originalText;
             confirmBtn.disabled = false;
           }
@@ -1353,7 +1377,37 @@
           confirmBtn.disabled = false;
         }
       }
-      
+
+      // Clear all trades
+      async function clearAllTrades() {
+        // Show confirmation modal
+        pendingTradeAction = {
+          type: 'clear_trades'
+        };
+
+        const modalBody = `
+          <div style="margin-bottom: 1rem;">
+            <strong style="color: #e74c3c;">⚠️ DANGER: This action cannot be undone!</strong>
+          </div>
+          <div style="margin-bottom: 1rem;">
+            This will permanently delete ALL trade records from the database, including:
+          </div>
+          <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
+            <li>Automated trading history</li>
+            <li>Manual trading records</li>
+            <li>Profit/Loss data</li>
+            <li>Trade statistics</li>
+          </ul>
+          <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
+            The chart will be cleared of all trade markers. This action is irreversible.
+          </div>
+        `;
+
+        document.getElementById('modal-title').textContent = '🗑️ Clear All Trade Records';
+        document.getElementById('modal-body').innerHTML = modalBody;
+        document.getElementById('confirmation-modal').classList.add('show');
+      }
+
       // Close modal
       function closeModal() {
         document.getElementById('confirmation-modal').classList.remove('show');

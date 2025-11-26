@@ -707,6 +707,42 @@ def manual_sell():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/manual/clear-trades", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")  # Lower limit for destructive operations
+def clear_all_trades():
+    """Clear all trade records from the database"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+
+    try:
+        db = get_database()
+
+        # Get trade count before clearing for confirmation
+        stats_before = db.get_trade_stats()
+        count_before = stats_before["total_trades"]
+
+        # Clear all trades
+        deleted_count = db.clear_all_trades()
+
+        # Verify the operation
+        if deleted_count != count_before:
+            return jsonify({
+                "error": f"Clear operation inconsistent: expected {count_before}, deleted {deleted_count}"
+            }), 500
+
+        return jsonify({
+            "success": True,
+            "message": f"Cleared {deleted_count} trade records from database",
+            "count": deleted_count
+        }), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/settings")
 @require_auth
 def settings_page():
