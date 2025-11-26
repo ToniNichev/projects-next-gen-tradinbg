@@ -126,6 +126,324 @@
     color: var(--text-secondary);
     padding: 0.5rem;
   }
+  
+  /* Manual Trading Panel */
+  .manual-trading-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  
+  .manual-trading-panel h2 {
+    margin: 0 0 1rem 0;
+    font-size: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .manual-trading-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1.5rem;
+  }
+  
+  @media (max-width: 1024px) {
+    .manual-trading-content {
+      grid-template-columns: 1fr;
+    }
+  }
+  
+  .position-status-box {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    padding: 1rem;
+  }
+  
+  .position-status-box h3 {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  
+  .position-info-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  
+  .position-info-item:last-child {
+    border-bottom: none;
+  }
+  
+  .position-info-label {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+  
+  .position-info-value {
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+  
+  .position-info-value.positive {
+    color: var(--accent-green);
+  }
+  
+  .position-info-value.negative {
+    color: #ff5e57;
+  }
+  
+  .no-position-message {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+  }
+  
+  .trade-controls-box {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    padding: 1rem;
+  }
+  
+  .control-group {
+    margin-bottom: 1rem;
+  }
+  
+  .control-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  
+  .control-group input[type="number"] {
+    width: 100%;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.5rem;
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  
+  .control-group input[type="number"]:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+  
+  .button-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+  
+  .trade-btn {
+    padding: 1rem;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  .trade-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+  
+  .trade-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  
+  .trade-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  
+  .buy-btn {
+    background: linear-gradient(135deg, #58D68D 0%, #2ECC71 100%);
+    color: white;
+  }
+  
+  .buy-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #6FE09D 0%, #3FDD81 100%);
+  }
+  
+  .sell-btn {
+    background: linear-gradient(135deg, #ff5e57 0%, #d63031 100%);
+    color: white;
+  }
+  
+  .sell-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #ff6e67 0%, #e64041 100%);
+  }
+  
+  .trade-preview-box {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    padding: 1rem;
+  }
+  
+  .trade-preview-box h3 {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  
+  .preview-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    font-size: 0.875rem;
+  }
+  
+  .preview-label {
+    color: var(--text-secondary);
+  }
+  
+  .preview-value {
+    font-weight: 600;
+  }
+  
+  /* Notification Toast */
+  .notification-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.5rem;
+    padding: 1rem 1.5rem;
+    max-width: 400px;
+    z-index: 10000;
+    animation: slideIn 0.3s ease;
+    display: none;
+  }
+  
+  .notification-toast.show {
+    display: block;
+  }
+  
+  .notification-toast.success {
+    border-left: 4px solid var(--accent-green);
+  }
+  
+  .notification-toast.error {
+    border-left: 4px solid #ff5e57;
+  }
+  
+  .notification-toast.warning {
+    border-left: 4px solid #f39c12;
+  }
+  
+  @keyframes slideIn {
+    from {
+      transform: translateX(400px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  
+  /* Confirmation Modal */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+  
+  .modal-overlay.show {
+    display: flex;
+  }
+  
+  .modal-content {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 2rem;
+    max-width: 500px;
+    width: 90%;
+  }
+  
+  .modal-content h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1.25rem;
+  }
+  
+  .modal-body {
+    margin-bottom: 1.5rem;
+    color: var(--text-secondary);
+  }
+  
+  .modal-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+  }
+  
+  .modal-btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .modal-btn-cancel {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+  }
+  
+  .modal-btn-confirm {
+    background: var(--accent-blue);
+    color: white;
+  }
+  
+  .modal-btn:hover {
+    transform: translateY(-1px);
+  }
+  
+  .loading-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
 </style>
 {% endblock %}
 
@@ -168,6 +486,89 @@
     </h3>
     <div class="value" id="balance-text">--</div>
     <div class="detail" id="balance-detail"></div>
+  </div>
+</div>
+
+<!-- Manual Trading Panel -->
+<div class="manual-trading-panel">
+  <h2>
+    🎯 Manual Trading
+    <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
+      <span class="info-tooltip">
+        Execute manual buy/sell orders at current market price. Position size is percentage of your available balance. Stop loss and take profit are automatically set based on your bot configuration.
+      </span>
+    </span>
+  </h2>
+  
+  <div class="manual-trading-content">
+    <!-- Current Position Status -->
+    <div class="position-status-box">
+      <h3>Current Position</h3>
+      <div id="position-info">
+        <div class="no-position-message">
+          Loading position status...
+        </div>
+      </div>
+    </div>
+    
+    <!-- Trade Controls -->
+    <div class="trade-controls-box">
+      <h3>Execute Trade</h3>
+      
+      <div class="control-group">
+        <label for="position-size">Position Size (%)</label>
+        <input type="number" id="position-size" min="10" max="100" value="20" step="5">
+      </div>
+      
+      <div class="button-group">
+        <button id="buy-btn" class="trade-btn buy-btn" onclick="executeBuy()">
+          🟢 Buy
+        </button>
+        <button id="sell-btn" class="trade-btn sell-btn" onclick="executeSell()">
+          🔴 Sell
+        </button>
+      </div>
+    </div>
+    
+    <!-- Trade Preview -->
+    <div class="trade-preview-box">
+      <h3>Trade Estimate</h3>
+      <div id="trade-estimate">
+        <div class="preview-item">
+          <span class="preview-label">Current Price:</span>
+          <span class="preview-value" id="preview-price">--</span>
+        </div>
+        <div class="preview-item">
+          <span class="preview-label">Available USDT:</span>
+          <span class="preview-value" id="preview-balance">--</span>
+        </div>
+        <div class="preview-item">
+          <span class="preview-label">Position Value:</span>
+          <span class="preview-value" id="preview-value">--</span>
+        </div>
+        <div class="preview-item">
+          <span class="preview-label">Est. Amount:</span>
+          <span class="preview-value" id="preview-amount">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Notification Toast -->
+<div id="notification-toast" class="notification-toast">
+  <div id="notification-message"></div>
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirmation-modal" class="modal-overlay">
+  <div class="modal-content">
+    <h3 id="modal-title">Confirm Trade</h3>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn modal-btn-confirm" id="modal-confirm-btn" onclick="confirmTrade()">Confirm</button>
+    </div>
   </div>
 </div>
 
@@ -578,11 +979,12 @@
           console.log("Chart data:", chart.data);
           console.log("Current timeframe:", currentTimeframe);
           
-          // Update signal/trade info only on default timeframe
+          // Always fetch latest trade/signal data regardless of timeframe
+          const resp = await fetch("/history");
+          const body = await resp.json();
+          
+          // Update signal info (only show on 1h since that's the trading timeframe)
           if (currentTimeframe === '1h') {
-            const resp = await fetch("/history");
-            const body = await resp.json();
-            
             const lastSignalFromHistory = history[history.length - 1];
             const lastSignal = lastSignalFromHistory || body.last_signal;
             if (lastSignal) {
@@ -594,35 +996,28 @@
                 "signal-detail"
               ).textContent = `${signalTime.toLocaleString()} · price $${lastSignal.price.toFixed(2)}`;
             }
-            const lastTrade = body.last_trade;
-            if (lastTrade) {
-              document.getElementById("trade-text").textContent =
-                lastTrade.side.toUpperCase();
-              // Format time in local timezone
-              const tradeTime = new Date(lastTrade.timestamp);
-              document.getElementById(
-                "trade-detail"
-              ).textContent = `${tradeTime.toLocaleString()} · ${lastTrade.usdt_balance.toFixed(2)} USDT`;
-            }
-            
-            // Update balance
-            const state = await (await fetch('/state')).json();
-            if (state.balances) {
-              const totalUSDT = state.balances.USDT + (state.balances.BASE * (lastSignal ? lastSignal.price : 0));
-              document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
-              document.getElementById("balance-detail").textContent = 
-                `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
-            }
-          } else {
-            // For other timeframes, just update balance with latest price
-            const latestPrice = history[history.length - 1]?.close || 0;
-            const state = await (await fetch('/state')).json();
-            if (state.balances) {
-              const totalUSDT = state.balances.USDT + (state.balances.BASE * latestPrice);
-              document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
-              document.getElementById("balance-detail").textContent = 
-                `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
-            }
+          }
+          
+          // Always update last trade (regardless of timeframe)
+          const lastTrade = body.last_trade;
+          if (lastTrade) {
+            document.getElementById("trade-text").textContent =
+              lastTrade.side.toUpperCase();
+            // Format time in local timezone
+            const tradeTime = new Date(lastTrade.timestamp);
+            document.getElementById(
+              "trade-detail"
+            ).textContent = `${tradeTime.toLocaleString()} · ${lastTrade.usdt_balance.toFixed(2)} USDT`;
+          }
+          
+          // Always update balance with current price
+          const latestPrice = history[history.length - 1]?.close || (body.last_signal?.price || 0);
+          const state = await (await fetch('/state')).json();
+          if (state.balances) {
+            const totalUSDT = state.balances.USDT + (state.balances.BASE * latestPrice);
+            document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
+            document.getElementById("balance-detail").textContent = 
+              `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
           }
         } catch (err) {
           console.error("Error refreshing chart:", err);
@@ -842,6 +1237,303 @@
           refresh();
         }
       }, 60000); // Poll every 60 seconds for historical data
+      
+      // ========== MANUAL TRADING FUNCTIONS ==========
+      
+      let manualTradingStatus = null;
+      let pendingTradeAction = null;
+      
+      // Update manual trading status
+      async function updateManualTradingStatus() {
+        try {
+          const response = await fetch('/api/manual/status');
+          const data = await response.json();
+          
+          if (data.available) {
+            manualTradingStatus = data;
+            updatePositionDisplay(data);
+            updateTradePreview(data);
+            updateButtonStates(data);
+          } else {
+            document.getElementById('position-info').innerHTML = 
+              '<div class="no-position-message">Manual trading not available</div>';
+          }
+        } catch (error) {
+          console.error('Failed to fetch manual trading status:', error);
+        }
+      }
+      
+      // Update position display
+      function updatePositionDisplay(status) {
+        const positionInfo = document.getElementById('position-info');
+        
+        if (status.position) {
+          const pos = status.position;
+          const pnlClass = pos.unrealized_pnl >= 0 ? 'positive' : 'negative';
+          const pnlSign = pos.unrealized_pnl >= 0 ? '+' : '';
+          
+          positionInfo.innerHTML = `
+            <div class="position-info-item">
+              <span class="position-info-label">Side:</span>
+              <span class="position-info-value">${pos.side.toUpperCase()}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Entry Price:</span>
+              <span class="position-info-value">$${pos.entry_price.toFixed(2)}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Current Price:</span>
+              <span class="position-info-value">$${pos.current_price.toFixed(2)}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Amount:</span>
+              <span class="position-info-value">${pos.amount.toFixed(6)} BTC</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Unrealized P&L:</span>
+              <span class="position-info-value ${pnlClass}">${pnlSign}$${pos.unrealized_pnl.toFixed(2)}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Stop Loss:</span>
+              <span class="position-info-value">$${pos.stop_loss.toFixed(2)}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Take Profit:</span>
+              <span class="position-info-value">$${pos.take_profit.toFixed(2)}</span>
+            </div>
+          `;
+        } else {
+          positionInfo.innerHTML = '<div class="no-position-message">No open position</div>';
+        }
+      }
+      
+      // Update trade preview
+      function updateTradePreview(status) {
+        const positionSize = parseFloat(document.getElementById('position-size').value) / 100;
+        
+        document.getElementById('preview-price').textContent = `$${status.current_price.toFixed(2)}`;
+        document.getElementById('preview-balance').textContent = `$${status.balances.USDT.toFixed(2)}`;
+        
+        const positionValue = status.balances.USDT * positionSize;
+        const estimatedAmount = positionValue / status.current_price;
+        
+        document.getElementById('preview-value').textContent = `$${positionValue.toFixed(2)}`;
+        document.getElementById('preview-amount').textContent = `${estimatedAmount.toFixed(6)} BTC`;
+      }
+      
+      // Update button states
+      function updateButtonStates(status) {
+        const buyBtn = document.getElementById('buy-btn');
+        const sellBtn = document.getElementById('sell-btn');
+        
+        buyBtn.disabled = !status.can_buy;
+        sellBtn.disabled = !status.can_sell;
+      }
+      
+      // Execute buy
+      async function executeBuy() {
+        if (!manualTradingStatus || !manualTradingStatus.can_buy) {
+          showNotification('Cannot execute buy order', 'error');
+          return;
+        }
+        
+        const positionSize = parseFloat(document.getElementById('position-size').value) / 100;
+        
+        // Show confirmation modal
+        pendingTradeAction = {
+          type: 'buy',
+          positionSize: positionSize
+        };
+        
+        const modalBody = `
+          <div style="margin-bottom: 1rem;">
+            <strong>Buy Order Details:</strong>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">Price:</span>
+            <span class="preview-value">$${manualTradingStatus.current_price.toFixed(2)}</span>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">Position Size:</span>
+            <span class="preview-value">${(positionSize * 100).toFixed(1)}%</span>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">Order Value:</span>
+            <span class="preview-value">$${(manualTradingStatus.balances.USDT * positionSize).toFixed(2)}</span>
+          </div>
+          <div class="preview-item">
+            <span class="preview-label">Est. Amount:</span>
+            <span class="preview-value">${(manualTradingStatus.balances.USDT * positionSize / manualTradingStatus.current_price).toFixed(6)} BTC</span>
+          </div>
+          <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
+            This will execute a market buy order immediately.
+          </div>
+        `;
+        
+        document.getElementById('modal-title').textContent = '🟢 Confirm Buy Order';
+        document.getElementById('modal-body').innerHTML = modalBody;
+        document.getElementById('confirmation-modal').classList.add('show');
+      }
+      
+      // Execute sell
+      async function executeSell() {
+        if (!manualTradingStatus || !manualTradingStatus.can_sell) {
+          showNotification('Cannot execute sell order', 'error');
+          return;
+        }
+        
+        const positionSize = parseFloat(document.getElementById('position-size').value) / 100;
+        
+        // Show confirmation modal
+        pendingTradeAction = {
+          type: 'sell',
+          positionSize: positionSize
+        };
+        
+        let modalBody = '';
+        
+        if (manualTradingStatus.position) {
+          const pos = manualTradingStatus.position;
+          const pnlSign = pos.unrealized_pnl >= 0 ? '+' : '';
+          const pnlClass = pos.unrealized_pnl >= 0 ? 'positive' : 'negative';
+          
+          modalBody = `
+            <div style="margin-bottom: 1rem;">
+              <strong>Close Position:</strong>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Side:</span>
+              <span class="preview-value">${pos.side.toUpperCase()}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Entry Price:</span>
+              <span class="preview-value">$${pos.entry_price.toFixed(2)}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Current Price:</span>
+              <span class="preview-value">$${pos.current_price.toFixed(2)}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Amount:</span>
+              <span class="preview-value">${pos.amount.toFixed(6)} BTC</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Unrealized P&L:</span>
+              <span class="preview-value ${pnlClass}">${pnlSign}$${pos.unrealized_pnl.toFixed(2)}</span>
+            </div>
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
+              This will close your ${pos.side} position at market price.
+            </div>
+          `;
+        } else {
+          modalBody = `
+            <div style="margin-bottom: 1rem;">
+              <strong>Sell Order Details:</strong>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Price:</span>
+              <span class="preview-value">$${manualTradingStatus.current_price.toFixed(2)}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Position Size:</span>
+              <span class="preview-value">${(positionSize * 100).toFixed(1)}%</span>
+            </div>
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
+              This will open a short position (paper trading).
+            </div>
+          `;
+        }
+        
+        document.getElementById('modal-title').textContent = '🔴 Confirm Sell Order';
+        document.getElementById('modal-body').innerHTML = modalBody;
+        document.getElementById('confirmation-modal').classList.add('show');
+      }
+      
+      // Confirm trade
+      async function confirmTrade() {
+        if (!pendingTradeAction) return;
+        
+        const confirmBtn = document.getElementById('modal-confirm-btn');
+        const originalText = confirmBtn.textContent;
+        confirmBtn.innerHTML = '<span class="loading-spinner"></span> Processing...';
+        confirmBtn.disabled = true;
+        
+        try {
+          const endpoint = pendingTradeAction.type === 'buy' ? '/api/manual/buy' : '/api/manual/sell';
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              position_size: pendingTradeAction.positionSize
+            })
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok && data.success) {
+            showNotification(`✅ ${data.message}`, 'success');
+            closeModal();
+            
+            // Refresh status and chart
+            await updateManualTradingStatus();
+            await refresh();
+          } else {
+            showNotification(`❌ ${data.error || 'Trade failed'}`, 'error');
+            confirmBtn.textContent = originalText;
+            confirmBtn.disabled = false;
+          }
+        } catch (error) {
+          showNotification(`❌ Error: ${error.message}`, 'error');
+          confirmBtn.textContent = originalText;
+          confirmBtn.disabled = false;
+        }
+      }
+      
+      // Close modal
+      function closeModal() {
+        document.getElementById('confirmation-modal').classList.remove('show');
+        pendingTradeAction = null;
+        
+        const confirmBtn = document.getElementById('modal-confirm-btn');
+        confirmBtn.textContent = 'Confirm';
+        confirmBtn.disabled = false;
+      }
+      
+      // Show notification
+      function showNotification(message, type = 'success') {
+        const toast = document.getElementById('notification-toast');
+        const messageEl = document.getElementById('notification-message');
+        
+        messageEl.textContent = message;
+        toast.className = `notification-toast ${type} show`;
+        
+        setTimeout(() => {
+          toast.classList.remove('show');
+        }, 5000);
+      }
+      
+      // Update position size preview
+      document.getElementById('position-size').addEventListener('input', () => {
+        if (manualTradingStatus) {
+          updateTradePreview(manualTradingStatus);
+        }
+      });
+      
+      // Close modal on overlay click
+      document.getElementById('confirmation-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'confirmation-modal') {
+          closeModal();
+        }
+      });
+      
+      // Initial manual trading status update
+      updateManualTradingStatus();
+      
+      // Auto-refresh manual trading status
+      setInterval(updateManualTradingStatus, 5000); // Every 5 seconds
+      
     </script>
 {% endblock %}
 

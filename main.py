@@ -7,7 +7,7 @@ import ccxt
 from binance import ThreadedWebsocketManager
 
 from config import BotConfig
-from dashboard import start_dashboard, update_state
+from dashboard import start_dashboard, update_state, set_trader
 from paper_trader import PaperTrader
 from strategy import compute_signal
 
@@ -77,7 +77,15 @@ def main():
         enable_database=config.enable_database,
         enable_csv_logging=config.enable_csv_logging,
     )
+    
+    # Create trader lock before starting dashboard
+    trader_lock = threading.Lock()
+    
+    # Start dashboard and enable manual trading
     start_dashboard(config.dashboard_host, config.dashboard_port)
+    set_trader(trader, trader_lock, exchange)
+    logging.info("Manual trading enabled on dashboard")
+    
     stop_event = threading.Event()
 
     def stop_handler(*_):
@@ -100,7 +108,6 @@ def main():
         tld="us",
     )
     twm.start()
-    trader_lock = threading.Lock()
     
     # Buffer to store candles from websocket (avoids fetch_ohlcv calls)
     candle_buffer = []

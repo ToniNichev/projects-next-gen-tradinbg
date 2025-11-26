@@ -78,6 +78,36 @@ The bot now relies on Binance's kline websocket stream instead of polling. Whene
 ## Dashboard
 The dashboard automatically starts on `http://localhost:8000` by default. Simply visit `http://localhost:8000` in your browser to access the main UI with live price charts, buy/sell markers, and trade summaries. You can also access the JSON API at `http://<host>:<port>/state` to retrieve the latest balances, signal, and trade summary programmatically.
 
+### 🎯 Manual Trading (New!)
+
+The dashboard now includes **manual trading controls** that let you execute buy/sell orders directly while the bot continues running:
+
+**Features:**
+- ✅ **Buy/Sell Buttons**: Execute market orders with one click
+- ✅ **Position Management**: View open positions with real-time P&L
+- ✅ **Automatic Risk Management**: Stop loss & take profit set automatically
+- ✅ **Trade Preview**: See estimated trade details before execution
+- ✅ **Position Sizing**: Customize position size (10-100% of balance)
+- ✅ **Confirmation Dialogs**: Prevent accidental trades
+- ✅ **Real-Time Updates**: Position status updates every 5 seconds
+
+**Quick Start:**
+1. Navigate to `http://localhost:8000/ui`
+2. Scroll to the "Manual Trading" panel
+3. Set your position size (% of balance)
+4. Click "Buy" or "Sell" button
+5. Confirm the trade details
+6. Done! Your trade executes immediately
+
+**Documentation:**
+- **[MANUAL_TRADING_GUIDE.md](MANUAL_TRADING_GUIDE.md)** - Complete user guide
+- **[MANUAL_TRADING_PLAN.md](MANUAL_TRADING_PLAN.md)** - Technical implementation details
+
+**API Endpoints:**
+- `/api/manual/status` - Get current position and trading status
+- `/api/manual/buy` - Execute buy order (POST)
+- `/api/manual/sell` - Execute sell order (POST)
+
 ### Available Endpoints
 - `/` - Homepage (redirects to main dashboard)
 - `/ui` - Main dashboard UI with live chart

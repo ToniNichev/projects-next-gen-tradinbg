@@ -1,3 +1,4 @@
+import logging
 import logging as flask_logging
 import os
 import threading
@@ -60,6 +61,11 @@ _max_backtest_results = 50
 # Backtest running state
 _backtest_running = False
 _current_backtest_id = None
+
+# Manual trading - trader instance reference
+_trader_instance = None
+_trader_lock = None
+_exchange_instance = None
 
 
 @app.route("/")
@@ -491,6 +497,200 @@ def clear_backtest_results():
     }), 200
 
 
+@app.route("/api/manual/status")
+@require_auth
+@limiter.limit("30 per minute")
+def get_manual_status():
+    """Get current status for manual trading"""
+    if not _trader_instance:
+        return jsonify({"error": "Manual trading not available", "available": False}), 503
+    
+    try:
+        with _trader_lock:
+            current_price = get_current_price()
+            balances = _trader_instance.get_balances()
+            portfolio_value = _trader_instance.get_portfolio_value(current_price)
+            
+            position_info = None
+            if _trader_instance.open_position:
+                pos = _trader_instance.open_position
+                unrealized_pnl = 0.0
+                if pos.side == "long":
+                    unrealized_pnl = (current_price - pos.entry_price) * pos.amount
+                else:  # short
+                    unrealized_pnl = (pos.entry_price - current_price) * pos.amount
+                
+                position_info = {
+                    "side": pos.side,
+                    "entry_price": pos.entry_price,
+                    "amount": pos.amount,
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "stop_loss": pos.stop_loss,
+                    "take_profit": pos.take_profit,
+                    "trailing_stop": pos.trailing_stop,
+                    "entry_time": pos.entry_time,
+                }
+            
+            return jsonify({
+                "available": True,
+                "current_price": current_price,
+                "balances": balances,
+                "portfolio_value": portfolio_value,
+                "position": position_info,
+                "can_buy": balances["USDT"] > 0 and (not _trader_instance.open_position or _trader_instance.open_position.side == "short"),
+                "can_sell": _trader_instance.open_position is not None,
+            })
+    except Exception as e:
+        return jsonify({"error": str(e), "available": False}), 500
+
+
+@app.route("/api/manual/buy", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def manual_buy():
+    """Execute manual buy order"""
+    if not _trader_instance:
+        return jsonify({"error": "Trader not available"}), 503
+    
+    try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        params = request.get_json() or {}
+        position_size = float(params.get("position_size", config.order_pct))
+        
+        # Validate position size
+        if position_size < config.min_position_size:
+            return jsonify({"error": f"Position size too small (min: {config.min_position_size*100}%)"}), 400
+        if position_size > config.max_position_size:
+            return jsonify({"error": f"Position size too large (max: {config.max_position_size*100}%)"}), 400
+        
+        with _trader_lock:
+            # Check if already in long position
+            if _trader_instance.open_position and _trader_instance.open_position.side == "long":
+                return jsonify({"error": "Already in long position"}), 400
+            
+            # Check balance
+            if _trader_instance.usdt_balance <= 0:
+                return jsonify({"error": "Insufficient USDT balance"}), 400
+            
+            # Get current price
+            current_price = get_current_price()
+            
+            # Create synthetic bullish signal
+            signal = create_manual_signal("bullish", current_price, position_size, config)
+            
+            # Execute trade
+            trade = _trader_instance.handle_signal(signal)
+            
+            if trade:
+                # Update dashboard state
+                update_state(
+                    balances=_trader_instance.get_balances(),
+                    last_trade=trade.to_dict(),
+                    price=current_price,
+                    signal_direction="bullish",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    trade_side="buy",
+                )
+                
+                return jsonify({
+                    "success": True,
+                    "trade": trade.to_dict(),
+                    "message": "Buy order executed successfully",
+                    "balances": _trader_instance.get_balances(),
+                })
+            else:
+                return jsonify({"error": "Trade execution failed"}), 400
+                
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/manual/sell", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def manual_sell():
+    """Execute manual sell order"""
+    if not _trader_instance:
+        return jsonify({"error": "Trader not available"}), 503
+    
+    try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        params = request.get_json() or {}
+        position_size = float(params.get("position_size", config.order_pct))
+        force_close = params.get("force_close", False)  # Force close current position
+        
+        with _trader_lock:
+            current_price = get_current_price()
+            
+            # If we have a long position, close it
+            if _trader_instance.open_position and _trader_instance.open_position.side == "long":
+                trade = _trader_instance._close_position(current_price, "manual")
+                
+                if trade:
+                    update_state(
+                        balances=_trader_instance.get_balances(),
+                        last_trade=trade.to_dict(),
+                        price=current_price,
+                        signal_direction="bearish",
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        trade_side="sell",
+                    )
+                    
+                    return jsonify({
+                        "success": True,
+                        "trade": trade.to_dict(),
+                        "message": "Position closed successfully",
+                        "balances": _trader_instance.get_balances(),
+                    })
+            
+            # If no position or in short, open new short position
+            elif not _trader_instance.open_position or force_close:
+                # Validate position size
+                if position_size < config.min_position_size:
+                    return jsonify({"error": f"Position size too small (min: {config.min_position_size*100}%)"}), 400
+                if position_size > config.max_position_size:
+                    return jsonify({"error": f"Position size too large (max: {config.max_position_size*100}%)"}), 400
+                
+                # Create synthetic bearish signal
+                signal = create_manual_signal("bearish", current_price, position_size, config)
+                
+                # Execute trade
+                trade = _trader_instance.handle_signal(signal)
+                
+                if trade:
+                    update_state(
+                        balances=_trader_instance.get_balances(),
+                        last_trade=trade.to_dict(),
+                        price=current_price,
+                        signal_direction="bearish",
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        trade_side="sell",
+                    )
+                    
+                    return jsonify({
+                        "success": True,
+                        "trade": trade.to_dict(),
+                        "message": "Sell order executed successfully",
+                        "balances": _trader_instance.get_balances(),
+                    })
+                else:
+                    return jsonify({"error": "Trade execution failed"}), 400
+            else:
+                return jsonify({"error": "No position to close"}), 400
+                
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/settings")
 @require_auth
 def settings_page():
@@ -601,6 +801,93 @@ def update_state(
             trade_side,
             ohlc=ohlc,
         )
+
+
+def set_trader(trader, lock, exchange=None):
+    """
+    Set the trader instance for manual trading.
+    
+    Args:
+        trader: PaperTrader instance
+        lock: Threading lock for trader access
+        exchange: CCXT exchange instance (optional, for live price)
+    """
+    global _trader_instance, _trader_lock, _exchange_instance
+    _trader_instance = trader
+    _trader_lock = lock
+    _exchange_instance = exchange
+    logging.getLogger(__name__).info("Manual trading enabled - trader instance registered")
+
+
+def get_current_price():
+    """Get current market price from exchange or latest history"""
+    try:
+        # Try to get from exchange if available
+        if _exchange_instance:
+            from config import BotConfig
+            config = BotConfig.load()
+            ticker = _exchange_instance.fetch_ticker(config.symbol)
+            return float(ticker['last'])
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Could not fetch live price: {e}")
+    
+    # Fallback to latest history price
+    if _history:
+        return _history[-1]['close']
+    
+    # Last fallback to state
+    if _state.get('last_signal'):
+        return _state['last_signal'].get('price', 0.0)
+    
+    raise ValueError("No price data available")
+
+
+def create_manual_signal(direction: str, current_price: float, position_size: float, config) -> object:
+    """
+    Create a synthetic signal for manual trading.
+    
+    Args:
+        direction: 'bullish' or 'bearish'
+        current_price: Current market price
+        position_size: Position size as decimal (0.2 = 20%)
+        config: BotConfig instance for stop loss/take profit calculation
+    
+    Returns:
+        StrategySignal object
+    """
+    from strategy import StrategySignal
+    from datetime import datetime, timezone
+    
+    # Calculate stop loss and take profit based on config
+    if direction == "bullish":
+        if config.use_atr_stops:
+            # Estimate ATR as 2% of price for manual trades
+            estimated_atr = current_price * 0.02
+            stop_loss = current_price - (estimated_atr * config.atr_stop_multiplier)
+        else:
+            stop_loss = current_price * (1 - config.stop_loss_pct)
+        take_profit = current_price * (1 + config.take_profit_pct)
+    else:  # bearish
+        if config.use_atr_stops:
+            estimated_atr = current_price * 0.02
+            stop_loss = current_price + (estimated_atr * config.atr_stop_multiplier)
+        else:
+            stop_loss = current_price * (1 + config.stop_loss_pct)
+        take_profit = current_price * (1 - config.take_profit_pct)
+    
+    return StrategySignal(
+        direction=direction,
+        price=current_price,
+        short_ema=current_price,
+        long_ema=current_price,
+        trend_strength=0.0,
+        timestamp=datetime.now(timezone.utc),
+        info={"manual_trade": True, "source": "dashboard"},
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        position_size=position_size,
+        atr=current_price * 0.02,  # Estimated ATR
+    )
 
 
 def start_dashboard(host="0.0.0.0", port=8000):
