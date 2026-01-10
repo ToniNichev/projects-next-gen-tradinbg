@@ -1,0 +1,1152 @@
+{% extends "base.html" %}
+
+{% block title %}Strategy Configuration - Crypto Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .config-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .strategy-section {
+    background: var(--bg-secondary);
+    border: 1px solid rgba(83, 155, 245, 0.2);
+    border-left: 3px solid var(--accent-blue);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .strategy-section h3 {
+    color: var(--accent-blue);
+  }
+  
+  .config-section h3 {
+    font-size: 1.25rem;
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.75rem;
+  }
+  
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+  }
+  
+  .form-group {
+    margin-bottom: 1.5rem;
+  }
+  
+  .form-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+  }
+  
+  .form-control, .form-select {
+    width: 100%;
+    padding: 0.625rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    transition: border-color 0.2s;
+  }
+  
+  .form-control:focus, .form-select:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+  
+  .form-range {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  
+  .form-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--accent-blue);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  
+  .form-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: var(--accent-blue);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+  }
+  
+  .form-text {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.375rem;
+    display: block;
+  }
+  
+  .range-value {
+    display: inline-block;
+    min-width: 60px;
+    font-weight: 600;
+    color: var(--accent-blue);
+  }
+  
+  .form-switch {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  
+  .form-switch input[type="checkbox"] {
+    width: 44px;
+    height: 24px;
+    appearance: none;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  
+  .form-switch input[type="checkbox"]:checked {
+    background: var(--accent-green);
+    border-color: var(--accent-green);
+  }
+  
+  .form-switch input[type="checkbox"]::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    top: 2px;
+    left: 2px;
+    transition: all 0.3s;
+  }
+  
+  .form-switch input[type="checkbox"]:checked::before {
+    left: 22px;
+  }
+  
+  .form-switch label {
+    margin: 0;
+    color: var(--text-primary);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  
+  .action-buttons {
+    position: sticky;
+    bottom: 20px;
+    background: var(--bg-primary);
+    padding: 1.5rem;
+    border-top: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+  }
+  
+  .alert {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-color);
+    animation: slideIn 0.3s ease-out;
+  }
+  
+  .alert-info {
+    background: rgba(83, 155, 245, 0.1);
+    border-color: var(--accent-blue);
+    color: var(--text-primary);
+  }
+  
+  .alert-success {
+    background: rgba(88, 214, 141, 0.1);
+    border-color: var(--accent-green);
+    color: var(--text-primary);
+    box-shadow: 0 0 20px rgba(88, 214, 141, 0.3);
+  }
+  
+  .alert-danger {
+    background: rgba(255, 94, 87, 0.1);
+    border-color: var(--accent-red);
+    color: var(--text-primary);
+    box-shadow: 0 0 20px rgba(255, 94, 87, 0.3);
+  }
+  
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Button states */
+  .btn-applying {
+    background: linear-gradient(90deg, var(--accent-blue), var(--accent-green), var(--accent-blue)) !important;
+    background-size: 200% 100% !important;
+    animation: shimmer 2s ease-in-out infinite !important;
+    cursor: wait !important;
+  }
+  
+  .btn-success-flash {
+    background: var(--accent-green) !important;
+    animation: successPulse 0.6s ease-out !important;
+  }
+  
+  .btn-error-flash {
+    background: var(--accent-red) !important;
+    animation: errorShake 0.6s ease-out !important;
+  }
+  
+  @keyframes shimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  
+  @keyframes successPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); box-shadow: 0 0 30px rgba(88, 214, 141, 0.6); }
+  }
+  
+  @keyframes errorShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-10px); }
+    75% { transform: translateX(10px); }
+  }
+  
+  .info-box {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-top: 1.5rem;
+  }
+  
+  .info-box h6 {
+    margin: 0 0 0.5rem 0;
+    color: var(--accent-blue);
+  }
+  
+  .info-box ol {
+    margin: 0.5rem 0 0 1.5rem;
+    color: var(--text-secondary);
+  }
+  
+  .info-box code {
+    background: var(--bg-primary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-family: 'Courier New', monospace;
+    color: var(--accent-blue);
+  }
+  
+  .modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .modal.show {
+    display: flex;
+  }
+  
+  .modal-dialog {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    max-width: 800px;
+    width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .modal-title {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+  
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+  }
+  
+  .modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+  
+  pre {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    overflow-x: auto;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+  }
+  
+  .btn-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .btn-close:hover {
+    color: var(--text-primary);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>⚙️ Bot Configuration</h1>
+<p style="color: var(--text-secondary); margin-bottom: 2rem;">
+  Configure all bot parameters with <strong>instant hot-reload</strong>. Changes are saved to the database and applied immediately.
+</p>
+
+<!-- Alert Container -->
+<div id="alertContainer"></div>
+
+<!-- Configuration Form -->
+<form id="configForm">
+  
+  <!-- GENERAL SETTINGS HEADER -->
+  <div style="margin-bottom: 1.5rem;">
+    <h2 style="font-size: 1.5rem; margin: 0 0 0.5rem 0; color: var(--accent-green); display: flex; align-items: center; gap: 0.5rem;">
+      <span style="font-size: 2rem;">⚙️</span>
+      <span>General Bot Settings</span>
+    </h2>
+    <p style="color: var(--text-secondary); margin: 0;">
+      Core trading parameters, risk management, and signal filters that apply to all strategies.
+    </p>
+  </div>
+  
+  <!-- Trading Parameters -->
+  <div class="config-section">
+    <h3>📊 Trading Parameters</h3>
+    <div class="alert alert-info">
+      <strong>⚠️ Restart Required:</strong> Changes to Symbol and Timeframe require a bot restart. All other parameters update instantly.
+    </div>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Trading Symbol</label>
+        <select class="form-select" id="symbol" name="symbol">
+          <option value="BTC/USDT">BTC/USDT</option>
+          <option value="ETH/USDT">ETH/USDT</option>
+          <option value="SOL/USDT">SOL/USDT</option>
+          <option value="BNB/USDT">BNB/USDT</option>
+        </select>
+        <span class="form-text">Trading pair (requires restart)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Timeframe</label>
+        <select class="form-select" id="timeframe" name="timeframe">
+          <option value="5m">5 minutes</option>
+          <option value="15m">15 minutes</option>
+          <option value="30m">30 minutes</option>
+          <option value="1h">1 hour</option>
+          <option value="4h">4 hours</option>
+          <option value="1d">1 day</option>
+        </select>
+        <span class="form-text">Candlestick interval (requires restart)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Initial Capital (USDT)</label>
+        <input type="number" class="form-control" id="initialUsdt" name="initial_usdt" 
+               min="100" step="100" value="1000">
+        <span class="form-text">Starting balance for paper trading</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Order Size (%)</label>
+        <input type="range" class="form-range" id="orderPct" name="order_pct" 
+               min="0.1" max="1.0" step="0.05" value="0.25">
+        <span class="form-text">
+          <span class="range-value" id="orderPctValue">25%</span> of portfolio per trade
+        </span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- STRATEGY SETTINGS SEPARATOR -->
+  <div style="margin: 3rem 0 2rem 0; border-top: 2px solid var(--border-color); padding-top: 2rem;">
+    <h2 style="font-size: 1.5rem; margin: 0 0 0.5rem 0; color: var(--accent-blue); display: flex; align-items: center; gap: 0.5rem;">
+      <span style="font-size: 2rem;">🎯</span>
+      <span>Strategy Configuration</span>
+    </h2>
+    <p style="color: var(--text-secondary); margin: 0 0 1.5rem 0;">
+      Configure individual trading strategies, their weights, and how signals are combined.
+    </p>
+  </div>
+  
+  <!-- Multi-Strategy Settings -->
+  <div class="strategy-section">
+    <h3>🧠 Multi-Strategy System</h3>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Aggregation Mode</label>
+        <select class="form-select" id="aggregationMode" name="aggregation_mode">
+          <option value="weighted_voting">Weighted Voting (Recommended)</option>
+          <option value="voting">Simple Voting</option>
+          <option value="unanimous">Unanimous (Conservative)</option>
+          <option value="any">Any (Aggressive)</option>
+          <option value="best">Best (Most Confident)</option>
+        </select>
+        <span class="form-text">How signals from multiple strategies are combined</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Minimum Confidence</label>
+        <input type="range" class="form-range" id="minConfidence" name="min_confidence" 
+               min="0.1" max="0.8" step="0.05" value="0.3">
+        <span class="form-text">
+          <span class="range-value" id="minConfidenceValue">30%</span> - Higher = fewer but stronger signals
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Additional Indicators -->
+  <div class="config-section">
+    <h3>📉 Technical Indicators</h3>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">RSI Period</label>
+        <input type="number" class="form-control" id="rsiPeriod" name="rsi_period" 
+               min="5" max="30" value="14">
+        <span class="form-text">Lookback period for RSI (standard: 14)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">RSI Oversold Threshold</label>
+        <input type="number" class="form-control" id="rsiOversold" name="rsi_oversold" 
+               min="10" max="40" step="5" value="25">
+        <span class="form-text">Buy signal threshold (lower = stronger)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">RSI Overbought Threshold</label>
+        <input type="number" class="form-control" id="rsiOverbought" name="rsi_overbought" 
+               min="60" max="90" step="5" value="75">
+        <span class="form-text">Sell signal threshold (higher = stronger)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">ATR Period</label>
+        <input type="number" class="form-control" id="atrPeriod" name="atr_period" 
+               min="5" max="30" value="14">
+        <span class="form-text">Volatility measurement period</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">ATR Stop Multiplier</label>
+        <input type="range" class="form-range" id="atrStopMultiplier" name="atr_stop_multiplier" 
+               min="1.0" max="5.0" step="0.5" value="2.5">
+        <span class="form-text">
+          <span class="range-value" id="atrStopMultiplierValue">2.5x</span> ATR for stops
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <div class="form-switch">
+          <input type="checkbox" id="useAtrStops" name="use_atr_stops">
+          <label for="useAtrStops">Use ATR-Based Stops</label>
+        </div>
+        <span class="form-text">Dynamic stops based on volatility</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Risk Management -->
+  <div class="config-section">
+    <h3>🛡️ Risk Management</h3>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Stop Loss (%)</label>
+        <input type="range" class="form-range" id="stopLossPct" name="stop_loss_pct" 
+               min="0.5" max="10" step="0.5" value="2.5">
+        <span class="form-text">
+          <span class="range-value" id="stopLossPctValue">2.5%</span> max loss per trade
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Take Profit (%)</label>
+        <input type="range" class="form-range" id="takeProfitPct" name="take_profit_pct" 
+               min="1" max="20" step="0.5" value="4">
+        <span class="form-text">
+          <span class="range-value" id="takeProfitPctValue">4.0%</span> target profit
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Trailing Stop (%)</label>
+        <input type="range" class="form-range" id="trailingStopPct" name="trailing_stop_pct" 
+               min="0.5" max="5" step="0.5" value="1.5">
+        <span class="form-text">
+          <span class="range-value" id="trailingStopPctValue">1.5%</span> trailing distance
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <div class="form-switch">
+          <input type="checkbox" id="useTrailingStop" name="use_trailing_stop">
+          <label for="useTrailingStop">Enable Trailing Stops</label>
+        </div>
+        <span class="form-text">Lock in profits as price moves favorably</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Position Sizing -->
+  <div class="config-section">
+    <h3>💰 Position Sizing</h3>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Min Position Size (%)</label>
+        <input type="range" class="form-range" id="minPositionSize" name="min_position_size" 
+               min="5" max="50" step="5" value="15">
+        <span class="form-text">
+          <span class="range-value" id="minPositionSizeValue">15%</span> minimum allocation
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Max Position Size (%)</label>
+        <input type="range" class="form-range" id="maxPositionSize" name="max_position_size" 
+               min="10" max="100" step="5" value="35">
+        <span class="form-text">
+          <span class="range-value" id="maxPositionSizeValue">35%</span> maximum allocation
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <div class="form-switch">
+          <input type="checkbox" id="useDynamicSizing" name="use_dynamic_sizing">
+          <label for="useDynamicSizing">Dynamic Position Sizing</label>
+        </div>
+        <span class="form-text">Adjust size based on signal confidence</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Signal Filters -->
+  <div class="config-section">
+    <h3>🔍 Signal Filters</h3>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Volume Threshold (multiplier)</label>
+        <input type="range" class="form-range" id="volumeThreshold" name="volume_threshold" 
+               min="1.0" max="3.0" step="0.1" value="1.1">
+        <span class="form-text">
+          <span class="range-value" id="volumeThresholdValue">1.1x</span> average volume required
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <div class="form-switch">
+          <input type="checkbox" id="requireVolumeConfirmation" name="require_volume_confirmation">
+          <label for="requireVolumeConfirmation">Require Volume Confirmation</label>
+        </div>
+        <span class="form-text">Filter low-liquidity signals</span>
+      </div>
+      
+      <div class="form-group">
+        <div class="form-switch">
+          <input type="checkbox" id="requireMacdConfirmation" name="require_macd_confirmation">
+          <label for="requireMacdConfirmation">Require MACD Confirmation</label>
+        </div>
+        <span class="form-text">Additional momentum filter (conservative)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Max Trades Per Day</label>
+        <input type="number" class="form-control" id="maxTradesPerDay" name="max_trades_per_day" 
+               min="1" max="20" value="5">
+        <span class="form-text">Prevent overtrading</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- EMA Crossover Strategy -->
+  <div class="strategy-section">
+    <h3>📈 EMA Crossover Strategy (Trend Following)</h3>
+    
+    <div class="form-group">
+      <div class="form-switch">
+        <input type="checkbox" id="emaEnabled" name="ema_enabled">
+        <label for="emaEnabled">Enable EMA Strategy</label>
+      </div>
+    </div>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Strategy Weight</label>
+        <input type="range" class="form-range" id="emaWeight" name="ema_weight" 
+               min="0.5" max="2.0" step="0.1" value="1.0">
+        <span class="form-text">
+          <span class="range-value" id="emaWeightValue">1.0</span> - Higher = more influence in voting
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Short EMA Window</label>
+        <input type="number" class="form-control" id="emaShortWindow" 
+               name="ema_short_window" min="5" max="50" value="12">
+        <span class="form-text">Fast moving average period</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Long EMA Window</label>
+        <input type="number" class="form-control" id="emaLongWindow" 
+               name="ema_long_window" min="10" max="100" value="26">
+        <span class="form-text">Slow moving average period</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Min Trend Strength</label>
+        <input type="number" class="form-control" id="emaTrendStrength" 
+               name="ema_trend_strength" min="0.00001" max="0.001" step="0.00001" value="0.00005">
+        <span class="form-text">Minimum EMA separation</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RSI + Bollinger Bands Strategy -->
+  <div class="strategy-section">
+    <h3>🌊 RSI + Bollinger Bands Strategy (Mean Reversion)</h3>
+    
+    <div class="form-group">
+      <div class="form-switch">
+        <input type="checkbox" id="rsiBbEnabled" name="rsi_bb_enabled">
+        <label for="rsiBbEnabled">Enable RSI+BB Strategy</label>
+      </div>
+    </div>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Strategy Weight</label>
+        <input type="range" class="form-range" id="rsiBbWeight" name="rsi_bb_weight" 
+               min="0.5" max="2.0" step="0.1" value="1.0">
+        <span class="form-text">
+          <span class="range-value" id="rsiBbWeightValue">1.0</span> - Higher = more influence
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">RSI Oversold (RSI+BB)</label>
+        <input type="number" class="form-control" id="rsiOversoldRsiBb" 
+               name="rsi_oversold_rsi_bb" min="10" max="40" value="30">
+        <span class="form-text">Buy signal threshold (RSI+BB strategy)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">RSI Overbought (RSI+BB)</label>
+        <input type="number" class="form-control" id="rsiOverboughtRsiBb" 
+               name="rsi_overbought_rsi_bb" min="60" max="90" value="70">
+        <span class="form-text">Sell signal threshold (RSI+BB strategy)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">BB Period</label>
+        <input type="number" class="form-control" id="bbPeriod" 
+               name="bb_period" min="10" max="50" value="20">
+        <span class="form-text">Bollinger Band SMA</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">BB Std Dev</label>
+        <input type="number" class="form-control" id="bbStdDev" 
+               name="bb_std_dev" min="1.0" max="3.0" step="0.1" value="2.0">
+        <span class="form-text">Band width (σ)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Stop Loss %</label>
+        <input type="range" class="form-range" id="rsiBbStopLoss" name="rsi_bb_stop_loss" 
+               min="0.01" max="0.05" step="0.001" value="0.02">
+        <span class="form-text">
+          <span class="range-value" id="rsiBbStopLossValue">2.0%</span>
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">Take Profit %</label>
+        <input type="range" class="form-range" id="rsiBbTakeProfit" name="rsi_bb_take_profit" 
+               min="0.02" max="0.08" step="0.001" value="0.03">
+        <span class="form-text">
+          <span class="range-value" id="rsiBbTakeProfitValue">3.0%</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="action-buttons">
+    <button type="button" class="secondary" onclick="loadCurrentConfig()">
+      🔄 Reset to Current
+    </button>
+    <button type="button" class="btn" onclick="previewChanges()">
+      👁️ Preview Changes
+    </button>
+    <button type="button" class="success" onclick="applyConfig()" id="applyBtn">
+      ✅ Apply Configuration
+    </button>
+    <button type="button" class="btn" style="opacity: 0.7;" onclick="generateEnvFile()" title="Export current settings as backup">
+      📄 Export Backup
+    </button>
+  </div>
+
+  <!-- Info Box -->
+  <div class="info-box">
+    <h6>✨ Instant Configuration</h6>
+    <p>
+      Click <strong>"Apply Configuration"</strong> and your changes are saved to the database 
+      and applied immediately to the running bot. No restart needed!
+    </p>
+    <div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(83, 155, 245, 0.1); border-radius: 0.25rem;">
+      <strong style="color: var(--accent-blue);">⚡ Hot Reload:</strong> 
+      <span style="color: var(--text-secondary);">
+        Risk management, position sizing, strategy weights, and all indicator parameters 
+        update instantly.
+      </span>
+    </div>
+    <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">
+      <strong>Requires restart:</strong> Symbol and Timeframe only.
+    </small>
+  </div>
+</form>
+
+<!-- Preview Modal -->
+<div class="modal" id="previewModal">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h5 class="modal-title">👁️ Configuration Preview</h5>
+      <button type="button" class="btn-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <pre id="previewContent"></pre>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="secondary" onclick="closeModal()">Close</button>
+      <button type="button" class="success" onclick="generateEnvFile()">
+        💾 Download
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Update range value displays
+  const rangeUpdaters = {
+    'orderPct': (v) => (v * 100).toFixed(0) + '%',
+    'minConfidence': (v) => (v * 100).toFixed(0) + '%',
+    'emaWeight': (v) => parseFloat(v).toFixed(1),
+    'rsiBbWeight': (v) => parseFloat(v).toFixed(1),
+    'rsiBbStopLoss': (v) => (v * 100).toFixed(1) + '%',
+    'rsiBbTakeProfit': (v) => (v * 100).toFixed(1) + '%',
+    'atrStopMultiplier': (v) => parseFloat(v).toFixed(1) + 'x',
+    'stopLossPct': (v) => (v * 100).toFixed(1) + '%',
+    'takeProfitPct': (v) => (v * 100).toFixed(1) + '%',
+    'trailingStopPct': (v) => (v * 100).toFixed(1) + '%',
+    'minPositionSize': (v) => v + '%',
+    'maxPositionSize': (v) => v + '%',
+    'volumeThreshold': (v) => parseFloat(v).toFixed(1) + 'x'
+  };
+  
+  // Attach event listeners for range inputs
+  Object.keys(rangeUpdaters).forEach(id => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.addEventListener('input', function(e) {
+        const valueElement = document.getElementById(id + 'Value');
+        if (valueElement) {
+          valueElement.textContent = rangeUpdaters[id](e.target.value);
+        }
+      });
+    }
+  });
+
+  async function loadCurrentConfig() {
+    try {
+      // Try loading from database first via /api/strategy-config
+      let response = await fetch('/api/strategy-config');
+      let result = await response.json();
+      let config = result.config || {};
+      
+      // Fallback to /api/config if database is empty
+      if (Object.keys(config).length === 0) {
+        response = await fetch('/api/config');
+        config = await response.json();
+      }
+      
+      // Trading Parameters
+      if (config.symbol) document.getElementById('symbol').value = config.symbol;
+      if (config.timeframe) document.getElementById('timeframe').value = config.timeframe;
+      if (config.initial_usdt) document.getElementById('initialUsdt').value = config.initial_usdt;
+      
+      const orderPct = config.order_pct || 0.25;
+      document.getElementById('orderPct').value = orderPct;
+      document.getElementById('orderPctValue').textContent = (orderPct * 100).toFixed(0) + '%';
+      
+      // Indicators
+      if (config.rsi_period) document.getElementById('rsiPeriod').value = config.rsi_period;
+      if (config.rsi_oversold) document.getElementById('rsiOversold').value = config.rsi_oversold;
+      if (config.rsi_overbought) document.getElementById('rsiOverbought').value = config.rsi_overbought;
+      if (config.atr_period) document.getElementById('atrPeriod').value = config.atr_period;
+      
+      const atrStop = config.atr_stop_multiplier || 2.5;
+      document.getElementById('atrStopMultiplier').value = atrStop;
+      document.getElementById('atrStopMultiplierValue').textContent = atrStop.toFixed(1) + 'x';
+      document.getElementById('useAtrStops').checked = config.use_atr_stops !== false;
+      
+      // Risk Management
+      const stopLoss = config.stop_loss_pct || 0.025;
+      document.getElementById('stopLossPct').value = stopLoss * 100;
+      document.getElementById('stopLossPctValue').textContent = (stopLoss * 100).toFixed(1) + '%';
+      
+      const takeProfit = config.take_profit_pct || 0.04;
+      document.getElementById('takeProfitPct').value = takeProfit * 100;
+      document.getElementById('takeProfitPctValue').textContent = (takeProfit * 100).toFixed(1) + '%';
+      
+      const trailingStop = config.trailing_stop_pct || 0.015;
+      document.getElementById('trailingStopPct').value = trailingStop * 100;
+      document.getElementById('trailingStopPctValue').textContent = (trailingStop * 100).toFixed(1) + '%';
+      document.getElementById('useTrailingStop').checked = config.use_trailing_stop !== false;
+      
+      // Position Sizing
+      const minPos = (config.min_position_size || 0.15) * 100;
+      document.getElementById('minPositionSize').value = minPos;
+      document.getElementById('minPositionSizeValue').textContent = minPos.toFixed(0) + '%';
+      
+      const maxPos = (config.max_position_size || 0.35) * 100;
+      document.getElementById('maxPositionSize').value = maxPos;
+      document.getElementById('maxPositionSizeValue').textContent = maxPos.toFixed(0) + '%';
+      document.getElementById('useDynamicSizing').checked = config.use_dynamic_sizing !== false;
+      
+      // Signal Filters
+      const volThreshold = config.volume_threshold || 1.1;
+      document.getElementById('volumeThreshold').value = volThreshold;
+      document.getElementById('volumeThresholdValue').textContent = volThreshold.toFixed(1) + 'x';
+      document.getElementById('requireVolumeConfirmation').checked = config.require_volume_confirmation !== false;
+      document.getElementById('requireMacdConfirmation').checked = config.require_macd_confirmation === true;
+      if (config.max_trades_per_day) document.getElementById('maxTradesPerDay').value = config.max_trades_per_day;
+      
+      // Multi-strategy
+      document.getElementById('aggregationMode').value = config.strategy_aggregation_mode || 'weighted_voting';
+      const minConf = config.min_signal_confidence || 0.3;
+      document.getElementById('minConfidence').value = minConf;
+      document.getElementById('minConfidenceValue').textContent = (minConf * 100).toFixed(0) + '%';
+      
+      // EMA Strategy
+      document.getElementById('emaEnabled').checked = config.strategy_ema_enabled !== false;
+      const emaWeight = config.strategy_ema_weight || 1.0;
+      document.getElementById('emaWeight').value = emaWeight;
+      document.getElementById('emaWeightValue').textContent = emaWeight.toFixed(1);
+      document.getElementById('emaShortWindow').value = config.short_window || 12;
+      document.getElementById('emaLongWindow').value = config.long_window || 26;
+      document.getElementById('emaTrendStrength').value = config.min_trend_strength || 0.00005;
+      
+      // RSI+BB Strategy
+      document.getElementById('rsiBbEnabled').checked = config.strategy_rsi_bb_enabled !== false;
+      const rsiBbWeight = config.strategy_rsi_bb_weight || 1.0;
+      document.getElementById('rsiBbWeight').value = rsiBbWeight;
+      document.getElementById('rsiBbWeightValue').textContent = rsiBbWeight.toFixed(1);
+      document.getElementById('rsiOversoldRsiBb').value = config.strategy_rsi_bb_rsi_oversold || 30;
+      document.getElementById('rsiOverboughtRsiBb').value = config.strategy_rsi_bb_rsi_overbought || 70;
+      document.getElementById('bbPeriod').value = config.strategy_rsi_bb_bb_period || 20;
+      document.getElementById('bbStdDev').value = config.strategy_rsi_bb_bb_std_dev || 2.0;
+      
+      const rsiBbStop = config.strategy_rsi_bb_stop_loss_pct || 0.02;
+      document.getElementById('rsiBbStopLoss').value = rsiBbStop;
+      document.getElementById('rsiBbStopLossValue').textContent = (rsiBbStop * 100).toFixed(1) + '%';
+      
+      const rsiBbProfit = config.strategy_rsi_bb_take_profit_pct || 0.03;
+      document.getElementById('rsiBbTakeProfit').value = rsiBbProfit;
+      document.getElementById('rsiBbTakeProfitValue').textContent = (rsiBbProfit * 100).toFixed(1) + '%';
+      
+      showAlert('Configuration loaded successfully', 'success');
+    } catch (error) {
+      console.error('Error loading config:', error);
+      showAlert('Failed to load configuration: ' + error.message, 'danger');
+    }
+  }
+  
+  async function applyConfig() {
+    try {
+      // Disable button and show applying state
+      const applyBtn = document.getElementById('applyBtn');
+      const originalText = applyBtn.textContent;
+      applyBtn.disabled = true;
+      applyBtn.classList.add('btn-applying');
+      applyBtn.innerHTML = '<span class="spinner" style="border: 2px solid #fff; border-top: 2px solid transparent; border-radius: 50%; width: 14px; height: 14px; animation: spin 1s linear infinite; display: inline-block; margin-right: 8px;"></span> Applying Configuration...';
+      
+      // Collect all configuration values
+      const config = {
+        // Trading parameters (note: symbol/timeframe require restart)
+        symbol: document.getElementById('symbol').value,
+        timeframe: document.getElementById('timeframe').value,
+        initial_usdt: parseFloat(document.getElementById('initialUsdt').value),
+        order_pct: parseFloat(document.getElementById('orderPct').value),
+        
+        // Indicators
+        rsi_period: parseInt(document.getElementById('rsiPeriod').value),
+        rsi_oversold: parseFloat(document.getElementById('rsiOversold').value),
+        rsi_overbought: parseFloat(document.getElementById('rsiOverbought').value),
+        atr_period: parseInt(document.getElementById('atrPeriod').value),
+        atr_stop_multiplier: parseFloat(document.getElementById('atrStopMultiplier').value),
+        use_atr_stops: document.getElementById('useAtrStops').checked,
+        
+        // Risk Management (convert % back to decimals)
+        stop_loss_pct: parseFloat(document.getElementById('stopLossPct').value) / 100,
+        take_profit_pct: parseFloat(document.getElementById('takeProfitPct').value) / 100,
+        trailing_stop_pct: parseFloat(document.getElementById('trailingStopPct').value) / 100,
+        use_trailing_stop: document.getElementById('useTrailingStop').checked,
+        
+        // Position Sizing (convert % back to decimals)
+        min_position_size: parseFloat(document.getElementById('minPositionSize').value) / 100,
+        max_position_size: parseFloat(document.getElementById('maxPositionSize').value) / 100,
+        use_dynamic_sizing: document.getElementById('useDynamicSizing').checked,
+        
+        // Signal Filters
+        volume_threshold: parseFloat(document.getElementById('volumeThreshold').value),
+        require_volume_confirmation: document.getElementById('requireVolumeConfirmation').checked,
+        require_macd_confirmation: document.getElementById('requireMacdConfirmation').checked,
+        max_trades_per_day: parseInt(document.getElementById('maxTradesPerDay').value),
+        
+        // Multi-Strategy
+        strategy_aggregation_mode: document.getElementById('aggregationMode').value,
+        min_signal_confidence: parseFloat(document.getElementById('minConfidence').value),
+        
+        // EMA Strategy
+        strategy_ema_enabled: document.getElementById('emaEnabled').checked,
+        strategy_ema_weight: parseFloat(document.getElementById('emaWeight').value),
+        short_window: parseInt(document.getElementById('emaShortWindow').value),
+        long_window: parseInt(document.getElementById('emaLongWindow').value),
+        min_trend_strength: parseFloat(document.getElementById('emaTrendStrength').value),
+        
+        // RSI+BB Strategy
+        strategy_rsi_bb_enabled: document.getElementById('rsiBbEnabled').checked,
+        strategy_rsi_bb_weight: parseFloat(document.getElementById('rsiBbWeight').value),
+        strategy_rsi_bb_rsi_oversold: parseFloat(document.getElementById('rsiOversoldRsiBb').value),
+        strategy_rsi_bb_rsi_overbought: parseFloat(document.getElementById('rsiOverboughtRsiBb').value),
+        strategy_rsi_bb_bb_period: parseInt(document.getElementById('bbPeriod').value),
+        strategy_rsi_bb_bb_std_dev: parseFloat(document.getElementById('bbStdDev').value),
+        strategy_rsi_bb_stop_loss_pct: parseFloat(document.getElementById('rsiBbStopLoss').value),
+        strategy_rsi_bb_take_profit_pct: parseFloat(document.getElementById('rsiBbTakeProfit').value),
+      };
+      
+      // Step 1: Save configuration to database
+      const updateResponse = await fetch('/api/strategy-config/update', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+      });
+      
+      if (!updateResponse.ok) {
+        throw new Error('Failed to save configuration');
+      }
+      
+      const updateResult = await updateResponse.json();
+      console.log('Config saved:', updateResult);
+      
+      // Step 2: Apply configuration to running strategies
+      const applyResponse = await fetch('/api/strategy-config/apply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!applyResponse.ok) {
+        throw new Error('Failed to apply configuration');
+      }
+      
+      const applyResult = await applyResponse.json();
+      console.log('Config applied:', applyResult);
+      
+      // SUCCESS! Show success state
+      applyBtn.classList.remove('btn-applying');
+      applyBtn.classList.add('btn-success-flash');
+      applyBtn.innerHTML = '✅ Configuration Applied Successfully!';
+      
+      showAlert('✅ Configuration applied successfully! Changes are now active. All strategies have been reloaded with new parameters.', 'success');
+      
+      // Reset button after animation
+      setTimeout(() => {
+        applyBtn.classList.remove('btn-success-flash');
+        applyBtn.disabled = false;
+        applyBtn.textContent = '✅ Apply Configuration';
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Error applying config:', error);
+      
+      // ERROR! Show error state
+      const applyBtn = document.getElementById('applyBtn');
+      applyBtn.classList.remove('btn-applying');
+      applyBtn.classList.add('btn-error-flash');
+      applyBtn.innerHTML = '❌ Application Failed!';
+      
+      showAlert('❌ Failed to apply configuration: ' + error.message + '. Please check your settings and try again.', 'danger');
+      
+      // Reset button after animation
+      setTimeout(() => {
+        applyBtn.classList.remove('btn-error-flash');
+        applyBtn.disabled = false;
+        applyBtn.textContent = '✅ Apply Configuration';
+      }, 2000);
+    }
+  }
+
+  function previewChanges() {
+    const envContent = generateEnvContent();
+    document.getElementById('previewContent').textContent = envContent;
+    document.getElementById('previewModal').classList.add('show');
+  }
+
+  function closeModal() {
+    document.getElementById('previewModal').classList.remove('show');
+  }
+
+  function generateEnvContent() {
+    return `# =============================================================================
+# Multi-Strategy Configuration
+# =============================================================================
+
+# Multi-Strategy System
+BOT_USE_MULTI_STRATEGY=true
+BOT_STRATEGY_AGGREGATION_MODE=${document.getElementById('aggregationMode').value}
+BOT_MIN_SIGNAL_CONFIDENCE=${document.getElementById('minConfidence').value}
+
+# EMA Crossover Strategy
+BOT_STRATEGY_EMA_ENABLED=${document.getElementById('emaEnabled').checked}
+BOT_STRATEGY_EMA_WEIGHT=${document.getElementById('emaWeight').value}
+BOT_SHORT_WINDOW=${document.getElementById('emaShortWindow').value}
+BOT_LONG_WINDOW=${document.getElementById('emaLongWindow').value}
+BOT_MIN_TREND_STRENGTH=${document.getElementById('emaTrendStrength').value}
+
+# RSI + Bollinger Bands Strategy
+BOT_STRATEGY_RSI_BB_ENABLED=${document.getElementById('rsiBbEnabled').checked}
+BOT_STRATEGY_RSI_BB_WEIGHT=${document.getElementById('rsiBbWeight').value}
+BOT_STRATEGY_RSI_BB_RSI_OVERSOLD=${document.getElementById('rsiOversold').value}
+BOT_STRATEGY_RSI_BB_RSI_OVERBOUGHT=${document.getElementById('rsiOverbought').value}
+BOT_STRATEGY_RSI_BB_BB_PERIOD=${document.getElementById('bbPeriod').value}
+BOT_STRATEGY_RSI_BB_BB_STD_DEV=${document.getElementById('bbStdDev').value}
+BOT_STRATEGY_RSI_BB_STOP_LOSS_PCT=${document.getElementById('rsiBbStopLoss').value}
+BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit').value}
+
+# =============================================================================
+# Instructions:
+# 1. Copy the values above to your .env file
+# 2. Save the .env file
+# 3. Restart the bot: ./restart.sh
+# =============================================================================
+`;
+  }
+
+  function generateEnvFile() {
+    const content = generateEnvContent();
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'strategy_config_backup.env';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    showAlert('📄 Configuration exported as backup! You can restore these settings later if needed.', 'success');
+  }
+
+  function showAlert(message, type) {
+    const alertContainer = document.getElementById('alertContainer');
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.innerHTML = `
+      <strong>${type === 'success' ? '✅ Success!' : type === 'danger' ? '❌ Error!' : 'ℹ️ Info'}</strong>
+      <p style="margin: 0.5rem 0 0 0;">${message}</p>
+    `;
+    alertContainer.appendChild(alertDiv);
+    
+    // Scroll to top to show alert
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Auto-remove after 8 seconds (longer for important messages)
+    setTimeout(() => {
+      alertDiv.style.opacity = '0';
+      alertDiv.style.transform = 'translateY(-20px)';
+      setTimeout(() => alertDiv.remove(), 300);
+    }, 8000);
+  }
+
+  // Load configuration on page load
+  loadCurrentConfig();
+</script>
+{% endblock %}

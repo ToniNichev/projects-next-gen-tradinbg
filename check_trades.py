@@ -14,3 +14,4 @@ for i, trade in enumerate(trades):
     print(f'   Time: {trade.timestamp.strftime("%Y-%m-%d %H:%M:%S")}')
     print(f'   P&L: ${trade.pnl:.2f}' if trade.pnl else '   P&L: N/A')
     print()
+

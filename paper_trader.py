@@ -141,17 +141,23 @@ class PaperTrader:
                 
                 # Add signal data if available
                 if trade.signal and isinstance(trade.signal, dict):
+                    # Get indicators from signal or info
+                    indicators = trade.signal.get("indicators", {})
+                    info = trade.signal.get("info", {})
+                    
                     trade_data.update({
                         "signal_direction": trade.signal.get("direction"),
                         "signal_price": trade.signal.get("price"),
-                        "short_ema": trade.signal.get("short_ema"),
-                        "long_ema": trade.signal.get("long_ema"),
-                        "trend_strength": trade.signal.get("trend_strength"),
-                        "rsi": trade.signal.get("info", {}).get("rsi"),
-                        "atr": trade.signal.get("atr"),
+                        "short_ema": indicators.get("short_ema") or trade.signal.get("short_ema"),
+                        "long_ema": indicators.get("long_ema") or trade.signal.get("long_ema"),
+                        "trend_strength": indicators.get("trend_strength") or trade.signal.get("trend_strength"),
+                        "rsi": indicators.get("rsi") or info.get("rsi"),
+                        "atr": indicators.get("atr") or trade.signal.get("atr"),
                         "position_size": trade.signal.get("position_size"),
                         "stop_loss": trade.signal.get("stop_loss"),
                         "take_profit": trade.signal.get("take_profit"),
+                        "strategy_name": trade.signal.get("strategy_name"),
+                        "signal_confidence": trade.signal.get("confidence"),
                     })
                 
                 self.db_manager.add_trade(trade_data)

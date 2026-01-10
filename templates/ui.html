@@ -552,17 +552,6 @@
         </div>
       </div>
     </div>
-
-    <!-- Database Management -->
-    <div class="trade-controls-box">
-      <h3>Database Management</h3>
-      <p style="margin-bottom: 1rem; font-size: 0.875rem; color: var(--text-secondary);">
-        ⚠️ <strong>Danger Zone:</strong> This action cannot be undone.
-      </p>
-      <button id="clear-trades-btn" class="trade-btn" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white;" onclick="clearAllTrades()">
-        🗑️ Clear All Trades
-      </button>
-    </div>
   </div>
 </div>
 
@@ -639,12 +628,9 @@
   <canvas id="priceChart"></canvas>
 </div>
 
-<script src="{{ url_for('static', filename='js/chart-utils.js') }}"></script>
 <script>
       console.log("Chart.js version:", Chart.version);
       console.log("Available chart types:", Object.keys(Chart.registry.controllers.items));
-      console.log("ChartUtils loaded:", typeof ChartUtils);
-      console.log("ChartUtils colors:", ChartUtils.colors);
       
       const ctx = document.getElementById("priceChart").getContext("2d");
       
@@ -653,12 +639,30 @@
       let currentTimeframe = '1h';  // Default timeframe
       let isLoadingTimeframe = false;
       
-      // Create chart using shared utilities
       chart = new Chart(ctx, {
         type: "candlestick",
         data: {
           datasets: [
-            ChartUtils.getCandlestickConfig("BTC/USDT"),
+            {
+              label: "BTC/USDT",
+              data: [],
+              // Candlestick body colors (filled)
+              color: {
+                up: "#58D68D",      // Green for bullish
+                down: "#ff5e57",    // Red for bearish
+                unchanged: "#999",  // Gray for neutral
+              },
+              // Border/wick colors
+              borderColor: {
+                up: "#58D68D",
+                down: "#ff5e57",
+                unchanged: "#999",
+              },
+              borderWidth: 1.5,
+              // Width settings for proper display
+              barPercentage: 0.7,
+              categoryPercentage: 0.8,
+            },
           ],
         },
         options: {
@@ -676,18 +680,57 @@
           },
           responsive: true,
           maintainAspectRatio: false,
-          scales: ChartUtils.getScaleConfig(false),
+          scales: {
+            x: {
+              type: "time",
+              adapters: {
+                date: {
+                  zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                }
+              },
+              time: {
+                unit: "minute",
+                displayFormats: {
+                  minute: "MMM dd HH:mm",
+                  hour: "MMM dd HH:mm",
+                },
+                tooltipFormat: "MMM dd, yyyy HH:mm:ss",
+              },
+              ticks: {
+                color: "#e1e8ff",
+                source: "auto",
+                autoSkip: true,
+                maxRotation: 0,
+              },
+              grid: {
+                color: "rgba(255,255,255,0.1)",
+              },
+              offset: true,
+            },
+            y: {
+              beginAtZero: false,
+              type: "linear",
+              ticks: {
+                color: "#e1e8ff",
+              },
+              grid: {
+                color: "rgba(255,255,255,0.1)",
+              },
+            },
+          },
           plugins: {
             legend: {
               display: true,
               labels: {
-                color: ChartUtils.colors.textPrimary,
+                color: "#e1e8ff",
               },
             },
             tooltip: {
-              ...ChartUtils.getTooltipConfig(),
+              mode: 'index',
+              intersect: false,
               callbacks: {
                 title: function(context) {
+                  // Show timestamp as title
                   if (context[0]) {
                     const date = new Date(context[0].parsed.x);
                     return date.toLocaleString();
@@ -695,7 +738,8 @@
                   return '';
                 },
                 label: function(context) {
-                  // Candlestick data (OHLC)
+                  // Format OHLC data on separate lines for candlestick dataset
+                  // Check if this is a candlestick by looking for OHLC properties
                   if (context.raw && typeof context.raw.o !== 'undefined') {
                     const data = context.raw;
                     return [
@@ -705,26 +749,38 @@
                       `Close: $${data.c.toFixed(2)}`
                     ];
                   }
-                  // Signal markers
-                  if (context.dataset.label === 'Signals') {
-                    return `Signal Price: $${context.parsed.y.toFixed(2)}`;
-                  }
-                  // Trade markers (Buy/Sell) - use shared formatter
-                  if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
-                    return ChartUtils.formatTradeTooltip(context);
+                  // For signal markers
+                  if (context.dataset.label === "Signals") {
+                    return `Price: $${context.parsed.y.toFixed(2)}`;
                   }
                   return context.formattedValue;
-                },
-                afterLabel: function(context) {
-                  // Add extra details for trade markers - use shared formatter
-                  if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
-                    return ChartUtils.formatTradeTooltipDetails(context);
-                  }
-                  return [];
                 }
               }
             },
-            zoom: ChartUtils.getZoomConfig(false),
+            zoom: {
+              pan: {
+                enabled: false,  // Disabled - using custom drag handler instead
+                mode: 'x',
+              },
+              zoom: {
+                wheel: {
+                  enabled: true,
+                  speed: 0.05,
+                },
+                pinch: {
+                  enabled: true,
+                },
+                mode: 'x',
+                drag: {
+                  enabled: false,
+                },
+              },
+              limits: {
+                x: {
+                  minRange: 60 * 1000,
+                },
+              },
+            },
           },
         },
       });
@@ -875,59 +931,12 @@
             chart.data.datasets.push({
               label: "Signals",
               type: "scatter",
-              pointStyle: "rect",
+              pointStyle: "triangle",
               pointRadius: 8,
               data: [],
               showLine: false,
               yAxisID: "y",
-              order: 1, // Draw on top (in front of candlesticks)
             });
-          }
-          
-          console.log("Adding trade datasets using shared ChartUtils...");
-          
-          // Fetch all trades (automatic and manual)
-          try {
-            const tradesResp = await fetch("/api/trades?limit=200");
-            if (!tradesResp.ok) {
-              console.error("Failed to fetch trades:", tradesResp.status, tradesResp.statusText);
-            } else {
-              const tradesData = await tradesResp.json();
-              const allTrades = tradesData.trades || [];
-              
-              console.log("Fetched trades:", allTrades.length);
-              
-              // Add buy trades dataset if not exists (using shared utility)
-              if (!chart.data.datasets[2]) {
-                const buyDataset = ChartUtils.createTradeMarkers(allTrades, 'buy');
-                chart.data.datasets.push(buyDataset);
-              } else {
-                // Update existing dataset with new trade data
-                const buyDataset = ChartUtils.createTradeMarkers(allTrades, 'buy');
-                chart.data.datasets[2].data = buyDataset.data;
-              }
-              
-              // Add sell trades dataset if not exists (using shared utility)
-              if (!chart.data.datasets[3]) {
-                const sellDataset = ChartUtils.createTradeMarkers(allTrades, 'sell');
-                chart.data.datasets.push(sellDataset);
-              } else {
-                // Update existing dataset with new trade data
-                const sellDataset = ChartUtils.createTradeMarkers(allTrades, 'sell');
-                chart.data.datasets[3].data = sellDataset.data;
-              }
-              
-              console.log("Buy trades:", chart.data.datasets[2].data.length, "Sell trades:", chart.data.datasets[3].data.length);
-            }
-          } catch (error) {
-            console.error("Error fetching trades:", error);
-            // Initialize empty datasets if fetch fails
-            if (!chart.data.datasets[2]) {
-              chart.data.datasets.push(ChartUtils.createTradeMarkers([], 'buy'));
-            }
-            if (!chart.data.datasets[3]) {
-              chart.data.datasets.push(ChartUtils.createTradeMarkers([], 'sell'));
-            }
           }
           
           // Only show signal markers on the default timeframe (1h - bot's actual trading timeframe)
@@ -949,9 +958,19 @@
           // Use 'none' mode for data updates to prevent animation jank
           // Only animate zoom/pan interactions, not data refreshes
           chart.update('none');
-          console.log("Chart updated successfully");      
-      // Update time unit based on timeframe using shared utility
-      ChartUtils.updateTimeUnit(chart, currentTimeframe);
+          console.log("Chart updated successfully");
+          // Update time unit based on timeframe
+          const timeUnitMap = {
+            '1m': 'minute',
+            '5m': 'minute',
+            '15m': 'minute',
+            '30m': 'minute',
+            '1h': 'hour',
+            '4h': 'hour',
+            '1d': 'day',
+            '1w': 'day'
+          };
+          chart.options.scales.x.time.unit = timeUnitMap[currentTimeframe] || 'hour';
           
           console.log("Chart scales:", chart.scales);
           console.log("Canvas dimensions:", ctx.canvas.width, "x", ctx.canvas.height);
@@ -1005,30 +1024,201 @@
         }
       }
 
-      // Navigation functions using shared utilities
       function resetZoom() {
-        ChartUtils.navigation.resetZoom(chart);
+        // Reset to show all data
+        chart.options.scales.x.min = undefined;
+        chart.options.scales.x.max = undefined;
+        chart.update('default');
       }
       
       function zoomIn() {
-        ChartUtils.navigation.zoomIn(chart);
+        chart.zoom(1.2);
       }
       
       function zoomOut() {
-        ChartUtils.navigation.zoomOut(chart);
+        chart.zoom(0.8);
       }
       
       function panLeft() {
-        ChartUtils.navigation.panLeft(chart);
+        // Pan left by 15% of visible range with smooth animation
+        const xScale = chart.scales.x;
+        const range = xScale.max - xScale.min;
+        const panAmount = range * 0.15;
+        
+        // Smooth pan with animation
+        const currentMin = xScale.min;
+        const currentMax = xScale.max;
+        chart.zoomScale('x', {
+          min: currentMin - panAmount,
+          max: currentMax - panAmount
+        }, 'default');
       }
       
       function panRight() {
-        ChartUtils.navigation.panRight(chart);
+        // Pan right by 15% of visible range with smooth animation
+        const xScale = chart.scales.x;
+        const range = xScale.max - xScale.min;
+        const panAmount = range * 0.15;
+        
+        // Smooth pan with animation
+        const currentMin = xScale.min;
+        const currentMax = xScale.max;
+        chart.zoomScale('x', {
+          min: currentMin + panAmount,
+          max: currentMax + panAmount
+        }, 'default');
       }
       
-      // Setup drag-to-pan and keyboard navigation using shared utilities
-      ChartUtils.setupDragPan(chart, 'priceChart');
-      ChartUtils.setupKeyboardNavigation(chart);
+      // Smooth keyboard navigation with repeat support
+      let keyRepeatInterval = null;
+      
+      document.addEventListener('keydown', (e) => {
+        // Only handle keys if not typing in an input field
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+          return;
+        }
+        
+        const handleKey = () => {
+          switch(e.key) {
+            case 'ArrowLeft':
+              e.preventDefault();
+              // Smaller pan for smoother keyboard scrolling
+              const xScale1 = chart.scales.x;
+              const range1 = xScale1.max - xScale1.min;
+              const panAmount1 = range1 * 0.05;  // 5% increments
+              chart.zoomScale('x', {
+                min: xScale1.min - panAmount1,
+                max: xScale1.max - panAmount1
+              }, 'none');  // No animation for smooth continuous scrolling
+              break;
+            case 'ArrowRight':
+              e.preventDefault();
+              const xScale2 = chart.scales.x;
+              const range2 = xScale2.max - xScale2.min;
+              const panAmount2 = range2 * 0.05;
+              chart.zoomScale('x', {
+                min: xScale2.min + panAmount2,
+                max: xScale2.max + panAmount2
+              }, 'none');
+              break;
+            case '+':
+            case '=':
+              e.preventDefault();
+              zoomIn();
+              break;
+            case '-':
+            case '_':
+              e.preventDefault();
+              zoomOut();
+              break;
+            case '0':
+              e.preventDefault();
+              resetZoom();
+              break;
+          }
+        };
+        
+        handleKey();
+        
+        // Enable key repeat for smooth continuous scrolling
+        if (!e.repeat && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+          keyRepeatInterval = setInterval(handleKey, 50);  // Repeat every 50ms
+        }
+      });
+      
+      document.addEventListener('keyup', (e) => {
+        if (keyRepeatInterval && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+          clearInterval(keyRepeatInterval);
+          keyRepeatInterval = null;
+        }
+      });
+      
+      // Custom drag-to-pan implementation that works at all zoom levels
+      const canvas = document.getElementById('priceChart');
+      let isDragging = false;
+      let dragStartX = 0;
+      let dragStartMin = 0;
+      let dragStartMax = 0;
+      
+      canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        dragStartX = e.clientX;
+        const xScale = chart.scales.x;
+        dragStartMin = xScale.min;
+        dragStartMax = xScale.max;
+        canvas.style.cursor = 'grabbing';
+      });
+      
+      canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        
+        e.preventDefault();
+        const xScale = chart.scales.x;
+        const chartArea = chart.chartArea;
+        
+        // Calculate how much we've dragged in pixels
+        const deltaX = e.clientX - dragStartX;
+        
+        // Convert pixels to time units
+        const chartWidth = chartArea.right - chartArea.left;
+        const timeRange = dragStartMax - dragStartMin;
+        const timePerPixel = timeRange / chartWidth;
+        const timeDelta = deltaX * timePerPixel;
+        
+        // Apply the pan
+        const newMin = dragStartMin - timeDelta;
+        const newMax = dragStartMax - timeDelta;
+        
+        // Check pan limits if they exist
+        const limits = chart.options.plugins.zoom.limits.x;
+        let clampedMin = newMin;
+        let clampedMax = newMax;
+        
+        if (limits.min !== undefined && newMin < limits.min) {
+          clampedMin = limits.min;
+          clampedMax = clampedMin + timeRange;
+        }
+        if (limits.max !== undefined && newMax > limits.max) {
+          clampedMax = limits.max;
+          clampedMin = clampedMax - timeRange;
+        }
+        
+        // Update the scale
+        chart.options.scales.x.min = clampedMin;
+        chart.options.scales.x.max = clampedMax;
+        chart.update('none');  // Update without animation for smooth dragging
+      });
+      
+      const stopDragging = () => {
+        if (isDragging) {
+          isDragging = false;
+          canvas.style.cursor = 'grab';
+        }
+      };
+      
+      canvas.addEventListener('mouseup', stopDragging);
+      canvas.addEventListener('mouseleave', stopDragging);
+      
+      // Add horizontal mouse wheel scrolling support
+      canvas.addEventListener('wheel', (e) => {
+        // Check if it's a horizontal scroll (shift + wheel or trackpad horizontal)
+        if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+          e.preventDefault();
+          
+          const xScale = chart.scales.x;
+          const range = xScale.max - xScale.min;
+          
+          // Determine scroll direction and amount
+          const deltaX = e.deltaX || (e.shiftKey ? e.deltaY : 0);
+          const scrollAmount = (deltaX / 1000) * range; // Adjust sensitivity
+          
+          // Apply smooth horizontal scroll
+          chart.zoomScale('x', {
+            min: xScale.min + scrollAmount,
+            max: xScale.max + scrollAmount
+          }, 'none');
+        }
+      }, { passive: false });
 
       // Initial refresh
       refresh();
@@ -1269,41 +1459,28 @@
         confirmBtn.disabled = true;
         
         try {
-          let endpoint, requestBody;
-
-          if (pendingTradeAction.type === 'clear_trades') {
-            endpoint = '/api/manual/clear-trades';
-            requestBody = null; // No body needed for clear trades
-          } else {
-            endpoint = pendingTradeAction.type === 'buy' ? '/api/manual/buy' : '/api/manual/sell';
-            requestBody = JSON.stringify({
-              position_size: pendingTradeAction.positionSize
-            });
-          }
-
-          const requestOptions = {
+          const endpoint = pendingTradeAction.type === 'buy' ? '/api/manual/buy' : '/api/manual/sell';
+          const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
-            }
-          };
-
-          if (requestBody) {
-            requestOptions.body = requestBody;
-          }
-
-          const response = await fetch(endpoint, requestOptions);
+            },
+            body: JSON.stringify({
+              position_size: pendingTradeAction.positionSize
+            })
+          });
+          
           const data = await response.json();
-
+          
           if (response.ok && data.success) {
             showNotification(`✅ ${data.message}`, 'success');
             closeModal();
-
+            
             // Refresh status and chart
             await updateManualTradingStatus();
             await refresh();
           } else {
-            showNotification(`❌ ${data.error || 'Operation failed'}`, 'error');
+            showNotification(`❌ ${data.error || 'Trade failed'}`, 'error');
             confirmBtn.textContent = originalText;
             confirmBtn.disabled = false;
           }
@@ -1313,37 +1490,7 @@
           confirmBtn.disabled = false;
         }
       }
-
-      // Clear all trades
-      async function clearAllTrades() {
-        // Show confirmation modal
-        pendingTradeAction = {
-          type: 'clear_trades'
-        };
-
-        const modalBody = `
-          <div style="margin-bottom: 1rem;">
-            <strong style="color: #e74c3c;">⚠️ DANGER: This action cannot be undone!</strong>
-          </div>
-          <div style="margin-bottom: 1rem;">
-            This will permanently delete ALL trade records from the database, including:
-          </div>
-          <ul style="margin: 0.5rem 0; padding-left: 1.5rem; color: var(--text-secondary);">
-            <li>Automated trading history</li>
-            <li>Manual trading records</li>
-            <li>Profit/Loss data</li>
-            <li>Trade statistics</li>
-          </ul>
-          <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
-            The chart will be cleared of all trade markers. This action is irreversible.
-          </div>
-        `;
-
-        document.getElementById('modal-title').textContent = '🗑️ Clear All Trade Records';
-        document.getElementById('modal-body').innerHTML = modalBody;
-        document.getElementById('confirmation-modal').classList.add('show');
-      }
-
+      
       // Close modal
       function closeModal() {
         document.getElementById('confirmation-modal').classList.remove('show');

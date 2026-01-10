@@ -40,6 +40,10 @@
         background: var(--bg-secondary);
         border-bottom: 1px solid var(--border-color);
         padding: 0;
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       }
       
       nav .container {
@@ -390,7 +394,8 @@
         <a href="/ui" class="logo">Trading Bot</a>
         <ul>
           <li><a href="/ui" class="{% if request.path == '/ui' %}active{% endif %}">Dashboard</a></li>
-          <li><a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}">Settings</a></li>
+          <li><a href="/strategies" class="{% if request.path == '/strategies' %}active{% endif %}">Strategies</a></li>
+          <li><a href="/strategy-config" class="{% if request.path == '/strategy-config' or request.path == '/settings' %}active{% endif %}">Configuration</a></li>
           <li><a href="/backtest" class="{% if request.path == '/backtest' %}active{% endif %}">Backtest</a></li>
           <li><a href="/api/stats" class="{% if request.path == '/api/stats' %}active{% endif %}">API</a></li>
           <li><a href="/logout" class="logout">Logout</a></li>

@@ -61,6 +61,10 @@ class Trade(Base):
     stop_loss = Column(Float)
     take_profit = Column(Float)
     
+    # Multi-strategy attribution
+    strategy_name = Column(String(50), index=True)  # Which strategy generated the signal
+    signal_confidence = Column(Float)  # Signal confidence (0.0 to 1.0)
+    
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -180,6 +184,37 @@ class PerformanceMetrics(Base):
 
     def __repr__(self):
         return f"<PerformanceMetrics({self.period}, {self.timestamp}, pnl={self.pnl_percent:.2f}%)>"
+
+
+class StrategyConfig(Base):
+    """Strategy configuration storage for dynamic parameter updates"""
+
+    __tablename__ = "strategy_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(100), nullable=False, unique=True, index=True)
+    value = Column(String(500), nullable=False)
+    value_type = Column(String(20), nullable=False)  # bool, int, float, str
+    category = Column(String(50), nullable=False, index=True)  # multi_strategy, ema, rsi_bb, general
+    description = Column(String(500))
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<StrategyConfig(key={self.key}, value={self.value}, type={self.value_type})>"
+    
+    def get_typed_value(self):
+        """Convert string value to proper type"""
+        if self.value_type == "bool":
+            return self.value.lower() in ("true", "1", "yes")
+        elif self.value_type == "int":
+            return int(self.value)
+        elif self.value_type == "float":
+            return float(self.value)
+        else:
+            return self.value
 
 
 class DatabaseManager:
@@ -406,6 +441,95 @@ class DatabaseManager:
             session.flush()
             session.refresh(metrics)
             return metrics
+    
+    def get_strategy_config(self, key: str) -> Optional[StrategyConfig]:
+        """Get a specific strategy configuration by key"""
+        with self.get_session() as session:
+            config = session.query(StrategyConfig).filter(StrategyConfig.key == key).first()
+            if config:
+                session.expunge(config)
+            return config
+    
+    def get_all_strategy_configs(self) -> Dict[str, any]:
+        """Get all strategy configurations as a dictionary"""
+        with self.get_session() as session:
+            configs = session.query(StrategyConfig).all()
+            result = {}
+            for config in configs:
+                result[config.key] = config.get_typed_value()
+            return result
+    
+    def set_strategy_config(self, key: str, value: any, value_type: str, category: str = "general", description: str = "") -> StrategyConfig:
+        """Set or update a strategy configuration"""
+        with self.get_session() as session:
+            config = session.query(StrategyConfig).filter(StrategyConfig.key == key).first()
+            
+            if config:
+                # Update existing
+                config.value = str(value)
+                config.value_type = value_type
+                config.category = category
+                config.description = description
+                config.updated_at = datetime.utcnow()
+            else:
+                # Create new
+                config = StrategyConfig(
+                    key=key,
+                    value=str(value),
+                    value_type=value_type,
+                    category=category,
+                    description=description
+                )
+                session.add(config)
+            
+            session.flush()
+            session.refresh(config)
+            session.expunge(config)
+            return config
+    
+    def set_multiple_strategy_configs(self, configs: Dict[str, Dict]) -> int:
+        """
+        Set multiple strategy configurations at once.
+        
+        Args:
+            configs: Dict with format {key: {"value": val, "type": type, "category": cat, "description": desc}}
+            
+        Returns:
+            Number of configurations updated
+        """
+        count = 0
+        with self.get_session() as session:
+            for key, data in configs.items():
+                config_obj = session.query(StrategyConfig).filter(StrategyConfig.key == key).first()
+                
+                if config_obj:
+                    config_obj.value = str(data["value"])
+                    config_obj.value_type = data["type"]
+                    config_obj.category = data.get("category", "general")
+                    config_obj.description = data.get("description", "")
+                    config_obj.updated_at = datetime.utcnow()
+                else:
+                    config_obj = StrategyConfig(
+                        key=key,
+                        value=str(data["value"]),
+                        value_type=data["type"],
+                        category=data.get("category", "general"),
+                        description=data.get("description", "")
+                    )
+                    session.add(config_obj)
+                
+                count += 1
+            
+            session.flush()
+        
+        return count
+    
+    def clear_strategy_configs(self) -> int:
+        """Clear all strategy configurations"""
+        with self.get_session() as session:
+            deleted_count = session.query(StrategyConfig).delete()
+            self.logger.warning(f"Cleared {deleted_count} strategy configuration records")
+            return deleted_count
 
 
 # Global database manager instance

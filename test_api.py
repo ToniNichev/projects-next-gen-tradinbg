@@ -19,3 +19,4 @@ try:
 except Exception as e:
     print(f"Could not connect to API: {e}")
     print("Make sure the server is running with: python3 main.py")
+

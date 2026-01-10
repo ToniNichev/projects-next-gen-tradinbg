@@ -9,7 +9,20 @@ from binance import ThreadedWebsocketManager
 from config import BotConfig
 from dashboard import start_dashboard, update_state, set_trader
 from paper_trader import PaperTrader
-from strategy import compute_signal
+
+# Import strategies (with fallback to legacy single strategy)
+try:
+    from strategies import (
+        EMACrossoverStrategy,
+        RSIBollingerBandsStrategy,
+        StrategyManager,
+        SignalAggregationMode,
+    )
+    MULTI_STRATEGY_AVAILABLE = True
+except ImportError:
+    MULTI_STRATEGY_AVAILABLE = False
+    from strategy import compute_signal
+    logging.warning("Multi-strategy system not available. Using legacy single strategy.")
 
 try:
     from database import initialize_database
@@ -78,13 +91,66 @@ def main():
         enable_csv_logging=config.enable_csv_logging,
     )
     
+    # Initialize strategy system
+    strategy_manager = None
+    if config.use_multi_strategy and MULTI_STRATEGY_AVAILABLE:
+        # Create strategies
+        strategies = []
+        strategy_configs = config.get_strategy_configs()
+        
+        # EMA Crossover Strategy
+        if strategy_configs["ema_crossover"]["enabled"]:
+            ema_strategy = EMACrossoverStrategy(strategy_configs["ema_crossover"])
+            strategies.append(ema_strategy)
+            logging.info(f"Enabled strategy: {ema_strategy.name} (weight: {ema_strategy.get_weight()})")
+        
+        # RSI + Bollinger Bands Strategy
+        if strategy_configs["rsi_bb"]["enabled"]:
+            rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
+            strategies.append(rsi_bb_strategy)
+            logging.info(f"Enabled strategy: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
+        
+        if strategies:
+            # Create strategy manager
+            aggregation_mode_map = {
+                "voting": SignalAggregationMode.VOTING,
+                "weighted_voting": SignalAggregationMode.WEIGHTED_VOTING,
+                "unanimous": SignalAggregationMode.UNANIMOUS,
+                "any": SignalAggregationMode.ANY,
+                "best": SignalAggregationMode.BEST,
+            }
+            aggregation_mode = aggregation_mode_map.get(
+                config.strategy_aggregation_mode,
+                SignalAggregationMode.WEIGHTED_VOTING
+            )
+            
+            strategy_manager = StrategyManager(
+                strategies=strategies,
+                aggregation_mode=aggregation_mode,
+                min_confidence=config.min_signal_confidence,
+            )
+            logging.info(
+                f"Multi-strategy system enabled: {len(strategies)} strategies, "
+                f"aggregation mode: {aggregation_mode.value}"
+            )
+        else:
+            logging.warning("No strategies enabled! Falling back to legacy single strategy.")
+            strategy_manager = None
+    else:
+        if not config.use_multi_strategy:
+            logging.info("Multi-strategy disabled in config. Using legacy single strategy.")
+        else:
+            logging.warning("Multi-strategy not available. Using legacy single strategy.")
+    
     # Create trader lock before starting dashboard
     trader_lock = threading.Lock()
     
     # Start dashboard and enable manual trading
     start_dashboard(config.dashboard_host, config.dashboard_port)
-    set_trader(trader, trader_lock, exchange)
+    set_trader(trader, trader_lock, exchange, strategy_manager)
     logging.info("Manual trading enabled on dashboard")
+    if strategy_manager:
+        logging.info("Multi-strategy dashboard integration enabled")
     
     stop_event = threading.Event()
 
@@ -142,32 +208,40 @@ def main():
                     )
                 
                 # Compute and display initial signal
-                initial_signal = compute_signal(
-                    exchange,
-                    config.symbol,
-                    config.timeframe,
-                    short_window=config.short_window,
-                    long_window=config.long_window,
-                    candle_data=candle_buffer,
-                    min_trend_strength=config.min_trend_strength,
-                    rsi_period=config.rsi_period,
-                    rsi_oversold=config.rsi_oversold,
-                    rsi_overbought=config.rsi_overbought,
-                    atr_period=config.atr_period,
-                    atr_stop_multiplier=config.atr_stop_multiplier,
-                    use_atr_stops=config.use_atr_stops,
-                    stop_loss_pct=config.stop_loss_pct,
-                    take_profit_pct=config.take_profit_pct,
-                    macd_fast=config.macd_fast,
-                    macd_slow=config.macd_slow,
-                    macd_signal=config.macd_signal,
-                    require_macd_confirmation=config.require_macd_confirmation,
-                    require_volume_confirmation=config.require_volume_confirmation,
-                    volume_threshold=config.volume_threshold,
-                    use_dynamic_sizing=config.use_dynamic_sizing,
-                    min_position_size=config.min_position_size,
-                    max_position_size=config.max_position_size,
-                )
+                if strategy_manager:
+                    initial_signal = strategy_manager.compute_aggregate_signal(
+                        exchange,
+                        config.symbol,
+                        config.timeframe,
+                        candle_data=candle_buffer,
+                    )
+                else:
+                    initial_signal = compute_signal(
+                        exchange,
+                        config.symbol,
+                        config.timeframe,
+                        short_window=config.short_window,
+                        long_window=config.long_window,
+                        candle_data=candle_buffer,
+                        min_trend_strength=config.min_trend_strength,
+                        rsi_period=config.rsi_period,
+                        rsi_oversold=config.rsi_oversold,
+                        rsi_overbought=config.rsi_overbought,
+                        atr_period=config.atr_period,
+                        atr_stop_multiplier=config.atr_stop_multiplier,
+                        use_atr_stops=config.use_atr_stops,
+                        stop_loss_pct=config.stop_loss_pct,
+                        take_profit_pct=config.take_profit_pct,
+                        macd_fast=config.macd_fast,
+                        macd_slow=config.macd_slow,
+                        macd_signal=config.macd_signal,
+                        require_macd_confirmation=config.require_macd_confirmation,
+                        require_volume_confirmation=config.require_volume_confirmation,
+                        volume_threshold=config.volume_threshold,
+                        use_dynamic_sizing=config.use_dynamic_sizing,
+                        min_position_size=config.min_position_size,
+                        max_position_size=config.max_position_size,
+                    )
                 update_state(
                     balances=trader.get_balances(),
                     last_signal=initial_signal.to_dict(),
@@ -259,32 +333,40 @@ def main():
                         exit_trade.pnl or 0.0,
                     )
                 
-                signal_obj = compute_signal(
-                    exchange,
-                    config.symbol,
-                    config.timeframe,
-                    short_window=config.short_window,
-                    long_window=config.long_window,
-                    candle_data=candle_buffer,
-                    min_trend_strength=config.min_trend_strength,
-                    rsi_period=config.rsi_period,
-                    rsi_oversold=config.rsi_oversold,
-                    rsi_overbought=config.rsi_overbought,
-                    atr_period=config.atr_period,
-                    atr_stop_multiplier=config.atr_stop_multiplier,
-                    use_atr_stops=config.use_atr_stops,
-                    stop_loss_pct=config.stop_loss_pct,
-                    take_profit_pct=config.take_profit_pct,
-                    macd_fast=config.macd_fast,
-                    macd_slow=config.macd_slow,
-                    macd_signal=config.macd_signal,
-                    require_macd_confirmation=config.require_macd_confirmation,
-                    require_volume_confirmation=config.require_volume_confirmation,
-                    volume_threshold=config.volume_threshold,
-                    use_dynamic_sizing=config.use_dynamic_sizing,
-                    min_position_size=config.min_position_size,
-                    max_position_size=config.max_position_size,
-                )
+                if strategy_manager:
+                    signal_obj = strategy_manager.compute_aggregate_signal(
+                        exchange,
+                        config.symbol,
+                        config.timeframe,
+                        candle_data=candle_buffer,
+                    )
+                else:
+                    signal_obj = compute_signal(
+                        exchange,
+                        config.symbol,
+                        config.timeframe,
+                        short_window=config.short_window,
+                        long_window=config.long_window,
+                        candle_data=candle_buffer,
+                        min_trend_strength=config.min_trend_strength,
+                        rsi_period=config.rsi_period,
+                        rsi_oversold=config.rsi_oversold,
+                        rsi_overbought=config.rsi_overbought,
+                        atr_period=config.atr_period,
+                        atr_stop_multiplier=config.atr_stop_multiplier,
+                        use_atr_stops=config.use_atr_stops,
+                        stop_loss_pct=config.stop_loss_pct,
+                        take_profit_pct=config.take_profit_pct,
+                        macd_fast=config.macd_fast,
+                        macd_slow=config.macd_slow,
+                        macd_signal=config.macd_signal,
+                        require_macd_confirmation=config.require_macd_confirmation,
+                        require_volume_confirmation=config.require_volume_confirmation,
+                        volume_threshold=config.volume_threshold,
+                        use_dynamic_sizing=config.use_dynamic_sizing,
+                        min_position_size=config.min_position_size,
+                        max_position_size=config.max_position_size,
+                    )
                 trade = trader.handle_signal(signal_obj)
                 update_state(
                     balances=trader.get_balances(),
@@ -302,18 +384,42 @@ def main():
                 },
                 )
 
-            logging.info(
-                "Signal=%s price=%.2f short=%.2f long=%.2f trend=%.4f ATR=%.2f PosSize=%.1f%% SL=%.2f TP=%.2f",
-                signal_obj.direction,
-                signal_obj.price,
-                signal_obj.short_ema,
-                signal_obj.long_ema,
-                signal_obj.trend_strength,
-                signal_obj.atr,
-                signal_obj.position_size * 100,
-                signal_obj.stop_loss,
-                signal_obj.take_profit,
-            )
+            # Log signal with strategy info
+            if strategy_manager and hasattr(signal_obj, 'info') and 'strategies_used' in signal_obj.info:
+                strategies_str = "+".join(signal_obj.info['strategies_used'])
+                logging.info(
+                    "Signal=%s [%s] conf=%.2f price=%.2f PosSize=%.1f%% SL=%.2f TP=%.2f",
+                    signal_obj.direction,
+                    strategies_str,
+                    signal_obj.confidence if hasattr(signal_obj, 'confidence') else 0.0,
+                    signal_obj.price,
+                    signal_obj.position_size * 100,
+                    signal_obj.stop_loss,
+                    signal_obj.take_profit,
+                )
+            elif hasattr(signal_obj, 'short_ema'):
+                # Legacy logging for single strategy
+                logging.info(
+                    "Signal=%s price=%.2f short=%.2f long=%.2f trend=%.4f ATR=%.2f PosSize=%.1f%% SL=%.2f TP=%.2f",
+                    signal_obj.direction,
+                    signal_obj.price,
+                    signal_obj.short_ema,
+                    signal_obj.long_ema,
+                    signal_obj.trend_strength,
+                    signal_obj.atr if hasattr(signal_obj, 'atr') else 0.0,
+                    signal_obj.position_size * 100,
+                    signal_obj.stop_loss,
+                    signal_obj.take_profit,
+                )
+            else:
+                # Minimal logging
+                logging.info(
+                    "Signal=%s [%s] conf=%.2f price=%.2f",
+                    signal_obj.direction,
+                    signal_obj.strategy_name if hasattr(signal_obj, 'strategy_name') else 'unknown',
+                    signal_obj.confidence if hasattr(signal_obj, 'confidence') else 0.0,
+                    signal_obj.price,
+                )
         except Exception as exc:
             logging.exception("websocket cycle failed: %s", exc)
 

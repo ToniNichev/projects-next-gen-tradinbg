@@ -468,3 +468,4 @@ Similar structure to buy, but handles both closing long positions and opening sh
 - Consider adding a "Manual Trading" section to settings to enable/disable
 
 
+

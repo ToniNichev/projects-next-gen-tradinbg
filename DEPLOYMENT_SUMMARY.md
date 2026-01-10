@@ -483,3 +483,4 @@ sqlite3 data/trading.db "VACUUM; ANALYZE;"
 
 
 
+

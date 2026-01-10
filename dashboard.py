@@ -66,6 +66,7 @@ _current_backtest_id = None
 _trader_instance = None
 _trader_lock = None
 _exchange_instance = None
+_strategy_manager = None
 
 
 @app.route("/")
@@ -326,7 +327,7 @@ def get_performance():
 @require_auth
 @limiter.limit("30 per minute")
 def get_config():
-    """Get current bot configuration"""
+    """Get current bot configuration (reads from database if available, falls back to env vars)"""
     try:
         from config import BotConfig
         config = BotConfig.load()
@@ -362,9 +363,412 @@ def get_config():
             "require_volume_confirmation": config.require_volume_confirmation,
             "volume_threshold": config.volume_threshold,
             "max_trades_per_day": config.max_trades_per_day,
+            "use_multi_strategy": config.use_multi_strategy,
+            "strategy_aggregation_mode": config.strategy_aggregation_mode,
+            "min_signal_confidence": config.min_signal_confidence,
+            "strategy_ema_enabled": config.strategy_ema_enabled,
+            "strategy_ema_weight": config.strategy_ema_weight,
+            "strategy_rsi_bb_enabled": config.strategy_rsi_bb_enabled,
+            "strategy_rsi_bb_weight": config.strategy_rsi_bb_weight,
+            "strategy_rsi_bb_rsi_oversold": config.strategy_rsi_bb_rsi_oversold,
+            "strategy_rsi_bb_rsi_overbought": config.strategy_rsi_bb_rsi_overbought,
+            "strategy_rsi_bb_bb_period": config.strategy_rsi_bb_bb_period,
+            "strategy_rsi_bb_bb_std_dev": config.strategy_rsi_bb_bb_std_dev,
+            "strategy_rsi_bb_stop_loss_pct": config.strategy_rsi_bb_stop_loss_pct,
+            "strategy_rsi_bb_take_profit_pct": config.strategy_rsi_bb_take_profit_pct,
         }
         
         return jsonify(config_dict)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategy-config", methods=["GET"])
+@require_auth
+@limiter.limit("30 per minute")
+def get_strategy_config():
+    """Get all strategy configurations from database"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        db = get_database()
+        configs = db.get_all_strategy_configs()
+        
+        # If database is empty, return current env-based config
+        if not configs:
+            from config import BotConfig
+            config = BotConfig.load()
+            configs = {
+                # Trading parameters
+                "symbol": config.symbol,
+                "timeframe": config.timeframe,
+                "initial_usdt": config.initial_usdt,
+                "order_pct": config.order_pct,
+                
+                # Indicators
+                "rsi_period": config.rsi_period,
+                "rsi_oversold": config.rsi_oversold,
+                "rsi_overbought": config.rsi_overbought,
+                "atr_period": config.atr_period,
+                "atr_stop_multiplier": config.atr_stop_multiplier,
+                "use_atr_stops": config.use_atr_stops,
+                
+                # Risk Management
+                "stop_loss_pct": config.stop_loss_pct,
+                "take_profit_pct": config.take_profit_pct,
+                "trailing_stop_pct": config.trailing_stop_pct,
+                "use_trailing_stop": config.use_trailing_stop,
+                
+                # Position Sizing
+                "min_position_size": config.min_position_size,
+                "max_position_size": config.max_position_size,
+                "use_dynamic_sizing": config.use_dynamic_sizing,
+                
+                # Signal Filters
+                "volume_threshold": config.volume_threshold,
+                "require_volume_confirmation": config.require_volume_confirmation,
+                "require_macd_confirmation": config.require_macd_confirmation,
+                "max_trades_per_day": config.max_trades_per_day,
+                
+                # Multi-Strategy
+                "strategy_aggregation_mode": config.strategy_aggregation_mode,
+                "min_signal_confidence": config.min_signal_confidence,
+                
+                # EMA Strategy
+                "strategy_ema_enabled": config.strategy_ema_enabled,
+                "strategy_ema_weight": config.strategy_ema_weight,
+                "short_window": config.short_window,
+                "long_window": config.long_window,
+                "min_trend_strength": config.min_trend_strength,
+                
+                # RSI+BB Strategy
+                "strategy_rsi_bb_enabled": config.strategy_rsi_bb_enabled,
+                "strategy_rsi_bb_weight": config.strategy_rsi_bb_weight,
+                "strategy_rsi_bb_rsi_oversold": config.strategy_rsi_bb_rsi_oversold,
+                "strategy_rsi_bb_rsi_overbought": config.strategy_rsi_bb_rsi_overbought,
+                "strategy_rsi_bb_bb_period": config.strategy_rsi_bb_bb_period,
+                "strategy_rsi_bb_bb_std_dev": config.strategy_rsi_bb_bb_std_dev,
+                "strategy_rsi_bb_stop_loss_pct": config.strategy_rsi_bb_stop_loss_pct,
+                "strategy_rsi_bb_take_profit_pct": config.strategy_rsi_bb_take_profit_pct,
+            }
+        
+        return jsonify({
+            "success": True,
+            "config": configs,
+            "source": "database" if configs else "env"
+        })
+    except Exception as e:
+        logging.error(f"Error fetching strategy config: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategy-config/update", methods=["POST"])
+@require_auth
+@limiter.limit("30 per minute")  # Increased for frequent config testing
+def update_strategy_config():
+    """Update strategy configurations in database"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        db = get_database()
+        
+        # Map of config keys to their types and categories
+        config_mapping = {
+            # Trading parameters
+            "symbol": {"type": "str", "category": "trading"},
+            "timeframe": {"type": "str", "category": "trading"},
+            "initial_usdt": {"type": "float", "category": "trading"},
+            "order_pct": {"type": "float", "category": "trading"},
+            
+            # Indicators
+            "rsi_period": {"type": "int", "category": "indicators"},
+            "rsi_oversold": {"type": "float", "category": "indicators"},
+            "rsi_overbought": {"type": "float", "category": "indicators"},
+            "atr_period": {"type": "int", "category": "indicators"},
+            "atr_stop_multiplier": {"type": "float", "category": "indicators"},
+            "use_atr_stops": {"type": "bool", "category": "indicators"},
+            
+            # Risk Management
+            "stop_loss_pct": {"type": "float", "category": "risk"},
+            "take_profit_pct": {"type": "float", "category": "risk"},
+            "trailing_stop_pct": {"type": "float", "category": "risk"},
+            "use_trailing_stop": {"type": "bool", "category": "risk"},
+            
+            # Position Sizing
+            "min_position_size": {"type": "float", "category": "position"},
+            "max_position_size": {"type": "float", "category": "position"},
+            "use_dynamic_sizing": {"type": "bool", "category": "position"},
+            
+            # Signal Filters
+            "volume_threshold": {"type": "float", "category": "filters"},
+            "require_volume_confirmation": {"type": "bool", "category": "filters"},
+            "require_macd_confirmation": {"type": "bool", "category": "filters"},
+            "max_trades_per_day": {"type": "int", "category": "filters"},
+            
+            # Multi-Strategy
+            "strategy_aggregation_mode": {"type": "str", "category": "multi_strategy"},
+            "min_signal_confidence": {"type": "float", "category": "multi_strategy"},
+            
+            # EMA Strategy
+            "strategy_ema_enabled": {"type": "bool", "category": "ema"},
+            "strategy_ema_weight": {"type": "float", "category": "ema"},
+            "short_window": {"type": "int", "category": "ema"},
+            "long_window": {"type": "int", "category": "ema"},
+            "min_trend_strength": {"type": "float", "category": "ema"},
+            
+            # RSI+BB Strategy
+            "strategy_rsi_bb_enabled": {"type": "bool", "category": "rsi_bb"},
+            "strategy_rsi_bb_weight": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_rsi_oversold": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_rsi_overbought": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_bb_period": {"type": "int", "category": "rsi_bb"},
+            "strategy_rsi_bb_bb_std_dev": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_stop_loss_pct": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_take_profit_pct": {"type": "float", "category": "rsi_bb"},
+        }
+        
+        # Prepare configs for batch update
+        configs_to_save = {}
+        for key, value in data.items():
+            if key in config_mapping:
+                configs_to_save[key] = {
+                    "value": value,
+                    "type": config_mapping[key]["type"],
+                    "category": config_mapping[key]["category"],
+                    "description": f"Strategy parameter: {key}"
+                }
+        
+        # Save to database
+        count = db.set_multiple_strategy_configs(configs_to_save)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Updated {count} configuration parameters",
+            "updated_keys": list(configs_to_save.keys())
+        })
+    except Exception as e:
+        logging.error(f"Error updating strategy config: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategy-config/apply", methods=["POST"])
+@require_auth
+@limiter.limit("30 per minute")  # Increased for frequent config testing
+def apply_strategy_config():
+    """Apply configuration changes to running strategies (hot reload)"""
+    global _strategy_manager
+    
+    if not _strategy_manager:
+        return jsonify({
+            "success": False,
+            "message": "Multi-strategy system not enabled"
+        }), 400
+    
+    try:
+        # Reload strategy manager with new config
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        # Update strategy manager
+        _strategy_manager.reload_config(config)
+        
+        logging.info("Strategy configuration reloaded successfully")
+        
+        return jsonify({
+            "success": True,
+            "message": "Configuration applied successfully",
+            "strategies_reloaded": len(_strategy_manager.strategies)
+        })
+    except Exception as e:
+        logging.error(f"Error applying strategy config: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategies")
+@require_auth
+@limiter.limit("30 per minute")
+def get_strategies():
+    """Get list of available strategies and their status"""
+    if not _strategy_manager:
+        return jsonify({
+            "multi_strategy_enabled": False,
+            "strategies": [],
+            "message": "Multi-strategy system not enabled"
+        })
+    
+    try:
+        strategies_info = []
+        for strategy in _strategy_manager.strategies:
+            strategies_info.append({
+                "name": strategy.name,
+                "description": strategy.get_description(),
+                "enabled": strategy.is_enabled(),
+                "weight": strategy.get_weight(),
+                "parameters": strategy.get_parameters(),
+            })
+        
+        return jsonify({
+            "multi_strategy_enabled": True,
+            "aggregation_mode": _strategy_manager.aggregation_mode.value,
+            "min_confidence": _strategy_manager.min_confidence,
+            "strategies": strategies_info,
+            "count": len(strategies_info),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategies/stats")
+@require_auth
+@limiter.limit("30 per minute")
+def get_strategy_stats():
+    """Get performance statistics for each strategy"""
+    if not _strategy_manager:
+        return jsonify({
+            "multi_strategy_enabled": False,
+            "stats": {},
+            "message": "Multi-strategy system not enabled"
+        })
+    
+    try:
+        stats = _strategy_manager.get_strategy_stats()
+        
+        # Add usage percentage
+        total_signals_generated = sum(s["signals_generated"] for s in stats.values())
+        total_signals_used = sum(s["signals_used"] for s in stats.values())
+        
+        for strategy_name, strategy_stats in stats.items():
+            if total_signals_generated > 0:
+                strategy_stats["generation_rate"] = (
+                    strategy_stats["signals_generated"] / total_signals_generated * 100
+                )
+            else:
+                strategy_stats["generation_rate"] = 0.0
+            
+            if total_signals_used > 0:
+                strategy_stats["usage_rate"] = (
+                    strategy_stats["signals_used"] / total_signals_used * 100
+                )
+            else:
+                strategy_stats["usage_rate"] = 0.0
+            
+            if strategy_stats["signals_generated"] > 0:
+                strategy_stats["acceptance_rate"] = (
+                    strategy_stats["signals_used"] / strategy_stats["signals_generated"] * 100
+                )
+            else:
+                strategy_stats["acceptance_rate"] = 0.0
+        
+        return jsonify({
+            "multi_strategy_enabled": True,
+            "total_signals_generated": total_signals_generated,
+            "total_signals_used": total_signals_used,
+            "stats": stats,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategies/<strategy_name>/enable", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def enable_strategy(strategy_name):
+    """Enable a strategy dynamically (no restart required)"""
+    if not _strategy_manager:
+        return jsonify({
+            "error": "Multi-strategy system not enabled"
+        }), 503
+    
+    try:
+        _strategy_manager.enable_strategy(strategy_name)
+        return jsonify({
+            "success": True,
+            "message": f"Strategy '{strategy_name}' enabled",
+            "strategy": strategy_name,
+            "enabled": True
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategies/<strategy_name>/disable", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def disable_strategy(strategy_name):
+    """Disable a strategy dynamically (no restart required)"""
+    if not _strategy_manager:
+        return jsonify({
+            "error": "Multi-strategy system not enabled"
+        }), 503
+    
+    try:
+        # Prevent disabling all strategies
+        enabled_strategies = _strategy_manager.get_enabled_strategies()
+        if len(enabled_strategies) <= 1:
+            return jsonify({
+                "error": "Cannot disable the last active strategy. At least one strategy must remain enabled."
+            }), 400
+        
+        _strategy_manager.disable_strategy(strategy_name)
+        return jsonify({
+            "success": True,
+            "message": f"Strategy '{strategy_name}' disabled",
+            "strategy": strategy_name,
+            "enabled": False
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategies/<strategy_name>/toggle", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def toggle_strategy(strategy_name):
+    """Toggle a strategy on/off dynamically"""
+    if not _strategy_manager:
+        return jsonify({
+            "error": "Multi-strategy system not enabled"
+        }), 503
+    
+    try:
+        # Find the strategy
+        strategy = None
+        for s in _strategy_manager.strategies:
+            if s.name == strategy_name:
+                strategy = s
+                break
+        
+        if not strategy:
+            return jsonify({"error": f"Strategy '{strategy_name}' not found"}), 404
+        
+        # Check if currently enabled
+        is_enabled = strategy.is_enabled()
+        
+        if is_enabled:
+            # Check if this is the last enabled strategy
+            enabled_strategies = _strategy_manager.get_enabled_strategies()
+            if len(enabled_strategies) <= 1:
+                return jsonify({
+                    "error": "Cannot disable the last active strategy"
+                }), 400
+            _strategy_manager.disable_strategy(strategy_name)
+            new_state = False
+        else:
+            _strategy_manager.enable_strategy(strategy_name)
+            new_state = True
+        
+        return jsonify({
+            "success": True,
+            "message": f"Strategy '{strategy_name}' {'enabled' if new_state else 'disabled'}",
+            "strategy": strategy_name,
+            "enabled": new_state
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -405,25 +809,13 @@ def run_backtest_api():
             try:
                 import logging
                 from backtest import run_backtest
-                from config import BotConfig
-                import os
                 
-                # Temporarily override environment variables
-                original_env = {}
-                for key, value in config_overrides.items():
-                    env_key = f"BOT_{key.upper()}"
-                    original_env[env_key] = os.environ.get(env_key)
-                    os.environ[env_key] = str(value)
-                
-                # Run backtest
-                result = run_backtest(days_back=days_back, use_database=False)
-                
-                # Restore environment
-                for env_key, original_value in original_env.items():
-                    if original_value is None:
-                        os.environ.pop(env_key, None)
-                    else:
-                        os.environ[env_key] = original_value
+                # Run backtest with config overrides passed directly
+                result = run_backtest(
+                    days_back=days_back,
+                    use_database=False,
+                    config_overrides=config_overrides  # Pass overrides directly!
+                )
                 
                 # Store result
                 result_entry = {
@@ -743,11 +1135,14 @@ def clear_all_trades():
         return jsonify({"error": str(e)}), 500
 
 
+# Settings page removed - merged into /strategy-config
+# Old route kept for backwards compatibility, redirects to new page
 @app.route("/settings")
 @require_auth
 def settings_page():
-    """Settings and configuration page"""
-    return render_template("settings.html")
+    """Redirect old settings page to new unified configuration page"""
+    from flask import redirect, url_for
+    return redirect(url_for('strategy_config_page'))
 
 
 @app.route("/backtest")
@@ -755,6 +1150,20 @@ def settings_page():
 def backtest_page():
     """Backtest runner page"""
     return render_template("backtest.html")
+
+
+@app.route("/strategies")
+@require_auth
+def strategies_page():
+    """Multi-strategy management and monitoring page"""
+    return render_template("strategies.html")
+
+
+@app.route("/strategy-config")
+@require_auth
+def strategy_config_page():
+    """Strategy configuration and parameter adjustment page"""
+    return render_template("strategy_config.html")
 
 
 @app.route("/logout")
@@ -855,7 +1264,7 @@ def update_state(
         )
 
 
-def set_trader(trader, lock, exchange=None):
+def set_trader(trader, lock, exchange=None, strategy_manager=None):
     """
     Set the trader instance for manual trading.
     
@@ -863,12 +1272,16 @@ def set_trader(trader, lock, exchange=None):
         trader: PaperTrader instance
         lock: Threading lock for trader access
         exchange: CCXT exchange instance (optional, for live price)
+        strategy_manager: StrategyManager instance (optional, for multi-strategy)
     """
-    global _trader_instance, _trader_lock, _exchange_instance
+    global _trader_instance, _trader_lock, _exchange_instance, _strategy_manager
     _trader_instance = trader
     _trader_lock = lock
     _exchange_instance = exchange
+    _strategy_manager = strategy_manager
     logging.getLogger(__name__).info("Manual trading enabled - trader instance registered")
+    if strategy_manager:
+        logging.getLogger(__name__).info("Strategy manager registered for dashboard integration")
 
 
 def get_current_price():

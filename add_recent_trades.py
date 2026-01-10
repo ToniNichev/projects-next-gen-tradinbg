@@ -117,3 +117,4 @@ def generate_recent_trades():
 
 if __name__ == "__main__":
     generate_recent_trades()
+

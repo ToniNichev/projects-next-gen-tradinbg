@@ -301,133 +301,91 @@
   
   <div class="tab-buttons">
     <button class="active" onclick="switchTab('current')">Use Current Config</button>
-    <button onclick="switchTab('custom')">Custom Parameters</button>
-    <button onclick="switchTab('presets')">Presets</button>
+    <button onclick="switchTab('presets')">
+      Strategy Presets
+      <span class="info-icon" style="position: relative; margin-left: 0.5rem;">i
+        <span class="info-tooltip" style="width: 350px; left: auto; right: 0; transform: none;">
+          <strong style="color: var(--accent-blue); display: block; margin-bottom: 0.5rem;">📊 What are Strategy Presets?</strong>
+          Presets configure <strong>all active strategies</strong> with coordinated parameters for a specific risk profile.<br><br>
+          <strong>What They Change:</strong><br>
+          • Position sizing (min/max)<br>
+          • Risk management (stop loss, take profit)<br>
+          • Signal filters (MACD, volume)<br>
+          • Volatility handling (ATR multiplier)<br><br>
+          <strong>What Stays From Your Config:</strong><br>
+          • Strategy-specific parameters (EMA windows, RSI thresholds)<br>
+          • Strategy weights & enable/disable<br>
+          • Aggregation mode<br><br>
+          <span style="opacity: 0.8; font-size: 0.8rem;">💡 Tip: Presets apply risk profiles to ALL strategies simultaneously</span>
+        </span>
+      </span>
+    </button>
   </div>
   
   <!-- Current Config Tab -->
   <div id="tab-current" class="tab-content active">
-    <p class="text-muted mb-2">Run backtest with the current bot configuration</p>
+    <div style="margin-bottom: 1.5rem;">
+      <h3 style="margin: 0 0 0.5rem 0;">🎯 Current Configuration</h3>
+      <p class="text-muted" style="margin: 0;">
+        Run backtest with your current settings from 
+        <a href="/strategy-config" style="color: var(--accent-blue); text-decoration: none;">Strategy Configuration</a>
+      </p>
+    </div>
+    
+    <!-- Strategy Status Summary -->
+    <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+        <strong style="font-size: 1rem;">🧠 Multi-Strategy System</strong>
+        <span id="multi-strategy-badge" class="badge badge-info" style="font-size: 0.7rem;">Loading...</span>
+      </div>
+      
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+        <div>
+          <div class="stat-label">Aggregation Mode</div>
+          <div style="font-weight: 600; color: var(--accent-blue);" id="aggregation-mode">-</div>
+        </div>
+        <div>
+          <div class="stat-label">Min Confidence</div>
+          <div style="font-weight: 600; color: var(--accent-blue);" id="min-confidence">-</div>
+        </div>
+      </div>
+      
+      <div style="border-top: 1px solid var(--border-color); padding-top: 1rem; margin-top: 1rem;">
+        <strong style="font-size: 0.875rem; color: var(--text-secondary);">Active Strategies:</strong>
+        <div id="active-strategies-list" style="margin-top: 0.75rem;">
+          <div style="color: var(--text-secondary);">Loading strategy status...</div>
+        </div>
+      </div>
+    </div>
+    
     <button onclick="runQuickBacktest()" id="run-current-btn" class="success">
-      <span id="run-current-text">Run Backtest</span>
+      <span id="run-current-text">🚀 Run Backtest with Current Config</span>
     </button>
   </div>
   
-  <!-- Custom Parameters Tab -->
-  <div id="tab-custom" class="tab-content">
-    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-      <div class="form-group">
-        <label>
-          Position Size (%)
-          <span class="info-icon">i
-            <span class="info-tooltip">
-              Percentage of your total portfolio to use for each trade. Lower = safer but slower growth, higher = more aggressive but riskier.
-              <hr>
-              <strong>Risk levels:</strong><br>
-              <span class="risk-low">5-15%</span> Conservative<br>
-              <span class="risk-medium">20-30%</span> Balanced<br>
-              <span class="risk-high">40-100%</span> Aggressive
-            </span>
-          </span>
-        </label>
-        <input type="number" id="custom_position" value="20" min="5" max="100" step="5">
-      </div>
-      <div class="form-group">
-        <label>
-          Stop Loss (%)
-          <span class="info-icon">i
-            <span class="info-tooltip">
-              Maximum loss per trade before automatically selling. Protects capital but tighter stops may exit prematurely.
-              <hr>
-              <strong>Risk levels:</strong><br>
-              <span class="risk-low">3-5%</span> Safe, wider stops<br>
-              <span class="risk-medium">2-2.5%</span> Balanced<br>
-              <span class="risk-high">0.5-1.5%</span> Tight, frequent exits
-            </span>
-          </span>
-        </label>
-        <input type="number" id="custom_stop" value="2.5" min="0.5" max="10" step="0.5">
-      </div>
-      <div class="form-group">
-        <label>
-          Take Profit (%)
-          <span class="info-icon">i
-            <span class="info-tooltip">
-              Target profit per trade before automatically selling. Lower = quicker gains, higher = waiting for bigger moves.
-              <hr>
-              <strong>Trading styles:</strong><br>
-              <span class="risk-low">1-2%</span> Quick scalping<br>
-              <span class="risk-medium">3-6%</span> Balanced gains<br>
-              <span class="risk-high">10-20%</span> Patient, big moves
-            </span>
-          </span>
-        </label>
-        <input type="number" id="custom_profit" value="4" min="1" max="20" step="0.5">
-      </div>
-      <div class="form-group">
-        <label>
-          Short EMA
-          <span class="info-icon">i
-            <span class="info-tooltip">
-              Fast-moving average period for trend detection. Lower values are more sensitive to recent price changes. Used with Long EMA for crossover signals.
-              <hr>
-              <strong>Sensitivity levels:</strong><br>
-              <span class="risk-high">5-9</span> Very sensitive<br>
-              <span class="risk-medium">12-15</span> Standard<br>
-              <span class="risk-low">20-30</span> Smooth, less noise
-            </span>
-          </span>
-        </label>
-        <input type="number" id="custom_short" value="12" min="5" max="50">
-      </div>
-      <div class="form-group">
-        <label>
-          Long EMA
-          <span class="info-icon">i
-            <span class="info-tooltip">
-              Slow-moving average period for trend detection. Higher values smooth out noise. Buy signal occurs when Short EMA crosses above Long EMA.
-              <hr>
-              <strong>Smoothness levels:</strong><br>
-              <span class="risk-high">20-30</span> Fast response<br>
-              <span class="risk-medium">50-100</span> Standard<br>
-              <span class="risk-low">150-200</span> Very smooth
-            </span>
-          </span>
-        </label>
-        <input type="number" id="custom_long" value="26" min="10" max="200">
-      </div>
-      <div class="form-group">
-        <label>
-          ATR Multiplier
-          <span class="info-icon">i
-            <span class="info-tooltip">
-              Average True Range multiplier for dynamic stop losses. Higher values give volatile markets more room, lower values provide tighter risk control.
-              <hr>
-              <strong>Stop distance:</strong><br>
-              <span class="risk-high">1.0-1.5x</span> Tight control<br>
-              <span class="risk-medium">2.0-2.5x</span> Balanced<br>
-              <span class="risk-low">3.0-5.0x</span> Room for volatility
-            </span>
-          </span>
-        </label>
-        <input type="number" id="custom_atr" value="2.5" min="1" max="5" step="0.5">
-      </div>
-    </div>
-    <button onclick="runCustomBacktest()" id="run-custom-btn" class="success">
-      <span id="run-custom-text">Run Custom Backtest</span>
-    </button>
-  </div>
   
   <!-- Presets Tab -->
   <div id="tab-presets" class="tab-content">
-    <p class="text-muted mb-2">Run predefined strategy configurations</p>
+    <div style="margin-bottom: 1.5rem;">
+      <h3 style="margin: 0 0 0.5rem 0;">🎯 Preset Risk Profiles</h3>
+      <p class="text-muted" style="margin: 0;">
+        Each preset applies a coordinated risk profile to <strong>all active strategies</strong>. 
+        Position sizing, stop losses, and signal filters are adjusted together for consistent risk management.
+      </p>
+    </div>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
       <div style="position: relative;">
         <button onclick="runPreset('conservative')" class="secondary" style="width: 100%;">🛡️ Conservative</button>
         <div style="text-align: center; margin-top: 0.5rem;">
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip" style="left: auto; right: -50%; transform: translateX(50%);">
-              Low risk strategy: 10-20% position size, 3% stop loss, 6% take profit. Requires MACD & volume confirmation. Best for capital preservation.
+              <strong>🛡️ Capital Preservation</strong><br>
+              <span style="opacity: 0.9;">Applies to ALL active strategies:</span><br>
+              • Position: 10-20% (small)<br>
+              • Stop Loss: 3% (tight)<br>
+              • Take Profit: 6%<br>
+              • Filters: MACD + Volume (strict)<br>
+              • ATR: 3x (wide safety margin)
             </span>
           </span>
         </div>
@@ -437,7 +395,13 @@
         <div style="text-align: center; margin-top: 0.5rem;">
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip">
-              Moderate strategy: 15-30% position size, 2.5% stop loss, 4% take profit. Volume confirmation required. Good all-around approach.
+              <strong>⚖️ Balanced Approach</strong><br>
+              <span style="opacity: 0.9;">Applies to ALL active strategies:</span><br>
+              • Position: 15-30% (moderate)<br>
+              • Stop Loss: 2.5%<br>
+              • Take Profit: 4%<br>
+              • Filters: Volume only<br>
+              • ATR: 2.5x
             </span>
           </span>
         </div>
@@ -447,7 +411,13 @@
         <div style="text-align: center; margin-top: 0.5rem;">
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip">
-              High risk strategy: 25-50% position size, 2% stop loss, 6% take profit. No extra confirmations. Faster gains but higher risk.
+              <strong>🚀 High Risk/Reward</strong><br>
+              <span style="opacity: 0.9;">Applies to ALL active strategies:</span><br>
+              • Position: 25-50% (large)<br>
+              • Stop Loss: 2% (loose)<br>
+              • Take Profit: 6%<br>
+              • Filters: None (faster entries)<br>
+              • ATR: 2x
             </span>
           </span>
         </div>
@@ -457,7 +427,13 @@
         <div style="text-align: center; margin-top: 0.5rem;">
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip" style="left: -50%; transform: translateX(-50%);">
-              Quick trades strategy: 30-50% position size, 1% stop loss, 2% take profit. Uses trailing stops. Many small trades for incremental gains.
+              <strong>⚡ Quick In/Out Trades</strong><br>
+              <span style="opacity: 0.9;">Applies to ALL active strategies:</span><br>
+              • Position: 30-50% (large)<br>
+              • Stop Loss: 1% (very tight)<br>
+              • Take Profit: 2% (quick)<br>
+              • Trailing Stop: 1%<br>
+              • ATR: 1.5x
             </span>
           </span>
         </div>
@@ -522,9 +498,74 @@
   </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/chart-utils.js') }}"></script>
 <script>
   let selectedResults = new Set();
+  
+  // Load current strategy configuration
+  async function loadCurrentStrategyConfig() {
+    try {
+      const response = await fetch('/api/strategies');
+      const data = await response.json();
+      
+      if (data.multi_strategy_enabled) {
+        // Update badge
+        document.getElementById('multi-strategy-badge').textContent = 'Enabled';
+        document.getElementById('multi-strategy-badge').className = 'badge badge-enabled';
+        
+        // Update aggregation mode
+        const modeDisplay = data.aggregation_mode.replace(/_/g, ' ')
+          .split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+        document.getElementById('aggregation-mode').textContent = modeDisplay;
+        
+        // Update min confidence
+        const confidencePct = (data.min_confidence * 100).toFixed(0);
+        document.getElementById('min-confidence').textContent = confidencePct + '%';
+        
+        // Display active strategies
+        const strategiesList = data.strategies
+          .map(strategy => {
+            const icon = strategy.name.includes('EMA') ? '📈' : '🌊';
+            const statusBadge = strategy.enabled 
+              ? '<span class="badge badge-enabled" style="font-size: 0.65rem; margin-left: 0.5rem;">Active</span>'
+              : '<span class="badge badge-disabled" style="font-size: 0.65rem; margin-left: 0.5rem;">Disabled</span>';
+            const weight = strategy.enabled ? `<span style="color: var(--text-secondary); font-size: 0.875rem;"> • Weight: ${strategy.weight.toFixed(1)}</span>` : '';
+            
+            return `
+              <div style="padding: 0.5rem; background: var(--bg-secondary); border-radius: 0.375rem; margin-bottom: 0.5rem; border-left: 3px solid ${strategy.enabled ? 'var(--accent-blue)' : 'var(--border-color)'};">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span>${icon} <strong>${strategy.name}</strong>${statusBadge}</span>
+                  ${weight}
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+        
+        document.getElementById('active-strategies-list').innerHTML = strategiesList;
+        
+        // Update button text to indicate which strategies will be used
+        const enabledCount = data.strategies.filter(s => s.enabled).length;
+        const runBtn = document.getElementById('run-current-text');
+        runBtn.textContent = `🚀 Run Backtest (${enabledCount} ${enabledCount === 1 ? 'Strategy' : 'Strategies'})`;
+      } else {
+        document.getElementById('multi-strategy-badge').textContent = 'Disabled';
+        document.getElementById('multi-strategy-badge').className = 'badge badge-disabled';
+        document.getElementById('aggregation-mode').textContent = 'N/A';
+        document.getElementById('min-confidence').textContent = 'N/A';
+        document.getElementById('active-strategies-list').innerHTML = 
+          '<div style="color: var(--text-secondary);">Multi-strategy system is disabled. Using legacy single strategy.</div>';
+      }
+    } catch (error) {
+      console.error('Error loading strategy config:', error);
+      document.getElementById('active-strategies-list').innerHTML = 
+        '<div style="color: var(--accent-red);">⚠️ Could not load strategy configuration</div>';
+    }
+  }
+  
+  // Load strategy config on page load
+  window.addEventListener('DOMContentLoaded', loadCurrentStrategyConfig);
   
   function switchTab(tabName) {
     // Update buttons
@@ -546,8 +587,9 @@
     const status = document.getElementById('backtest-status');
     
     btn.disabled = true;
-    text.innerHTML = '<span class="spinner"></span> Running...';
-    status.innerHTML = '<p class="text-muted">Backtest started. This may take 30-60 seconds...</p>';
+    btn.classList.add('btn-running');
+    text.innerHTML = '<span class="spinner"></span> Running Backtest... Please Wait (30-60 seconds)';
+    status.innerHTML = '<p class="text-muted" style="font-size: 1.1rem; font-weight: 600; color: var(--accent-blue);">⚡ Backtest in progress... Analyzing historical data...</p>';
     
     const daysBack = parseInt(document.getElementById('days_back').value);
     
@@ -570,48 +612,8 @@
     } catch (error) {
       status.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
       btn.disabled = false;
+      btn.classList.remove('btn-running');
       text.textContent = 'Run Backtest';
-    }
-  }
-  
-  async function runCustomBacktest() {
-    const btn = document.getElementById('run-custom-btn');
-    const text = document.getElementById('run-custom-text');
-    const status = document.getElementById('backtest-status');
-    
-    btn.disabled = true;
-    text.innerHTML = '<span class="spinner"></span> Running...';
-    status.innerHTML = '<p class="text-muted">Running custom backtest...</p>';
-    
-    const params = {
-      days_back: parseInt(document.getElementById('days_back').value),
-      min_position_size: parseFloat(document.getElementById('custom_position').value) / 100,
-      max_position_size: parseFloat(document.getElementById('custom_position').value) / 100,
-      stop_loss_pct: parseFloat(document.getElementById('custom_stop').value) / 100,
-      take_profit_pct: parseFloat(document.getElementById('custom_profit').value) / 100,
-      short_window: parseInt(document.getElementById('custom_short').value),
-      long_window: parseInt(document.getElementById('custom_long').value),
-      atr_stop_multiplier: parseFloat(document.getElementById('custom_atr').value),
-    };
-    
-    try {
-      const response = await fetch('/api/backtest/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        status.innerHTML = '<p class="text-success">Custom backtest started!</p>';
-        pollBacktestStatus(data.backtest_id);
-      } else {
-        throw new Error('Failed to start backtest');
-      }
-    } catch (error) {
-      status.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
-      btn.disabled = false;
-      text.textContent = 'Run Custom Backtest';
     }
   }
   
@@ -715,10 +717,12 @@
   }
   
   function resetButtons() {
-    document.getElementById('run-current-btn').disabled = false;
-    document.getElementById('run-current-text').textContent = 'Run Backtest';
-    document.getElementById('run-custom-btn').disabled = false;
-    document.getElementById('run-custom-text').textContent = 'Run Custom Backtest';
+    const currentBtn = document.getElementById('run-current-btn');
+    const currentText = document.getElementById('run-current-text');
+    
+    currentBtn.disabled = false;
+    currentBtn.classList.remove('btn-running');
+    currentText.textContent = '🚀 Run Backtest with Current Config';
   }
   
   async function loadResults() {
@@ -942,25 +946,123 @@
       backtestChart.destroy();
     }
     
-    // Prepare data using shared utilities
-    const candleData = ChartUtils.formatCandleData(chartData.candles);
-    const portfolioDataset = ChartUtils.createPortfolioLine(chartData.portfolio_values);
-    const buyDataset = ChartUtils.createTradeMarkers(chartData.trades, 'buy');
-    const sellDataset = ChartUtils.createTradeMarkers(chartData.trades, 'sell');
+    // Prepare candlestick data
+    const candleData = chartData.candles.map(candle => ({
+      x: new Date(candle.timestamp).getTime(),
+      o: candle.open,
+      h: candle.high,
+      l: candle.low,
+      c: candle.close,
+    }));
     
-    // Create candlestick dataset configuration
-    const candlestickDataset = ChartUtils.getCandlestickConfig('BTC/USDT');
-    candlestickDataset.data = candleData;
-    candlestickDataset.yAxisID = 'y';
+    // Prepare portfolio value data
+    const portfolioData = chartData.portfolio_values.map(pv => ({
+      x: new Date(pv.timestamp).getTime(),
+      y: pv.value,
+    }));
+    
+    // Prepare trade markers
+    const buyTrades = chartData.trades
+      .filter(t => t.side === 'buy')
+      .map(t => ({
+        x: new Date(t.timestamp).getTime(),
+        y: t.price,
+        reason: t.reason,
+        pnl: t.pnl,
+        side: t.side,
+        amount: t.amount
+      }));
+
+    const sellTrades = chartData.trades
+      .filter(t => t.side === 'sell')
+      .map(t => ({
+        x: new Date(t.timestamp).getTime(),
+        y: t.price,
+        reason: t.reason,
+        pnl: t.pnl,
+        side: t.side,
+        amount: t.amount
+      }));
     
     backtestChart = new Chart(ctx, {
       type: 'candlestick',
       data: {
         datasets: [
-          candlestickDataset,
-          portfolioDataset,
-          buyDataset,
-          sellDataset,
+          {
+            label: 'BTC/USDT',
+            data: candleData,
+            yAxisID: 'y',
+            color: {
+              up: '#58D68D',
+              down: '#ff5e57',
+              unchanged: '#999',
+            },
+            borderColor: {
+              up: '#58D68D',
+              down: '#ff5e57',
+              unchanged: '#999',
+            },
+            borderWidth: 1.5,
+            barPercentage: 0.7,
+            categoryPercentage: 0.8,
+          },
+          {
+            label: 'Portfolio Value',
+            type: 'line',
+            data: portfolioData,
+            yAxisID: 'y1',
+            borderColor: '#FFD700',
+            backgroundColor: 'rgba(255, 215, 0, 0.1)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+          },
+          {
+            label: 'Buy',
+            type: 'scatter',
+            data: buyTrades,
+            yAxisID: 'y',
+            pointStyle: 'triangle',
+            pointRadius: 10,
+            pointRotation: 0,
+            backgroundColor: '#00ff00',
+            borderColor: '#ffffff',
+            borderWidth: 2,
+            pointHoverRadius: 16,
+            pointHoverBorderWidth: 4,
+            shadowOffsetX: 1,
+            shadowOffsetY: 1,
+            shadowBlur: 4,
+            shadowColor: 'rgba(0, 0, 0, 0.6)',
+            hoverBorderColor: '#ffffff',
+            hoverBorderWidth: 3,
+            showLine: false,
+            order: 10, // Ensure markers appear above other elements
+          },
+          {
+            label: 'Sell',
+            type: 'scatter',
+            data: sellTrades,
+            yAxisID: 'y',
+            pointStyle: 'triangle',
+            pointRadius: 10,
+            pointRotation: 180,
+            backgroundColor: '#ff4444',
+            borderColor: '#ffffff',
+            borderWidth: 2,
+            pointHoverRadius: 16,
+            pointHoverBorderWidth: 4,
+            shadowOffsetX: 1,
+            shadowOffsetY: 1,
+            shadowBlur: 4,
+            shadowColor: 'rgba(0, 0, 0, 0.6)',
+            hoverBorderColor: '#ffffff',
+            hoverBorderWidth: 3,
+            showLine: false,
+            order: 10, // Ensure markers appear above other elements
+          },
         ],
       },
       options: {
@@ -971,19 +1073,16 @@
           easing: 'easeOutBounce',
           delay: function(context) {
             // Stagger animation for trade markers to make them appear sequentially
-            if (context.datasetIndex >= 2) { // Buy and Sell markers are at indices 2 and 3
+            if (context.datasetIndex >= 4) { // Buy and Sell markers are at indices 4 and 5
               return context.dataIndex * 150; // 150ms delay between each marker
             }
             return 0;
           },
+          onProgress: function(animation) {
+            // Add opacity animation for smoother appearance
+          }
         },
         plugins: {
-          legend: {
-            display: true,
-            labels: {
-              color: ChartUtils.colors.textPrimary,
-            },
-          },
           tooltip: {
             enabled: true,
             mode: 'nearest',
@@ -997,13 +1096,137 @@
             displayColors: true,
             callbacks: {
               title: function(context) {
+                // Handle both single point and multiple points
                 const point = context[0] || context;
                 const trade = point.raw;
                 const timestamp = new Date(trade.x).toLocaleString();
                 return timestamp;
               },
               label: function(context) {
-                // Handle candlestick data
+                const trade = context.raw;
+                const side = context.dataset.label;
+                const price = trade.y ? trade.y.toFixed(2) : 'N/A';
+                let label = `${side} @ $${price}`;
+
+                // Debug: log the trade data
+                console.log('Tooltip trade data:', trade);
+
+                // Add trade reason if available
+                if (trade.reason) {
+                  const reasonText = trade.reason.replace('_', ' ').toUpperCase();
+                  label += ` (${reasonText})`;
+                }
+
+                return label;
+              },
+              afterLabel: function(context) {
+                const trade = context.raw;
+                let lines = [];
+
+                // Add P&L for exit trades
+                if (trade.pnl !== null && trade.pnl !== undefined && trade.pnl !== 'None') {
+                  let pnlValue = trade.pnl;
+                  // Handle numpy float64 or other numeric types
+                  if (typeof pnlValue === 'number' || !isNaN(parseFloat(pnlValue))) {
+                    const pnl = parseFloat(pnlValue);
+                    const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `$${pnl.toFixed(2)}`;
+                    lines.push(`P&L: ${pnlText}`);
+                  }
+                }
+
+                // Add amount information
+                if (trade.amount !== null && trade.amount !== undefined) {
+                  const amount = parseFloat(trade.amount);
+                  if (!isNaN(amount)) {
+                    const amountText = amount.toFixed(6);
+                    const sideColor = trade.side === 'buy' ? '#00ff00' : '#ff4444';
+                    lines.push({
+                      text: `Amount: ${amountText} BTC`,
+                      color: sideColor
+                    });
+                  }
+                }
+
+                return lines;
+              }
+            }
+          },
+          legend: {
+            display: true,
+            position: 'top',
+          }
+        },
+        interaction: {
+          mode: 'index',
+          intersect: false,
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              unit: 'hour',
+              displayFormats: {
+                hour: 'MMM dd HH:mm',
+              },
+              tooltipFormat: 'MMM dd, yyyy HH:mm',
+            },
+            ticks: {
+              color: '#e1e8ff',
+              autoSkip: true,
+              maxRotation: 0,
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.1)',
+            },
+          },
+          y: {
+            type: 'linear',
+            position: 'left',
+            beginAtZero: false,
+            title: {
+              display: true,
+              text: 'Price (USD)',
+              color: '#e1e8ff',
+            },
+            ticks: {
+              color: '#e1e8ff',
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.1)',
+            },
+          },
+          y1: {
+            type: 'linear',
+            position: 'right',
+            beginAtZero: false,
+            title: {
+              display: true,
+              text: 'Portfolio Value (USD)',
+              color: '#FFD700',
+            },
+            ticks: {
+              color: '#FFD700',
+              callback: function(value) {
+                return '$' + value.toFixed(0);
+              },
+            },
+            grid: {
+              drawOnChartArea: false,
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            display: true,
+            labels: {
+              color: '#e1e8ff',
+            },
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              label: function(context) {
                 if (context.raw && typeof context.raw.o !== 'undefined') {
                   const data = context.raw;
                   return [
@@ -1013,72 +1236,122 @@
                     `Close: $${data.c.toFixed(2)}`
                   ];
                 }
-                // Handle portfolio value
                 if (context.dataset.label === 'Portfolio Value') {
                   return `Portfolio: $${context.parsed.y.toFixed(2)}`;
                 }
-                // Handle trade markers - use shared formatter
-                if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
-                  return ChartUtils.formatTradeTooltip(context);
-                }
-                
-                // Fallback for other datasets
-                const trade = context.raw;
-                const price = trade.y ? trade.y.toFixed(2) : 'N/A';
-                return `${context.dataset.label} @ $${price}`;
-              },
-              afterLabel: function(context) {
-                // Use shared formatter for trade markers
-                if (context.dataset.label === 'Buy' || context.dataset.label === 'Sell') {
-                  return ChartUtils.formatTradeTooltipDetails(context);
-                }
-                return [];
+                return `${context.dataset.label}: $${context.parsed.y.toFixed(2)}`;
               }
             }
           },
-          zoom: ChartUtils.getZoomConfig(true),
+          zoom: {
+            zoom: {
+              wheel: {
+                enabled: true,
+                speed: 0.05,
+              },
+              pinch: {
+                enabled: true,
+              },
+              mode: 'x',
+            },
+            pan: {
+              enabled: true,
+              mode: 'x',
+            },
+          },
         },
-        interaction: {
-          mode: 'index',
-          intersect: false,
-        },
-        scales: ChartUtils.getScaleConfig(true),
       },
     });
     
-    // Setup drag-to-pan and keyboard navigation using shared utilities
-    ChartUtils.setupDragPan(backtestChart, 'backtestChart');
-    ChartUtils.setupKeyboardNavigation(backtestChart);
+    // Add drag-to-pan support
+    setupDragPan(backtestChart, 'backtestChart');
   }
   
-  // Chart navigation functions using shared utilities
+  function setupDragPan(chart, canvasId) {
+    const canvas = document.getElementById(canvasId);
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartMin = 0;
+    let dragStartMax = 0;
+    
+    canvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragStartX = e.clientX;
+      const xScale = chart.scales.x;
+      dragStartMin = xScale.min;
+      dragStartMax = xScale.max;
+      canvas.style.cursor = 'grabbing';
+    });
+    
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      
+      e.preventDefault();
+      const xScale = chart.scales.x;
+      const chartArea = chart.chartArea;
+      
+      const deltaX = e.clientX - dragStartX;
+      const chartWidth = chartArea.right - chartArea.left;
+      const timeRange = dragStartMax - dragStartMin;
+      const timePerPixel = timeRange / chartWidth;
+      const timeDelta = deltaX * timePerPixel;
+      
+      chart.options.scales.x.min = dragStartMin - timeDelta;
+      chart.options.scales.x.max = dragStartMax - timeDelta;
+      chart.update('none');
+    });
+    
+    const stopDragging = () => {
+      if (isDragging) {
+        isDragging = false;
+        canvas.style.cursor = 'grab';
+      }
+    };
+    
+    canvas.addEventListener('mouseup', stopDragging);
+    canvas.addEventListener('mouseleave', stopDragging);
+  }
+  
+  // Chart navigation functions
   function resetZoomChart() {
     if (backtestChart) {
-      ChartUtils.navigation.resetZoom(backtestChart);
+      backtestChart.resetZoom();
     }
   }
   
   function zoomInChart() {
     if (backtestChart) {
-      ChartUtils.navigation.zoomIn(backtestChart);
+      backtestChart.zoom(1.2);
     }
   }
   
   function zoomOutChart() {
     if (backtestChart) {
-      ChartUtils.navigation.zoomOut(backtestChart);
+      backtestChart.zoom(0.8);
     }
   }
   
   function panLeftChart() {
     if (backtestChart) {
-      ChartUtils.navigation.panLeft(backtestChart);
+      const xScale = backtestChart.scales.x;
+      const range = xScale.max - xScale.min;
+      const panAmount = range * 0.15;
+      backtestChart.zoomScale('x', {
+        min: xScale.min - panAmount,
+        max: xScale.max - panAmount
+      }, 'default');
     }
   }
   
   function panRightChart() {
     if (backtestChart) {
-      ChartUtils.navigation.panRight(backtestChart);
+      const xScale = backtestChart.scales.x;
+      const range = xScale.max - xScale.min;
+      const panAmount = range * 0.15;
+      backtestChart.zoomScale('x', {
+        min: xScale.min + panAmount,
+        max: xScale.max + panAmount
+      }, 'default');
     }
   }
 </script>

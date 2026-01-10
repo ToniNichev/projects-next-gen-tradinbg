@@ -62,6 +62,25 @@ class BotConfig:
     volume_threshold: float = 1.1  # Require 110% of average volume (lowered from 120%)
     max_trades_per_day: int = 5  # Prevent overtrading
     
+    # Multi-Strategy Configuration
+    use_multi_strategy: bool = True  # Enable multiple strategies
+    strategy_aggregation_mode: str = "weighted_voting"  # voting, weighted_voting, unanimous, any, best
+    min_signal_confidence: float = 0.3  # Minimum confidence threshold
+    
+    # Strategy: EMA Crossover (enabled by default)
+    strategy_ema_enabled: bool = True
+    strategy_ema_weight: float = 1.0
+    
+    # Strategy: RSI + Bollinger Bands Mean Reversion
+    strategy_rsi_bb_enabled: bool = True
+    strategy_rsi_bb_weight: float = 1.0
+    strategy_rsi_bb_rsi_oversold: float = 30
+    strategy_rsi_bb_rsi_overbought: float = 70
+    strategy_rsi_bb_bb_period: int = 20
+    strategy_rsi_bb_bb_std_dev: float = 2.0
+    strategy_rsi_bb_stop_loss_pct: float = 0.02
+    strategy_rsi_bb_take_profit_pct: float = 0.03
+    
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
     dashboard_username: str = "admin"  # Username for dashboard access
@@ -74,53 +93,102 @@ class BotConfig:
 
     @classmethod
     def load(cls) -> "BotConfig":
+        """
+        Load configuration from database (if available) with fallback to environment variables.
+        Database values take precedence over env vars for strategy parameters.
+        """
         env = os.environ
+        
+        # Try to load strategy-specific configs from database
+        db_config = {}
+        try:
+            from database import get_database
+            db = get_database()
+            db_config = db.get_all_strategy_configs()
+        except Exception:
+            # Database not available or not initialized, use env vars only
+            pass
+        
+        # Helper function to get value: database first, then env, then default
+        def get_val(db_key, env_key, default, value_type=str):
+            if db_key in db_config:
+                return db_config[db_key]
+            
+            env_val = env.get(env_key)
+            if env_val is None:
+                return default
+            
+            if value_type == bool:
+                return env_val.lower() == "true"
+            elif value_type == int:
+                return int(env_val)
+            elif value_type == float:
+                return float(env_val)
+            else:
+                return env_val
+        
         return cls(
             binance_api_key=env.get("BINANCE_US_KEY", ""),
             binance_api_secret=env.get("BINANCE_US_SECRET", ""),
-            symbol=env.get("BOT_SYMBOL", "BTC/USDT"),
-            timeframe=env.get("BOT_TIMEFRAME", "1h"),
-            short_window=int(env.get("BOT_SHORT_WINDOW", 12)),
-            long_window=int(env.get("BOT_LONG_WINDOW", 26)),
-            order_pct=float(env.get("BOT_ORDER_PCT", 0.25)),
-            initial_usdt=float(env.get("BOT_INITIAL_USDT", 1000.0)),
+            symbol=get_val("symbol", "BOT_SYMBOL", "BTC/USDT", str),
+            timeframe=get_val("timeframe", "BOT_TIMEFRAME", "1h", str),
+            short_window=get_val("short_window", "BOT_SHORT_WINDOW", 12, int),
+            long_window=get_val("long_window", "BOT_LONG_WINDOW", 26, int),
+            order_pct=get_val("order_pct", "BOT_ORDER_PCT", 0.25, float),
+            initial_usdt=get_val("initial_usdt", "BOT_INITIAL_USDT", 1000.0, float),
             fee_rate=float(env.get("BOT_FEE_RATE", 0.00075)),
             slippage=float(env.get("BOT_SLIPPAGE", 0.0005)),
             dashboard_host=env.get("BOT_DASHBOARD_HOST", "0.0.0.0"),
             dashboard_port=int(env.get("BOT_DASHBOARD_PORT", 8000)),
             exchange_type=env.get("BOT_EXCHANGE_TYPE", "spot"),
             trades_log_path=env.get("BOT_TRADES_LOG_PATH", "data/trade_log.csv"),
-            min_trend_strength=float(env.get("BOT_MIN_TREND_STRENGTH", 0.00005)),
-            rsi_period=int(env.get("BOT_RSI_PERIOD", 14)),
-            rsi_oversold=float(env.get("BOT_RSI_OVERSOLD", 25)),
-            rsi_overbought=float(env.get("BOT_RSI_OVERBOUGHT", 75)),
+            min_trend_strength=get_val("min_trend_strength", "BOT_MIN_TREND_STRENGTH", 0.00005, float),
+            rsi_period=get_val("rsi_period", "BOT_RSI_PERIOD", 14, int),
+            rsi_oversold=get_val("rsi_oversold", "BOT_RSI_OVERSOLD", 25.0, float),
+            rsi_overbought=get_val("rsi_overbought", "BOT_RSI_OVERBOUGHT", 75.0, float),
             # Risk Management
-            stop_loss_pct=float(env.get("BOT_STOP_LOSS_PCT", 0.025)),
-            take_profit_pct=float(env.get("BOT_TAKE_PROFIT_PCT", 0.04)),
-            trailing_stop_pct=float(env.get("BOT_TRAILING_STOP_PCT", 0.015)),
+            stop_loss_pct=get_val("stop_loss_pct", "BOT_STOP_LOSS_PCT", 0.025, float),
+            take_profit_pct=get_val("take_profit_pct", "BOT_TAKE_PROFIT_PCT", 0.04, float),
+            trailing_stop_pct=get_val("trailing_stop_pct", "BOT_TRAILING_STOP_PCT", 0.015, float),
             max_position_risk_pct=float(env.get("BOT_MAX_POSITION_RISK_PCT", 0.01)),
             max_portfolio_drawdown=float(env.get("BOT_MAX_PORTFOLIO_DRAWDOWN", 0.10)),
-            use_trailing_stop=env.get("BOT_USE_TRAILING_STOP", "true").lower() == "true",
+            use_trailing_stop=get_val("use_trailing_stop", "BOT_USE_TRAILING_STOP", True, bool),
             # Position Sizing
-            max_position_size=float(env.get("BOT_MAX_POSITION_SIZE", 0.35)),
-            min_position_size=float(env.get("BOT_MIN_POSITION_SIZE", 0.15)),
-            use_dynamic_sizing=env.get("BOT_USE_DYNAMIC_SIZING", "true").lower() == "true",
+            max_position_size=get_val("max_position_size", "BOT_MAX_POSITION_SIZE", 0.35, float),
+            min_position_size=get_val("min_position_size", "BOT_MIN_POSITION_SIZE", 0.15, float),
+            use_dynamic_sizing=get_val("use_dynamic_sizing", "BOT_USE_DYNAMIC_SIZING", True, bool),
             # ATR and MACD
-            atr_period=int(env.get("BOT_ATR_PERIOD", 14)),
-            atr_stop_multiplier=float(env.get("BOT_ATR_STOP_MULTIPLIER", 2.5)),
-            use_atr_stops=env.get("BOT_USE_ATR_STOPS", "true").lower() == "true",
+            atr_period=get_val("atr_period", "BOT_ATR_PERIOD", 14, int),
+            atr_stop_multiplier=get_val("atr_stop_multiplier", "BOT_ATR_STOP_MULTIPLIER", 2.5, float),
+            use_atr_stops=get_val("use_atr_stops", "BOT_USE_ATR_STOPS", True, bool),
             macd_fast=int(env.get("BOT_MACD_FAST", 12)),
             macd_slow=int(env.get("BOT_MACD_SLOW", 26)),
             macd_signal=int(env.get("BOT_MACD_SIGNAL", 9)),
-            require_macd_confirmation=env.get("BOT_REQUIRE_MACD_CONFIRMATION", "false").lower() == "true",
+            require_macd_confirmation=get_val("require_macd_confirmation", "BOT_REQUIRE_MACD_CONFIRMATION", False, bool),
             # Additional Safety
-            require_volume_confirmation=env.get("BOT_REQUIRE_VOLUME_CONFIRMATION", "true").lower() == "true",
-            volume_threshold=float(env.get("BOT_VOLUME_THRESHOLD", 1.1)),
-            max_trades_per_day=int(env.get("BOT_MAX_TRADES_PER_DAY", 5)),
+            require_volume_confirmation=get_val("require_volume_confirmation", "BOT_REQUIRE_VOLUME_CONFIRMATION", True, bool),
+            volume_threshold=get_val("volume_threshold", "BOT_VOLUME_THRESHOLD", 1.1, float),
+            max_trades_per_day=get_val("max_trades_per_day", "BOT_MAX_TRADES_PER_DAY", 5, int),
             # Database
             database_url=env.get("BOT_DATABASE_URL", "sqlite:///data/trading.db"),
             enable_database=env.get("BOT_ENABLE_DATABASE", "true").lower() == "true",
             enable_csv_logging=env.get("BOT_ENABLE_CSV_LOGGING", "true").lower() == "true",
+            # Multi-Strategy (can be overridden by database)
+            use_multi_strategy=env.get("BOT_USE_MULTI_STRATEGY", "true").lower() == "true",
+            strategy_aggregation_mode=get_val("strategy_aggregation_mode", "BOT_STRATEGY_AGGREGATION_MODE", "weighted_voting", str),
+            min_signal_confidence=get_val("min_signal_confidence", "BOT_MIN_SIGNAL_CONFIDENCE", 0.3, float),
+            # EMA Strategy (can be overridden by database)
+            strategy_ema_enabled=get_val("strategy_ema_enabled", "BOT_STRATEGY_EMA_ENABLED", True, bool),
+            strategy_ema_weight=get_val("strategy_ema_weight", "BOT_STRATEGY_EMA_WEIGHT", 1.0, float),
+            # RSI+BB Strategy (can be overridden by database)
+            strategy_rsi_bb_enabled=get_val("strategy_rsi_bb_enabled", "BOT_STRATEGY_RSI_BB_ENABLED", True, bool),
+            strategy_rsi_bb_weight=get_val("strategy_rsi_bb_weight", "BOT_STRATEGY_RSI_BB_WEIGHT", 1.0, float),
+            strategy_rsi_bb_rsi_oversold=get_val("strategy_rsi_bb_rsi_oversold", "BOT_STRATEGY_RSI_BB_RSI_OVERSOLD", 30.0, float),
+            strategy_rsi_bb_rsi_overbought=get_val("strategy_rsi_bb_rsi_overbought", "BOT_STRATEGY_RSI_BB_RSI_OVERBOUGHT", 70.0, float),
+            strategy_rsi_bb_bb_period=get_val("strategy_rsi_bb_bb_period", "BOT_STRATEGY_RSI_BB_BB_PERIOD", 20, int),
+            strategy_rsi_bb_bb_std_dev=get_val("strategy_rsi_bb_bb_std_dev", "BOT_STRATEGY_RSI_BB_BB_STD_DEV", 2.0, float),
+            strategy_rsi_bb_stop_loss_pct=get_val("strategy_rsi_bb_stop_loss_pct", "BOT_STRATEGY_RSI_BB_STOP_LOSS_PCT", 0.02, float),
+            strategy_rsi_bb_take_profit_pct=get_val("strategy_rsi_bb_take_profit_pct", "BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT", 0.03, float),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),
@@ -131,4 +199,50 @@ class BotConfig:
             rate_limit_per_minute=int(env.get("DASHBOARD_RATE_LIMIT_PER_MINUTE", 60)),
             allowed_origins=env.get("DASHBOARD_ALLOWED_ORIGINS", "*"),
         )
+    
+    def get_strategy_configs(self) -> dict:
+        """Get configuration for all strategies"""
+        return {
+            "ema_crossover": {
+                "enabled": self.strategy_ema_enabled,
+                "weight": self.strategy_ema_weight,
+                "short_window": self.short_window,
+                "long_window": self.long_window,
+                "min_trend_strength": self.min_trend_strength,
+                "rsi_period": self.rsi_period,
+                "rsi_oversold": self.rsi_oversold,
+                "rsi_overbought": self.rsi_overbought,
+                "atr_period": self.atr_period,
+                "atr_stop_multiplier": self.atr_stop_multiplier,
+                "use_atr_stops": self.use_atr_stops,
+                "stop_loss_pct": self.stop_loss_pct,
+                "take_profit_pct": self.take_profit_pct,
+                "macd_fast": self.macd_fast,
+                "macd_slow": self.macd_slow,
+                "macd_signal": self.macd_signal,
+                "require_macd_confirmation": self.require_macd_confirmation,
+                "require_volume_confirmation": self.require_volume_confirmation,
+                "volume_threshold": self.volume_threshold,
+                "use_dynamic_sizing": self.use_dynamic_sizing,
+                "min_position_size": self.min_position_size,
+                "max_position_size": self.max_position_size,
+            },
+            "rsi_bb": {
+                "enabled": self.strategy_rsi_bb_enabled,
+                "weight": self.strategy_rsi_bb_weight,
+                "rsi_period": self.rsi_period,
+                "rsi_oversold": self.strategy_rsi_bb_rsi_oversold,
+                "rsi_overbought": self.strategy_rsi_bb_rsi_overbought,
+                "bb_period": self.strategy_rsi_bb_bb_period,
+                "bb_std_dev": self.strategy_rsi_bb_bb_std_dev,
+                "atr_period": self.atr_period,
+                "atr_stop_multiplier": self.atr_stop_multiplier,
+                "use_atr_stops": self.use_atr_stops,
+                "stop_loss_pct": self.strategy_rsi_bb_stop_loss_pct,
+                "take_profit_pct": self.strategy_rsi_bb_take_profit_pct,
+                "use_dynamic_sizing": self.use_dynamic_sizing,
+                "min_position_size": self.min_position_size,
+                "max_position_size": self.max_position_size,
+            }
+        }
 

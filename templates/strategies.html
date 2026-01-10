@@ -1,0 +1,589 @@
+{% extends "base.html" %}
+
+{% block title %}Strategies - Crypto Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .strategy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  
+  .strategy-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  
+  .strategy-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-blue);
+  }
+  
+  .strategy-icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+  
+  .strategy-header {
+    margin-bottom: 1rem;
+  }
+  
+  .strategy-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+  }
+  
+  .strategy-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin: 0 0 1rem 0;
+  }
+  
+  .strategy-status {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+  
+  .badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  
+  .badge-enabled {
+    background: var(--accent-green);
+    color: #000;
+  }
+  
+  .badge-disabled {
+    background: var(--accent-red);
+    color: #fff;
+  }
+  
+  .badge-info {
+    background: var(--accent-blue);
+    color: #fff;
+  }
+  
+  .param-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem 0;
+  }
+  
+  .param-list li {
+    padding: 0.375rem 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  .param-list li:last-child {
+    border-bottom: none;
+  }
+  
+  .param-list strong {
+    color: var(--text-primary);
+  }
+  
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  
+  .stat-card {
+    background: var(--bg-tertiary);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+  }
+  
+  .stat-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
+  }
+  
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  
+  .progress-bar {
+    height: 24px;
+    background: var(--bg-tertiary);
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+  }
+  
+  .progress-fill {
+    height: 100%;
+    background: var(--accent-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: width 0.3s ease;
+  }
+  
+  .progress-fill.success {
+    background: var(--accent-green);
+    color: #000;
+  }
+  
+  .progress-fill.warning {
+    background: #f39c12;
+    color: #000;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+  }
+  
+  thead {
+    background: var(--bg-tertiary);
+    border-bottom: 2px solid var(--border-color);
+  }
+  
+  th {
+    padding: 0.75rem;
+    text-align: left;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  tbody tr:hover {
+    background: var(--bg-tertiary);
+  }
+  
+  .chart-container {
+    position: relative;
+    height: 300px;
+    background: var(--bg-tertiary);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+  }
+  
+  .alert {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+  }
+  
+  .alert-info {
+    background: rgba(83, 155, 245, 0.1);
+    border-color: var(--accent-blue);
+    color: var(--text-primary);
+  }
+  
+  .alert-success {
+    background: rgba(88, 214, 141, 0.1);
+    border-color: var(--accent-green);
+    color: var(--text-primary);
+  }
+  
+  .alert-danger {
+    background: rgba(255, 94, 87, 0.1);
+    border-color: var(--accent-red);
+    color: var(--text-primary);
+  }
+  
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+  
+  .info-box {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-top: 1rem;
+  }
+  
+  .info-box h6 {
+    margin: 0 0 0.5rem 0;
+    color: var(--accent-blue);
+  }
+  
+  .info-box ul {
+    margin: 0.5rem 0 0 1.5rem;
+    color: var(--text-secondary);
+  }
+  
+  .info-box code {
+    background: var(--bg-primary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-family: 'Courier New', monospace;
+    color: var(--accent-blue);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>🧠 Multi-Strategy Trading System</h1>
+
+<!-- System Overview -->
+<div class="card-grid">
+  <div class="card">
+    <h3>System Status</h3>
+    <p class="value" id="systemStatus"><i class="fas fa-spinner fa-spin"></i></p>
+  </div>
+  <div class="card">
+    <h3>Aggregation Mode</h3>
+    <p class="value" id="aggregationMode">-</p>
+  </div>
+  <div class="card">
+    <h3>Active Strategies</h3>
+    <p class="value" id="activeCount">-</p>
+  </div>
+  <div class="card">
+    <h3>Min Confidence</h3>
+    <p class="value" id="minConfidence">-</p>
+  </div>
+</div>
+
+<!-- Alert Message -->
+<div id="alertContainer"></div>
+
+<!-- Strategy Cards -->
+<div class="section-header">
+  <h2>Available Strategies</h2>
+</div>
+<div class="strategy-grid" id="strategiesContainer">
+  <!-- Strategies will be loaded here -->
+</div>
+
+<!-- Performance Statistics -->
+<h2>📊 Strategy Performance</h2>
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Total Signals</div>
+    <div class="stat-value" id="totalSignals">-</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Signals Used</div>
+    <div class="stat-value" id="totalUsed">-</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Overall Acceptance</div>
+    <div class="stat-value" id="overallAcceptance">-</div>
+  </div>
+</div>
+
+<!-- Strategy Stats Table -->
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th>Generated</th>
+        <th>Used</th>
+        <th>Avg Confidence</th>
+        <th>Generation Rate</th>
+        <th>Usage Rate</th>
+        <th>Acceptance Rate</th>
+      </tr>
+    </thead>
+    <tbody id="statsTable">
+      <!-- Stats will be loaded here -->
+    </tbody>
+  </table>
+</div>
+
+<!-- Charts -->
+<h2>📈 Distribution Charts</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem;">
+  <div class="chart-container">
+    <canvas id="generationChart"></canvas>
+  </div>
+  <div class="chart-container">
+    <canvas id="usageChart"></canvas>
+  </div>
+</div>
+
+<!-- Configuration Guide -->
+<h2>📚 Configuration Guide</h2>
+<div class="info-box">
+  <h6>🔧 Aggregation Modes</h6>
+  <ul>
+    <li><strong>weighted_voting</strong>: Strategies vote with confidence weights (Recommended)</li>
+    <li><strong>voting</strong>: Simple majority rule (democratic)</li>
+    <li><strong>unanimous</strong>: All strategies must agree (conservative)</li>
+    <li><strong>any</strong>: Any strategy can trigger (aggressive)</li>
+    <li><strong>best</strong>: Use most confident strategy</li>
+  </ul>
+  <p style="margin-top: 1rem; color: var(--text-secondary);">
+    <strong>To configure:</strong> Visit <a href="/strategy-config" style="color: var(--accent-blue);">Strategy Configuration</a> page or edit <code>.env</code> file and restart the bot.
+  </p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+<script>
+  let generationChart = null;
+  let usageChart = null;
+
+  async function loadStrategies() {
+    try {
+      const response = await fetch('/api/strategies');
+      const data = await response.json();
+      
+      if (!data.multi_strategy_enabled) {
+        document.getElementById('systemStatus').innerHTML = 
+          '<span class="badge badge-disabled">Disabled</span>';
+        showAlert('Multi-strategy system is not enabled. Set BOT_USE_MULTI_STRATEGY=true in .env to enable.', 'info');
+        return;
+      }
+
+      document.getElementById('systemStatus').innerHTML = 
+        '<span class="badge badge-enabled">Active</span>';
+      document.getElementById('aggregationMode').textContent = data.aggregation_mode;
+      document.getElementById('activeCount').textContent = 
+        data.strategies.filter(s => s.enabled).length + '/' + data.strategies.length;
+      document.getElementById('minConfidence').textContent = 
+        (data.min_confidence * 100).toFixed(0) + '%';
+
+      // Render strategy cards
+      const container = document.getElementById('strategiesContainer');
+      container.innerHTML = data.strategies.map(strategy => {
+        const icon = strategy.name.includes('EMA') ? '📈' : '🌊';
+        const statusBadge = strategy.enabled ? 
+          '<span class="badge badge-enabled">Enabled</span>' : 
+          '<span class="badge badge-disabled">Disabled</span>';
+        const toggleButtonClass = strategy.enabled ? 'danger' : 'success';
+        const toggleButtonText = strategy.enabled ? '🔴 Disable' : '🟢 Enable';
+        
+        return `
+          <div class="strategy-card">
+            <div class="strategy-icon">${icon}</div>
+            <div class="strategy-header">
+              <h3 class="strategy-name">${strategy.name}</h3>
+              <p class="strategy-description">${strategy.description}</p>
+            </div>
+            <div class="strategy-status">
+              ${statusBadge}
+              <span class="badge badge-info">Weight: ${strategy.weight}</span>
+            </div>
+            <ul class="param-list">
+              ${Object.entries(strategy.parameters).slice(0, 5).map(([key, value]) => 
+                `<li><strong>${key}</strong>: ${value}</li>`
+              ).join('')}
+            </ul>
+            <button class="${toggleButtonClass}" onclick="toggleStrategy('${strategy.name}', ${strategy.enabled})" 
+                    id="toggle-${strategy.name}">
+              ${toggleButtonText}
+            </button>
+          </div>
+        `;
+      }).join('');
+
+    } catch (error) {
+      console.error('Error loading strategies:', error);
+      document.getElementById('systemStatus').innerHTML = 
+        '<span class="badge badge-disabled">Error</span>';
+    }
+  }
+
+  async function loadStats() {
+    try {
+      const response = await fetch('/api/strategies/stats');
+      const data = await response.json();
+      
+      if (!data.multi_strategy_enabled) return;
+
+      document.getElementById('totalSignals').textContent = data.total_signals_generated;
+      document.getElementById('totalUsed').textContent = data.total_signals_used;
+      
+      const overallAcceptance = data.total_signals_generated > 0 ? 
+        (data.total_signals_used / data.total_signals_generated * 100).toFixed(1) : 0;
+      document.getElementById('overallAcceptance').textContent = overallAcceptance + '%';
+
+      // Render stats table
+      const tbody = document.getElementById('statsTable');
+      tbody.innerHTML = Object.entries(data.stats).map(([name, stats]) => `
+        <tr>
+          <td><strong>${name}</strong></td>
+          <td>${stats.signals_generated}</td>
+          <td>${stats.signals_used}</td>
+          <td>${(stats.avg_confidence * 100).toFixed(1)}%</td>
+          <td>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: ${stats.generation_rate}%">
+                ${stats.generation_rate.toFixed(1)}%
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="progress-bar">
+              <div class="progress-fill success" style="width: ${stats.usage_rate}%">
+                ${stats.usage_rate.toFixed(1)}%
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="progress-bar">
+              <div class="progress-fill warning" style="width: ${stats.acceptance_rate}%">
+                ${stats.acceptance_rate.toFixed(1)}%
+              </div>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+
+      // Update charts
+      updateCharts(data.stats);
+
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  }
+
+  function updateCharts(stats) {
+    const labels = Object.keys(stats);
+    const generationData = labels.map(name => stats[name].signals_generated);
+    const usageData = labels.map(name => stats[name].signals_used);
+    const colors = ['rgba(83, 155, 245, 0.8)', 'rgba(88, 214, 141, 0.8)'];
+
+    const genCtx = document.getElementById('generationChart').getContext('2d');
+    if (generationChart) generationChart.destroy();
+    generationChart = new Chart(genCtx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: generationData,
+          backgroundColor: colors,
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { 
+            position: 'bottom',
+            labels: { color: '#e1e8ff' }
+          },
+          title: {
+            display: true,
+            text: 'Signal Generation',
+            color: '#e1e8ff'
+          }
+        }
+      }
+    });
+
+    const useCtx = document.getElementById('usageChart').getContext('2d');
+    if (usageChart) usageChart.destroy();
+    usageChart = new Chart(useCtx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: usageData,
+          backgroundColor: colors,
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { 
+            position: 'bottom',
+            labels: { color: '#e1e8ff' }
+          },
+          title: {
+            display: true,
+            text: 'Signal Usage',
+            color: '#e1e8ff'
+          }
+        }
+      }
+    });
+  }
+
+  async function toggleStrategy(strategyName, currentlyEnabled) {
+    const button = document.getElementById(`toggle-${strategyName}`);
+    const originalHTML = button.innerHTML;
+    
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    
+    try {
+      const response = await fetch(`/api/strategies/${strategyName}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showAlert(data.message, 'success');
+        await loadStrategies();
+        await loadStats();
+      } else {
+        showAlert(data.error || 'Failed to toggle strategy', 'danger');
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+      }
+    } catch (error) {
+      console.error('Error toggling strategy:', error);
+      showAlert('Network error: ' + error.message, 'danger');
+      button.disabled = false;
+      button.innerHTML = originalHTML;
+    }
+  }
+
+  function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.textContent = message;
+    document.getElementById('alertContainer').appendChild(alertDiv);
+    
+    setTimeout(() => {
+      alertDiv.remove();
+    }, 5000);
+  }
+
+  // Load data on page load
+  loadStrategies();
+  loadStats();
+
+  // Refresh stats every 10 seconds
+  setInterval(loadStats, 10000);
+</script>
+{% endblock %}

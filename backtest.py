@@ -3,7 +3,20 @@ from datetime import datetime, timedelta
 import ccxt
 from config import BotConfig
 from paper_trader import PaperTrader
-from strategy import compute_signal
+
+# Import multi-strategy system with fallback to legacy
+try:
+    from strategies import (
+        EMACrossoverStrategy,
+        RSIBollingerBandsStrategy,
+        StrategyManager,
+        SignalAggregationMode,
+    )
+    MULTI_STRATEGY_AVAILABLE = True
+except ImportError:
+    MULTI_STRATEGY_AVAILABLE = False
+    from strategy import compute_signal
+    logging.warning("Multi-strategy system not available. Using legacy single strategy for backtest.")
 
 try:
     from database import initialize_database
@@ -12,13 +25,98 @@ except ImportError:
     DATABASE_AVAILABLE = False
 
 
-def run_backtest(days_back: int = 30, use_database: bool = False):
-    """Run accelerated backtest on historical data"""
-    config = BotConfig.load()
+def run_backtest(days_back: int = 30, use_database: bool = False, config_overrides: dict = None):
+    """
+    Run accelerated backtest on historical data with multi-strategy support.
+    
+    Args:
+        days_back: Number of days of historical data to backtest
+        use_database: Whether to store results in database
+        config_overrides: Optional dict of config parameters to override (for presets/testing)
+    """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    
+    # Initialize main trading database for reading configuration
+    # (This is separate from the backtest results database)
+    if DATABASE_AVAILABLE:
+        try:
+            from database import initialize_database as init_db
+            init_db("sqlite:///data/trading.db")
+            logging.info("✓ Trading database initialized for config reading")
+        except Exception as e:
+            logging.warning(f"Could not initialize trading database: {e}")
+            logging.warning("Using .env configuration instead")
+    
+    config = BotConfig.load()
+    
+    # Apply config overrides (for presets like conservative, balanced, aggressive)
+    if config_overrides:
+        logging.info("=" * 80)
+        logging.info("APPLYING CONFIG OVERRIDES")
+        logging.info("=" * 80)
+        for key, value in config_overrides.items():
+            if hasattr(config, key):
+                old_value = getattr(config, key)
+                setattr(config, key, value)
+                logging.info(f"  {key}: {old_value} → {value}")
+            else:
+                logging.warning(f"  Unknown config key: {key}")
+        logging.info("=" * 80)
     
     # Build exchange (read-only, no API keys needed for historical data)
     exchange = ccxt.binanceus({"enableRateLimit": True})
+    
+    # Initialize strategy system
+    strategy_manager = None
+    if config.use_multi_strategy and MULTI_STRATEGY_AVAILABLE:
+        logging.info("=" * 80)
+        logging.info("MULTI-STRATEGY BACKTEST MODE")
+        logging.info("=" * 80)
+        
+        # Create strategies
+        strategies = []
+        strategy_configs = config.get_strategy_configs()
+        
+        # EMA Crossover Strategy
+        if strategy_configs["ema_crossover"]["enabled"]:
+            ema_strategy = EMACrossoverStrategy(strategy_configs["ema_crossover"])
+            strategies.append(ema_strategy)
+            logging.info(f"✓ Enabled: {ema_strategy.name} (weight: {ema_strategy.get_weight()})")
+        
+        # RSI + Bollinger Bands Strategy
+        if strategy_configs["rsi_bb"]["enabled"]:
+            rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
+            strategies.append(rsi_bb_strategy)
+            logging.info(f"✓ Enabled: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
+        
+        if strategies:
+            # Create strategy manager
+            aggregation_mode_map = {
+                "voting": SignalAggregationMode.VOTING,
+                "weighted_voting": SignalAggregationMode.WEIGHTED_VOTING,
+                "unanimous": SignalAggregationMode.UNANIMOUS,
+                "any": SignalAggregationMode.ANY,
+                "best": SignalAggregationMode.BEST,
+            }
+            aggregation_mode = aggregation_mode_map.get(
+                config.strategy_aggregation_mode,
+                SignalAggregationMode.WEIGHTED_VOTING
+            )
+            
+            strategy_manager = StrategyManager(
+                strategies=strategies,
+                aggregation_mode=aggregation_mode,
+                min_confidence=config.min_signal_confidence,
+            )
+            logging.info(f"Aggregation mode: {aggregation_mode.value}")
+            logging.info(f"Min confidence: {config.min_signal_confidence * 100}%")
+            logging.info("=" * 80)
+        else:
+            logging.warning("No strategies enabled! Falling back to legacy single strategy.")
+            strategy_manager = None
+    else:
+        logging.info("Using legacy single strategy for backtest")
+        strategy_manager = None
     
     # Initialize database if requested (use separate backtest database)
     db_manager = None
@@ -102,33 +200,41 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
         # Get window of candles for signal computation
         candle_window = all_candles[max(0, i - config.long_window * 2):i + 1]
         
-        # Compute signal with all new features
-        signal = compute_signal(
-            exchange,
-            config.symbol,
-            config.timeframe,
-            short_window=config.short_window,
-            long_window=config.long_window,
-            candle_data=candle_window,
-            min_trend_strength=config.min_trend_strength,
-            rsi_period=config.rsi_period,
-            rsi_oversold=config.rsi_oversold,
-            rsi_overbought=config.rsi_overbought,
-            atr_period=config.atr_period,
-            atr_stop_multiplier=config.atr_stop_multiplier,
-            use_atr_stops=config.use_atr_stops,
-            stop_loss_pct=config.stop_loss_pct,
-            take_profit_pct=config.take_profit_pct,
-            macd_fast=config.macd_fast,
-            macd_slow=config.macd_slow,
-            macd_signal=config.macd_signal,
-            require_macd_confirmation=config.require_macd_confirmation,
-            require_volume_confirmation=config.require_volume_confirmation,
-            volume_threshold=config.volume_threshold,
-            use_dynamic_sizing=config.use_dynamic_sizing,
-            min_position_size=config.min_position_size,
-            max_position_size=config.max_position_size,
-        )
+        # Compute signal (multi-strategy or legacy)
+        if strategy_manager:
+            signal = strategy_manager.compute_aggregate_signal(
+                exchange,
+                config.symbol,
+                config.timeframe,
+                candle_data=candle_window,
+            )
+        else:
+            signal = compute_signal(
+                exchange,
+                config.symbol,
+                config.timeframe,
+                short_window=config.short_window,
+                long_window=config.long_window,
+                candle_data=candle_window,
+                min_trend_strength=config.min_trend_strength,
+                rsi_period=config.rsi_period,
+                rsi_oversold=config.rsi_oversold,
+                rsi_overbought=config.rsi_overbought,
+                atr_period=config.atr_period,
+                atr_stop_multiplier=config.atr_stop_multiplier,
+                use_atr_stops=config.use_atr_stops,
+                stop_loss_pct=config.stop_loss_pct,
+                take_profit_pct=config.take_profit_pct,
+                macd_fast=config.macd_fast,
+                macd_slow=config.macd_slow,
+                macd_signal=config.macd_signal,
+                require_macd_confirmation=config.require_macd_confirmation,
+                require_volume_confirmation=config.require_volume_confirmation,
+                volume_threshold=config.volume_threshold,
+                use_dynamic_sizing=config.use_dynamic_sizing,
+                min_position_size=config.min_position_size,
+                max_position_size=config.max_position_size,
+            )
         
         # Execute trade if signal triggers (uses dynamic position sizing)
         trade = trader.handle_signal(signal)
@@ -194,10 +300,18 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
     avg_pnl_per_trade = trader.total_pnl / trader.total_trades if trader.total_trades > 0 else 0
     
     logging.info("\n" + "=" * 80)
-    logging.info("BACKTEST RESULTS - ENHANCED WITH RISK MANAGEMENT")
+    if strategy_manager:
+        logging.info("BACKTEST RESULTS - MULTI-STRATEGY WITH RISK MANAGEMENT")
+    else:
+        logging.info("BACKTEST RESULTS - SINGLE STRATEGY WITH RISK MANAGEMENT")
     logging.info("=" * 80)
     logging.info(f"Period: {days_back} days | Candles processed: {len(all_candles)}")
-    logging.info(f"Strategy: EMA {config.short_window}/{config.long_window} + MACD + ATR stops")
+    if strategy_manager:
+        enabled_strategies = [s.name for s in strategy_manager.strategies if s.is_enabled()]
+        logging.info(f"Strategies: {', '.join(enabled_strategies)}")
+        logging.info(f"Aggregation: {config.strategy_aggregation_mode}")
+    else:
+        logging.info(f"Strategy: EMA {config.short_window}/{config.long_window} + MACD + ATR stops")
     logging.info("-" * 80)
     logging.info("PERFORMANCE METRICS")
     logging.info("-" * 80)
@@ -229,6 +343,23 @@ def run_backtest(days_back: int = 30, use_database: bool = False):
     logging.info(f"MACD confirmation: {'Required' if config.require_macd_confirmation else 'Optional'}")
     logging.info(f"Volume confirmation: {'Required' if config.require_volume_confirmation else 'Optional'}")
     logging.info("-" * 80)
+    
+    # Show strategy statistics if multi-strategy was used
+    if strategy_manager:
+        logging.info("STRATEGY PERFORMANCE")
+        logging.info("-" * 80)
+        stats = strategy_manager.get_strategy_stats()
+        for strategy_name, strategy_stats in stats.items():
+            logging.info(f"Strategy: {strategy_name}")
+            logging.info(f"  Signals Generated: {strategy_stats['signals_generated']}")
+            logging.info(f"  Signals Used: {strategy_stats['signals_used']}")
+            logging.info(f"  Avg Confidence: {strategy_stats['avg_confidence']:.2%}")
+            if strategy_stats['signals_generated'] > 0:
+                acceptance = strategy_stats['signals_used'] / strategy_stats['signals_generated'] * 100
+                logging.info(f"  Acceptance Rate: {acceptance:.1f}%")
+            logging.info("")
+        logging.info("-" * 80)
+    
     logging.info(f"Trade log saved to: {trader.log_path}")
     logging.info("=" * 80)
     
