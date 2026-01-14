@@ -1,9 +1,251 @@
 {% extends "base.html" %}
 
-{% block title %}Strategy Configuration - Crypto Bot{% endblock %}
+{% block title %}Strategy Center - Crypto Bot{% endblock %}
 
 {% block extra_styles %}
 <style>
+  /* Status Overview Cards */
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  
+  .status-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    text-align: center;
+  }
+  
+  .status-card h4 {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.5rem 0;
+  }
+  
+  .status-card .value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+  }
+  
+  .badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  
+  .badge-enabled {
+    background: var(--accent-green);
+    color: #000;
+  }
+  
+  .badge-disabled {
+    background: var(--accent-red);
+    color: #fff;
+  }
+  
+  .badge-info {
+    background: var(--accent-blue);
+    color: #fff;
+  }
+  
+  /* Strategy Overview Cards */
+  .strategy-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  
+  .strategy-overview-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  
+  .strategy-overview-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-blue);
+  }
+  
+  .strategy-overview-card.enabled {
+    border-left: 4px solid var(--accent-green);
+  }
+  
+  .strategy-overview-card.disabled {
+    border-left: 4px solid var(--accent-red);
+    opacity: 0.7;
+  }
+  
+  .strategy-overview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+  
+  .strategy-overview-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  
+  .strategy-overview-title h3 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+  
+  .strategy-overview-icon {
+    font-size: 1.75rem;
+  }
+  
+  .strategy-overview-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 0.5rem;
+  }
+  
+  .strategy-overview-stat {
+    text-align: center;
+  }
+  
+  .strategy-overview-stat .label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  
+  .strategy-overview-stat .value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent-blue);
+  }
+  
+  .toggle-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    border-radius: 0.5rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .toggle-btn.enable {
+    background: var(--accent-green);
+    color: #000;
+  }
+  
+  .toggle-btn.disable {
+    background: var(--accent-red);
+    color: #fff;
+  }
+  
+  .toggle-btn:hover {
+    transform: scale(1.05);
+  }
+  
+  /* Performance Section */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .stat-card {
+    background: var(--bg-tertiary);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+    text-align: center;
+  }
+  
+  .stat-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+  }
+  
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  
+  .chart-container {
+    position: relative;
+    height: 250px;
+    background: var(--bg-tertiary);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+  }
+  
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  
+  /* Collapsible Sections */
+  .collapsible-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.5rem;
+  }
+  
+  .collapsible-header:hover {
+    color: var(--accent-blue);
+  }
+  
+  .collapsible-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+  
+  .collapse-icon {
+    font-size: 1.25rem;
+    transition: transform 0.3s;
+  }
+  
+  .collapsible-header.collapsed .collapse-icon {
+    transform: rotate(-90deg);
+  }
+  
+  .collapsible-content {
+    transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+    overflow: hidden;
+  }
+  
+  .collapsible-content.collapsed {
+    max-height: 0;
+    opacity: 0;
+    margin: 0;
+  }
+  
   .config-section {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
@@ -350,31 +592,146 @@
   .btn-close:hover {
     color: var(--text-primary);
   }
+  
+  /* Info Icon Tooltip */
+  .info-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    color: white;
+    font-size: 11px;
+    font-weight: bold;
+    margin-left: 0.35rem;
+    cursor: help;
+    position: relative;
+    vertical-align: middle;
+  }
+  
+  .info-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    z-index: 1000;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    font-size: 0.85rem;
+    font-weight: normal;
+    line-height: 1.5;
+    width: 280px;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    transition: opacity 0.2s, visibility 0.2s;
+  }
+  
+  .info-tooltip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: var(--border-color) transparent transparent transparent;
+  }
+  
+  .info-icon:hover .info-tooltip {
+    visibility: visible;
+    opacity: 1;
+  }
+  
+  .form-label {
+    display: flex;
+    align-items: center;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1>⚙️ Bot Configuration</h1>
+<h1>🧠 Strategy Center</h1>
 <p style="color: var(--text-secondary); margin-bottom: 2rem;">
-  Configure all bot parameters with <strong>instant hot-reload</strong>. Changes are saved to the database and applied immediately.
+  Monitor performance, enable/disable strategies, and configure all parameters in one place. Changes apply <strong>instantly</strong>.
 </p>
 
 <!-- Alert Container -->
 <div id="alertContainer"></div>
 
-<!-- Configuration Form -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SYSTEM STATUS OVERVIEW -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="status-grid">
+  <div class="status-card">
+    <h4>System Status</h4>
+    <p class="value" id="systemStatus"><i class="fas fa-spinner fa-spin"></i></p>
+  </div>
+  <div class="status-card">
+    <h4>Aggregation Mode</h4>
+    <p class="value" id="systemAggMode">-</p>
+  </div>
+  <div class="status-card">
+    <h4>Active Strategies</h4>
+    <p class="value" id="activeCount">-</p>
+  </div>
+  <div class="status-card">
+    <h4>Min Confidence</h4>
+    <p class="value" id="systemMinConf">-</p>
+  </div>
+  <div class="status-card">
+    <h4>Total Signals</h4>
+    <p class="value" id="totalSignals">-</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- STRATEGY OVERVIEW CARDS (with toggles) -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="collapsible-header" onclick="toggleSection('strategyOverview')">
+  <h2>📊 Strategy Overview</h2>
+  <span class="collapse-icon">▼</span>
+</div>
+<div id="strategyOverview" class="collapsible-content">
+  <div class="strategy-overview-grid" id="strategyOverviewContainer">
+    <!-- Strategy cards will be loaded here -->
+    <div style="color: var(--text-secondary); padding: 2rem; text-align: center;">
+      <i class="fas fa-spinner fa-spin"></i> Loading strategies...
+    </div>
+  </div>
+  
+  <!-- Performance Charts -->
+  <div class="charts-grid">
+    <div class="chart-container">
+      <canvas id="generationChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <canvas id="usageChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CONFIGURATION FORM -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
 <form id="configForm">
   
   <!-- GENERAL SETTINGS HEADER -->
-  <div style="margin-bottom: 1.5rem;">
-    <h2 style="font-size: 1.5rem; margin: 0 0 0.5rem 0; color: var(--accent-green); display: flex; align-items: center; gap: 0.5rem;">
-      <span style="font-size: 2rem;">⚙️</span>
-      <span>General Bot Settings</span>
+  <div class="collapsible-header" onclick="toggleSection('generalSettings')">
+    <h2 style="color: var(--accent-green); display: flex; align-items: center; gap: 0.5rem;">
+      <span>⚙️ General Bot Settings</span>
     </h2>
-    <p style="color: var(--text-secondary); margin: 0;">
+    <span class="collapse-icon">▼</span>
+  </div>
+  <div id="generalSettings" class="collapsible-content">
+    <p style="color: var(--text-secondary); margin: 0 0 1.5rem 0;">
       Core trading parameters, risk management, and signal filters that apply to all strategies.
     </p>
-  </div>
   
   <!-- Trading Parameters -->
   <div class="config-section">
@@ -385,7 +742,14 @@
     
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Trading Symbol</label>
+        <label class="form-label">
+          Trading Symbol
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              The cryptocurrency pair to trade. BTC/USDT is recommended for beginners due to high liquidity and lower volatility.
+            </span>
+          </span>
+        </label>
         <select class="form-select" id="symbol" name="symbol">
           <option value="BTC/USDT">BTC/USDT</option>
           <option value="ETH/USDT">ETH/USDT</option>
@@ -396,7 +760,14 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Timeframe</label>
+        <label class="form-label">
+          Timeframe
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Candle interval for analysis. Lower timeframes (5m-15m) generate more signals but noisier. Higher (1h-4h) = fewer but higher quality signals.
+            </span>
+          </span>
+        </label>
         <select class="form-select" id="timeframe" name="timeframe">
           <option value="5m">5 minutes</option>
           <option value="15m">15 minutes</option>
@@ -409,14 +780,28 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Initial Capital (USDT)</label>
+        <label class="form-label">
+          Initial Capital (USDT)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Starting balance for paper trading. Does not affect live trading. Recommended: $1000-$10000 for realistic testing.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="initialUsdt" name="initial_usdt" 
                min="100" step="100" value="1000">
         <span class="form-text">Starting balance for paper trading</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">Order Size (%)</label>
+        <label class="form-label">
+          Order Size (%)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Percentage of portfolio to use per trade. Lower = safer but slower growth. 10-25% is conservative, 40-50% is aggressive.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="orderPct" name="order_pct" 
                min="0.1" max="1.0" step="0.05" value="0.25">
         <span class="form-text">
@@ -425,17 +810,19 @@
       </div>
     </div>
   </div>
+  </div><!-- End generalSettings collapsible -->
   
   <!-- STRATEGY SETTINGS SEPARATOR -->
-  <div style="margin: 3rem 0 2rem 0; border-top: 2px solid var(--border-color); padding-top: 2rem;">
-    <h2 style="font-size: 1.5rem; margin: 0 0 0.5rem 0; color: var(--accent-blue); display: flex; align-items: center; gap: 0.5rem;">
-      <span style="font-size: 2rem;">🎯</span>
-      <span>Strategy Configuration</span>
+  <div class="collapsible-header" onclick="toggleSection('strategySettings')" style="margin-top: 2rem;">
+    <h2 style="color: var(--accent-blue); display: flex; align-items: center; gap: 0.5rem;">
+      <span>🎯 Strategy Configuration</span>
     </h2>
+    <span class="collapse-icon">▼</span>
+  </div>
+  <div id="strategySettings" class="collapsible-content">
     <p style="color: var(--text-secondary); margin: 0 0 1.5rem 0;">
       Configure individual trading strategies, their weights, and how signals are combined.
     </p>
-  </div>
   
   <!-- Multi-Strategy Settings -->
   <div class="strategy-section">
@@ -443,7 +830,19 @@
     
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Aggregation Mode</label>
+        <label class="form-label">
+          Aggregation Mode
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip" style="width: 320px;">
+              <strong>How signals are combined:</strong><br>
+              • <strong>Weighted Voting:</strong> Uses strategy weights<br>
+              • <strong>Simple Voting:</strong> Each strategy = 1 vote<br>
+              • <strong>Unanimous:</strong> All must agree (safest)<br>
+              • <strong>Any:</strong> One is enough (aggressive)<br>
+              • <strong>Best:</strong> Follow most confident only
+            </span>
+          </span>
+        </label>
         <select class="form-select" id="aggregationMode" name="aggregation_mode">
           <option value="weighted_voting">Weighted Voting (Recommended)</option>
           <option value="voting">Simple Voting</option>
@@ -455,7 +854,14 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Minimum Confidence</label>
+        <label class="form-label">
+          Minimum Confidence
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Filters out weak signals. 20-30% = more trades. 40-50% = fewer, higher quality trades. Prevents trading on low-confidence setups.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="minConfidence" name="min_confidence" 
                min="0.1" max="0.8" step="0.05" value="0.3">
         <span class="form-text">
@@ -492,14 +898,28 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">ATR Period</label>
+        <label class="form-label">
+          ATR Period
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Average True Range measures volatility. 14 is standard. Lower (7-10) = more responsive, higher (20-30) = smoother but slower.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="atrPeriod" name="atr_period" 
                min="5" max="30" value="14">
         <span class="form-text">Volatility measurement period</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">ATR Stop Multiplier</label>
+        <label class="form-label">
+          ATR Stop Multiplier
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Stop loss = ATR × this multiplier. 2-2.5x = normal, 3-4x = wider (less stops), 1.5-2x = tighter (more stops). Adapts to market volatility.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="atrStopMultiplier" name="atr_stop_multiplier" 
                min="1.0" max="5.0" step="0.5" value="2.5">
         <span class="form-text">
@@ -510,7 +930,14 @@
       <div class="form-group">
         <div class="form-switch">
           <input type="checkbox" id="useAtrStops" name="use_atr_stops">
-          <label for="useAtrStops">Use ATR-Based Stops</label>
+          <label for="useAtrStops">
+            Use ATR-Based Stops
+            <span class="info-icon" style="position: relative; margin-left: 0.35rem;">i
+              <span class="info-tooltip">
+                Dynamically adjusts stop loss based on market volatility. Tighter in calm markets, wider in volatile ones. Reduces false stops.
+              </span>
+            </span>
+          </label>
         </div>
         <span class="form-text">Dynamic stops based on volatility</span>
       </div>
@@ -523,7 +950,14 @@
     
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Stop Loss (%)</label>
+        <label class="form-label">
+          Stop Loss (%)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Maximum loss before auto-exit. 1-2% = tight (scalping), 2-3% = balanced, 3-5% = loose (swing trading). Protects capital.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="stopLossPct" name="stop_loss_pct" 
                min="0.5" max="10" step="0.5" value="2.5">
         <span class="form-text">
@@ -532,7 +966,14 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Take Profit (%)</label>
+        <label class="form-label">
+          Take Profit (%)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Target profit to auto-exit. 2-3% = scalping, 4-6% = day trading, 8-15% = swing trading. Should be 2-3x your stop loss for good risk/reward.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="takeProfitPct" name="take_profit_pct" 
                min="1" max="20" step="0.5" value="4">
         <span class="form-text">
@@ -541,7 +982,14 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Trailing Stop (%)</label>
+        <label class="form-label">
+          Trailing Stop (%)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Stop loss that moves up with price. Protects gains while letting profits run. 1-2% for volatile assets, 2-3% for stable moves.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="trailingStopPct" name="trailing_stop_pct" 
                min="0.5" max="5" step="0.5" value="1.5">
         <span class="form-text">
@@ -552,7 +1000,14 @@
       <div class="form-group">
         <div class="form-switch">
           <input type="checkbox" id="useTrailingStop" name="use_trailing_stop">
-          <label for="useTrailingStop">Enable Trailing Stops</label>
+          <label for="useTrailingStop">
+            Enable Trailing Stops
+            <span class="info-icon" style="position: relative; margin-left: 0.35rem;">i
+              <span class="info-tooltip">
+                Locks in profits as price moves in your favor. Great for trending markets but can exit early in choppy conditions.
+              </span>
+            </span>
+          </label>
         </div>
         <span class="form-text">Lock in profits as price moves favorably</span>
       </div>
@@ -565,7 +1020,14 @@
     
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Min Position Size (%)</label>
+        <label class="form-label">
+          Min Position Size (%)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Minimum portfolio % per trade. Used for low-confidence signals when dynamic sizing is enabled. 10-15% is conservative.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="minPositionSize" name="min_position_size" 
                min="5" max="50" step="5" value="15">
         <span class="form-text">
@@ -574,7 +1036,14 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Max Position Size (%)</label>
+        <label class="form-label">
+          Max Position Size (%)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Maximum portfolio % per trade. Used for high-confidence signals. 25-35% is balanced, 40-60% is aggressive. Never risk more than you can afford.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="maxPositionSize" name="max_position_size" 
                min="10" max="100" step="5" value="35">
         <span class="form-text">
@@ -585,7 +1054,14 @@
       <div class="form-group">
         <div class="form-switch">
           <input type="checkbox" id="useDynamicSizing" name="use_dynamic_sizing">
-          <label for="useDynamicSizing">Dynamic Position Sizing</label>
+          <label for="useDynamicSizing">
+            Dynamic Position Sizing
+            <span class="info-icon" style="position: relative; margin-left: 0.35rem;">i
+              <span class="info-tooltip">
+                Scales position size based on signal confidence. Stronger signals = larger positions. Helps optimize risk/reward automatically.
+              </span>
+            </span>
+          </label>
         </div>
         <span class="form-text">Adjust size based on signal confidence</span>
       </div>
@@ -644,7 +1120,14 @@
     
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Strategy Weight</label>
+        <label class="form-label">
+          Strategy Weight
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              How much this strategy influences multi-strategy decisions. 1.0 = neutral, 1.5 = 50% more influence, 0.5 = half influence. Use in Weighted Voting mode.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="emaWeight" name="ema_weight" 
                min="0.5" max="2.0" step="0.1" value="1.0">
         <span class="form-text">
@@ -653,21 +1136,42 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Short EMA Window</label>
+        <label class="form-label">
+          Short EMA Window
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Fast-moving average period. Lower (8-12) = more responsive to price changes but noisier. Higher (15-20) = smoother but slower. 12 is standard.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="emaShortWindow" 
                name="ema_short_window" min="5" max="50" value="12">
         <span class="form-text">Fast moving average period</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">Long EMA Window</label>
+        <label class="form-label">
+          Long EMA Window
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Slow-moving average period. Identifies overall trend. 26 is standard. Should be 2-3x the short EMA. Larger gap = clearer signals but slower response.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="emaLongWindow" 
                name="ema_long_window" min="10" max="100" value="26">
         <span class="form-text">Slow moving average period</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">Min Trend Strength</label>
+        <label class="form-label">
+          Min Trend Strength
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Minimum EMA separation to confirm trend. Lower = more signals (potentially weak). Higher = fewer but stronger trends. Prevents trades in choppy markets.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="emaTrendStrength" 
                name="ema_trend_strength" min="0.00001" max="0.001" step="0.00001" value="0.00005">
         <span class="form-text">Minimum EMA separation</span>
@@ -688,7 +1192,14 @@
     
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Strategy Weight</label>
+        <label class="form-label">
+          Strategy Weight
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              How much this mean-reversion strategy influences multi-strategy decisions. 1.0 = neutral, higher = more influence in Weighted Voting mode.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="rsiBbWeight" name="rsi_bb_weight" 
                min="0.5" max="2.0" step="0.1" value="1.0">
         <span class="form-text">
@@ -697,35 +1208,70 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">RSI Oversold (RSI+BB)</label>
+        <label class="form-label">
+          RSI Oversold (RSI+BB)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              RSI threshold for buy signals. 30 = standard, 20-25 = stricter (only extreme conditions), 35-40 = more signals. Identifies potential bottoms.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="rsiOversoldRsiBb" 
                name="rsi_oversold_rsi_bb" min="10" max="40" value="30">
         <span class="form-text">Buy signal threshold (RSI+BB strategy)</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">RSI Overbought (RSI+BB)</label>
+        <label class="form-label">
+          RSI Overbought (RSI+BB)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              RSI threshold for sell signals. 70 = standard, 75-80 = stricter (only extreme), 65-70 = more signals. Identifies potential tops.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="rsiOverboughtRsiBb" 
                name="rsi_overbought_rsi_bb" min="60" max="90" value="70">
         <span class="form-text">Sell signal threshold (RSI+BB strategy)</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">BB Period</label>
+        <label class="form-label">
+          BB Period
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Bollinger Bands moving average period. 20 is standard. Lower (15-18) = tighter bands, more signals. Higher (22-25) = wider bands, fewer signals.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="bbPeriod" 
                name="bb_period" min="10" max="50" value="20">
         <span class="form-text">Bollinger Band SMA</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">BB Std Dev</label>
+        <label class="form-label">
+          BB Std Dev
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Band width in standard deviations. 2.0 = standard (95% of prices), 2.5-3.0 = wider bands (fewer touches), 1.5-2.0 = tighter bands (more signals).
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="bbStdDev" 
                name="bb_std_dev" min="1.0" max="3.0" step="0.1" value="2.0">
         <span class="form-text">Band width (σ)</span>
       </div>
       
       <div class="form-group">
-        <label class="form-label">Stop Loss %</label>
+        <label class="form-label">
+          Stop Loss %
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Strategy-specific stop loss for RSI+BB trades. Mean-reversion trades typically use tighter stops (1.5-2.5%) than trend trades.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="rsiBbStopLoss" name="rsi_bb_stop_loss" 
                min="0.01" max="0.05" step="0.001" value="0.02">
         <span class="form-text">
@@ -734,7 +1280,14 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">Take Profit %</label>
+        <label class="form-label">
+          Take Profit %
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Strategy-specific take profit for RSI+BB. Mean-reversion targets are typically smaller (2-4%) than trend-following, as moves reverse quickly.
+            </span>
+          </span>
+        </label>
         <input type="range" class="form-range" id="rsiBbTakeProfit" name="rsi_bb_take_profit" 
                min="0.02" max="0.08" step="0.001" value="0.03">
         <span class="form-text">
@@ -743,6 +1296,7 @@
       </div>
     </div>
   </div>
+  </div><!-- End strategySettings collapsible -->
 
   <!-- Action Buttons -->
   <div class="action-buttons">
@@ -1146,7 +1700,253 @@ BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit')
     }, 8000);
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // COLLAPSIBLE SECTIONS
+  // ═══════════════════════════════════════════════════════════════
+  function toggleSection(sectionId) {
+    const content = document.getElementById(sectionId);
+    const header = content.previousElementSibling;
+    
+    if (content.classList.contains('collapsed')) {
+      content.classList.remove('collapsed');
+      content.style.maxHeight = content.scrollHeight + 'px';
+      content.style.opacity = '1';
+      header.classList.remove('collapsed');
+    } else {
+      content.classList.add('collapsed');
+      content.style.maxHeight = '0';
+      content.style.opacity = '0';
+      header.classList.add('collapsed');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // STRATEGY OVERVIEW & MONITORING
+  // ═══════════════════════════════════════════════════════════════
+  let generationChart = null;
+  let usageChart = null;
+
+  async function loadStrategyOverview() {
+    try {
+      const response = await fetch('/api/strategies');
+      const data = await response.json();
+      
+      // Update status cards
+      if (!data.multi_strategy_enabled) {
+        document.getElementById('systemStatus').innerHTML = 
+          '<span class="badge badge-disabled">Disabled</span>';
+        document.getElementById('strategyOverviewContainer').innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: var(--text-secondary);">
+            <p>Multi-strategy system is not enabled. Enable it in the Multi-Strategy System section below.</p>
+          </div>
+        `;
+        return;
+      }
+
+      document.getElementById('systemStatus').innerHTML = 
+        '<span class="badge badge-enabled">Active</span>';
+      document.getElementById('systemAggMode').textContent = data.aggregation_mode;
+      document.getElementById('activeCount').textContent = 
+        data.strategies.filter(s => s.enabled).length + '/' + data.strategies.length;
+      document.getElementById('systemMinConf').textContent = 
+        (data.min_confidence * 100).toFixed(0) + '%';
+
+      // Render strategy overview cards
+      const container = document.getElementById('strategyOverviewContainer');
+      container.innerHTML = data.strategies.map(strategy => {
+        const icon = strategy.name.includes('EMA') ? '📈' : '🌊';
+        const statusClass = strategy.enabled ? 'enabled' : 'disabled';
+        const toggleBtnClass = strategy.enabled ? 'disable' : 'enable';
+        const toggleBtnText = strategy.enabled ? '🔴 Disable' : '🟢 Enable';
+        
+        return `
+          <div class="strategy-overview-card ${statusClass}">
+            <div class="strategy-overview-header">
+              <div class="strategy-overview-title">
+                <span class="strategy-overview-icon">${icon}</span>
+                <div>
+                  <h3>${strategy.name}</h3>
+                  <span class="badge ${strategy.enabled ? 'badge-enabled' : 'badge-disabled'}" style="font-size: 0.65rem;">
+                    ${strategy.enabled ? 'ENABLED' : 'DISABLED'}
+                  </span>
+                </div>
+              </div>
+              <button class="toggle-btn ${toggleBtnClass}" onclick="toggleStrategy('${strategy.name}', ${strategy.enabled})" id="toggle-${strategy.name}">
+                ${toggleBtnText}
+              </button>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.5rem 0 1rem 0;">
+              ${strategy.description}
+            </p>
+            <div class="strategy-overview-stats">
+              <div class="strategy-overview-stat">
+                <div class="label">Weight</div>
+                <div class="value">${strategy.weight}</div>
+              </div>
+              <div class="strategy-overview-stat">
+                <div class="label">Signals</div>
+                <div class="value" id="signals-${strategy.name}">-</div>
+              </div>
+              <div class="strategy-overview-stat">
+                <div class="label">Confidence</div>
+                <div class="value" id="conf-${strategy.name}">-</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Load stats after rendering cards
+      loadStats();
+      
+    } catch (error) {
+      console.error('Error loading strategies:', error);
+      document.getElementById('systemStatus').innerHTML = 
+        '<span class="badge badge-disabled">Error</span>';
+    }
+  }
+
+  async function loadStats() {
+    try {
+      const response = await fetch('/api/strategies/stats');
+      const data = await response.json();
+      
+      if (!data.multi_strategy_enabled) return;
+
+      document.getElementById('totalSignals').textContent = data.total_signals_generated;
+      
+      // Update individual strategy stats
+      Object.entries(data.stats).forEach(([name, stats]) => {
+        const signalsEl = document.getElementById(`signals-${name}`);
+        const confEl = document.getElementById(`conf-${name}`);
+        if (signalsEl) signalsEl.textContent = stats.signals_generated;
+        if (confEl) confEl.textContent = (stats.avg_confidence * 100).toFixed(0) + '%';
+      });
+
+      // Update charts
+      updateCharts(data.stats);
+
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  }
+
+  function updateCharts(stats) {
+    const labels = Object.keys(stats);
+    const generationData = labels.map(name => stats[name].signals_generated);
+    const usageData = labels.map(name => stats[name].signals_used);
+    const colors = ['rgba(83, 155, 245, 0.8)', 'rgba(88, 214, 141, 0.8)', 'rgba(255, 193, 7, 0.8)'];
+
+    // Generation Chart
+    const genCtx = document.getElementById('generationChart');
+    if (genCtx) {
+      if (generationChart) generationChart.destroy();
+      generationChart = new Chart(genCtx.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: generationData,
+            backgroundColor: colors,
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { 
+              position: 'bottom',
+              labels: { color: '#e1e8ff' }
+            },
+            title: {
+              display: true,
+              text: 'Signal Generation',
+              color: '#e1e8ff'
+            }
+          }
+        }
+      });
+    }
+
+    // Usage Chart
+    const useCtx = document.getElementById('usageChart');
+    if (useCtx) {
+      if (usageChart) usageChart.destroy();
+      usageChart = new Chart(useCtx.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: usageData,
+            backgroundColor: colors,
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { 
+              position: 'bottom',
+              labels: { color: '#e1e8ff' }
+            },
+            title: {
+              display: true,
+              text: 'Signal Usage',
+              color: '#e1e8ff'
+            }
+          }
+        }
+      });
+    }
+  }
+
+  async function toggleStrategy(strategyName, currentlyEnabled) {
+    const button = document.getElementById(`toggle-${strategyName}`);
+    const originalHTML = button.innerHTML;
+    
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
+    
+    try {
+      const response = await fetch(`/api/strategies/${strategyName}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showAlert(data.message, 'success');
+        await loadStrategyOverview();
+      } else {
+        showAlert(data.error || 'Failed to toggle strategy', 'danger');
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+      }
+    } catch (error) {
+      console.error('Error toggling strategy:', error);
+      showAlert('Network error: ' + error.message, 'danger');
+      button.disabled = false;
+      button.innerHTML = originalHTML;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // INITIALIZATION
+  // ═══════════════════════════════════════════════════════════════
+  
   // Load configuration on page load
   loadCurrentConfig();
+  
+  // Load strategy overview
+  loadStrategyOverview();
+  
+  // Refresh stats every 10 seconds
+  setInterval(loadStats, 10000);
 </script>
+
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
 {% endblock %}

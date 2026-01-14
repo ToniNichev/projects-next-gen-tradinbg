@@ -1155,8 +1155,9 @@ def backtest_page():
 @app.route("/strategies")
 @require_auth
 def strategies_page():
-    """Multi-strategy management and monitoring page"""
-    return render_template("strategies.html")
+    """Redirect to unified Strategy Center page"""
+    from flask import redirect
+    return redirect("/strategy-config")
 
 
 @app.route("/strategy-config")

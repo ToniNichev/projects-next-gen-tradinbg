@@ -394,8 +394,7 @@
         <a href="/ui" class="logo">Trading Bot</a>
         <ul>
           <li><a href="/ui" class="{% if request.path == '/ui' %}active{% endif %}">Dashboard</a></li>
-          <li><a href="/strategies" class="{% if request.path == '/strategies' %}active{% endif %}">Strategies</a></li>
-          <li><a href="/strategy-config" class="{% if request.path == '/strategy-config' or request.path == '/settings' %}active{% endif %}">Configuration</a></li>
+          <li><a href="/strategy-config" class="{% if request.path == '/strategy-config' or request.path == '/strategies' %}active{% endif %}">Strategies</a></li>
           <li><a href="/backtest" class="{% if request.path == '/backtest' %}active{% endif %}">Backtest</a></li>
           <li><a href="/api/stats" class="{% if request.path == '/api/stats' %}active{% endif %}">API</a></li>
           <li><a href="/logout" class="logout">Logout</a></li>
