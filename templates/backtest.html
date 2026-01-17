@@ -263,6 +263,85 @@
     color: var(--text-secondary);
     padding: 0.5rem;
   }
+  
+  /* Strategy status colors */
+  .strategy-card {
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 0.375rem;
+    margin-bottom: 0.5rem;
+    border-left: 3px solid var(--accent-blue);
+    transition: all 0.2s;
+  }
+  
+  .strategy-card.strategy-enabled {
+    border-left-color: #58D68D;
+    background: rgba(88, 214, 141, 0.05);
+  }
+  
+  .strategy-card.strategy-disabled {
+    border-left-color: #e74c3c;
+    background: rgba(231, 76, 60, 0.08);
+    opacity: 0.75;
+  }
+  
+  .strategy-card.strategy-disabled .strategy-name {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+  }
+  
+  .strategy-card.strategy-disabled .badge-disabled {
+    background: rgba(231, 76, 60, 0.2) !important;
+    color: #e74c3c !important;
+    border: 1px solid rgba(231, 76, 60, 0.4);
+  }
+  
+  .strategy-card .strategy-icon {
+    font-size: 1.1rem;
+    margin-right: 0.25rem;
+  }
+  
+  .strategy-card.strategy-disabled .strategy-icon {
+    opacity: 0.5;
+  }
+  
+  .strategy-card:hover {
+    transform: translateX(4px);
+    cursor: pointer;
+  }
+  
+  .strategy-card.strategy-enabled:hover {
+    background: rgba(88, 214, 141, 0.12);
+    border-left-width: 5px;
+  }
+  
+  .strategy-card.strategy-disabled:hover {
+    background: rgba(231, 76, 60, 0.15);
+    border-left-width: 5px;
+    opacity: 0.9;
+  }
+  
+  .strategy-card .config-hint {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    opacity: 0;
+    transition: opacity 0.2s;
+    margin-left: 0.5rem;
+  }
+  
+  .strategy-card:hover .config-hint {
+    opacity: 1;
+  }
+  
+  .strategy-warning {
+    color: #e74c3c;
+    font-size: 0.8rem;
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    background: rgba(231, 76, 60, 0.1);
+    border-radius: 0.25rem;
+    border-left: 3px solid #e74c3c;
+  }
 </style>
 {% endblock %}
 
@@ -501,6 +580,11 @@
 <script>
   let selectedResults = new Set();
   
+  // Navigate to strategy configuration page with anchor
+  function navigateToStrategy(url) {
+    window.location.href = url;
+  }
+  
   // Load current strategy configuration
   async function loadCurrentStrategyConfig() {
     try {
@@ -523,19 +607,43 @@
         const confidencePct = (data.min_confidence * 100).toFixed(0);
         document.getElementById('min-confidence').textContent = confidencePct + '%';
         
-        // Display active strategies
+        // Display active strategies with distinct colors for disabled
+        const disabledStrategies = data.strategies.filter(s => !s.enabled);
+        const enabledStrategies = data.strategies.filter(s => s.enabled);
+        
+        // Map strategy names to their config section anchors (points directly to settings)
+        const strategyAnchors = {
+          'EMA Crossover': 'strategy-ema-settings',
+          'RSI + Bollinger Bands': 'strategy-rsi-bb-settings',
+          'MACD_Volume_Momentum': 'strategy-macd-settings'
+        };
+        
         const strategiesList = data.strategies
           .map(strategy => {
-            const icon = strategy.name.includes('EMA') ? '📈' : '🌊';
+            // Icon based on strategy type
+            let icon = '🌊';
+            if (strategy.name.includes('EMA')) icon = '📈';
+            else if (strategy.name.includes('MACD')) icon = '📊';
+            
+            const statusClass = strategy.enabled ? 'strategy-enabled' : 'strategy-disabled';
             const statusBadge = strategy.enabled 
-              ? '<span class="badge badge-enabled" style="font-size: 0.65rem; margin-left: 0.5rem;">Active</span>'
-              : '<span class="badge badge-disabled" style="font-size: 0.65rem; margin-left: 0.5rem;">Disabled</span>';
-            const weight = strategy.enabled ? `<span style="color: var(--text-secondary); font-size: 0.875rem;"> • Weight: ${strategy.weight.toFixed(1)}</span>` : '';
+              ? '<span class="badge badge-enabled" style="font-size: 0.65rem; margin-left: 0.5rem;">✓ Active</span>'
+              : '<span class="badge badge-disabled" style="font-size: 0.65rem; margin-left: 0.5rem;">✗ Disabled</span>';
+            const weight = strategy.enabled 
+              ? `<span style="color: var(--text-secondary); font-size: 0.875rem;"> • Weight: ${strategy.weight.toFixed(1)}</span>` 
+              : '<span style="color: #e74c3c; font-size: 0.8rem;"> • Will NOT be used in backtest</span>';
+            
+            const anchor = strategyAnchors[strategy.name] || 'strategySettings';
+            const configUrl = `/strategy-config#${anchor}`;
             
             return `
-              <div style="padding: 0.5rem; background: var(--bg-secondary); border-radius: 0.375rem; margin-bottom: 0.5rem; border-left: 3px solid ${strategy.enabled ? 'var(--accent-blue)' : 'var(--border-color)'};">
+              <div class="strategy-card ${statusClass}" onclick="navigateToStrategy('${configUrl}')" title="Click to configure ${strategy.name}">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
-                  <span>${icon} <strong>${strategy.name}</strong>${statusBadge}</span>
+                  <span>
+                    <span class="strategy-icon">${icon}</span>
+                    <strong class="strategy-name">${strategy.name}</strong>${statusBadge}
+                    <span class="config-hint">⚙️ Click to configure</span>
+                  </span>
                   ${weight}
                 </div>
               </div>
@@ -543,12 +651,28 @@
           })
           .join('');
         
-        document.getElementById('active-strategies-list').innerHTML = strategiesList;
+        // Add warning if any strategies are disabled
+        let warningHTML = '';
+        if (disabledStrategies.length > 0) {
+          const names = disabledStrategies.map(s => s.name).join(', ');
+          warningHTML = `
+            <div class="strategy-warning">
+              ⚠️ <strong>${disabledStrategies.length} strategy disabled:</strong> ${names}<br>
+              <span style="opacity: 0.9; font-size: 0.75rem;">Enable in <a href="/strategy-config" style="color: #e74c3c;">Strategy Configuration</a> to include in backtest</span>
+            </div>
+          `;
+        }
+        
+        document.getElementById('active-strategies-list').innerHTML = strategiesList + warningHTML;
         
         // Update button text to indicate which strategies will be used
-        const enabledCount = data.strategies.filter(s => s.enabled).length;
+        const totalCount = data.strategies.length;
         const runBtn = document.getElementById('run-current-text');
-        runBtn.textContent = `🚀 Run Backtest (${enabledCount} ${enabledCount === 1 ? 'Strategy' : 'Strategies'})`;
+        if (disabledStrategies.length > 0) {
+          runBtn.innerHTML = `🚀 Run Backtest (${enabledStrategies.length}/${totalCount} Strategies Active)`;
+        } else {
+          runBtn.textContent = `🚀 Run Backtest (All ${totalCount} Strategies)`;
+        }
       } else {
         document.getElementById('multi-strategy-badge').textContent = 'Disabled';
         document.getElementById('multi-strategy-badge').className = 'badge badge-disabled';

@@ -403,6 +403,19 @@ class StrategyManager:
                                 setattr(strategy.config, key, value)
                     
                     self.logger.info(f"Reloaded RSI+BB: enabled={strategy.is_enabled()}, weight={strategy.weight}")
+                
+                elif strategy.name == "MACD_Volume_Momentum":
+                    macd_config = strategy_configs.get("macd_volume", {})
+                    strategy.set_enabled(macd_config.get("enabled", True))
+                    strategy.weight = macd_config.get("weight", 1.0)
+                    
+                    # Update strategy parameters
+                    if hasattr(strategy, 'config'):
+                        for key, value in macd_config.items():
+                            if hasattr(strategy.config, key):
+                                setattr(strategy.config, key, value)
+                    
+                    self.logger.info(f"Reloaded MACD+Volume: enabled={strategy.is_enabled()}, weight={strategy.weight}")
             
             except Exception as e:
                 self.logger.error(f"Failed to reload strategy {strategy.name}: {e}", exc_info=True)

@@ -9,6 +9,7 @@ try:
     from strategies import (
         EMACrossoverStrategy,
         RSIBollingerBandsStrategy,
+        MACDVolumeStrategy,
         StrategyManager,
         SignalAggregationMode,
     )
@@ -88,6 +89,12 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
             rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
             strategies.append(rsi_bb_strategy)
             logging.info(f"✓ Enabled: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
+        
+        # MACD + Volume Momentum Strategy
+        if strategy_configs.get("macd_volume", {}).get("enabled", True):
+            macd_strategy = MACDVolumeStrategy(strategy_configs.get("macd_volume", {}))
+            strategies.append(macd_strategy)
+            logging.info(f"✓ Enabled: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
         
         if strategies:
             # Create strategy manager

@@ -10,11 +10,20 @@ from config import BotConfig
 from dashboard import start_dashboard, update_state, set_trader
 from paper_trader import PaperTrader
 
+# Import LiveTrader for real money trading
+try:
+    from live_trader import LiveTrader, TradingMode
+    LIVE_TRADER_AVAILABLE = True
+except ImportError:
+    LIVE_TRADER_AVAILABLE = False
+    logging.warning("LiveTrader module not available. Only paper trading supported.")
+
 # Import strategies (with fallback to legacy single strategy)
 try:
     from strategies import (
         EMACrossoverStrategy,
         RSIBollingerBandsStrategy,
+        MACDVolumeStrategy,
         StrategyManager,
         SignalAggregationMode,
     )
@@ -79,17 +88,76 @@ def main():
             logging.error(f"Failed to initialize database: {e}")
             logging.warning("Continuing without database support")
     
-    trader = PaperTrader(
-        initial_usdt=config.initial_usdt,
-        fee_rate=config.fee_rate,
-        slippage=config.slippage,
-        log_path=config.trades_log_path,
-        use_trailing_stop=config.use_trailing_stop,
-        trailing_stop_pct=config.trailing_stop_pct,
-        db_manager=db_manager,
-        enable_database=config.enable_database,
-        enable_csv_logging=config.enable_csv_logging,
-    )
+    # Determine trading mode and create appropriate trader
+    trading_mode = config.trading_mode.lower()
+    use_live_trader = False
+    
+    if trading_mode in ("live", "dry_run") and LIVE_TRADER_AVAILABLE:
+        # Validate live trading configuration
+        if trading_mode == "live":
+            if not config.live_trading_enabled:
+                logging.error("=" * 80)
+                logging.error("🚨 LIVE TRADING BLOCKED: BOT_LIVE_TRADING_ENABLED is not set to 'true'")
+                logging.error("Set BOT_LIVE_TRADING_ENABLED=true in your .env file to enable live trading")
+                logging.error("=" * 80)
+                logging.warning("Falling back to PAPER trading mode for safety")
+                trading_mode = "paper"
+            elif not config.binance_api_key or not config.binance_api_secret:
+                logging.error("=" * 80)
+                logging.error("🚨 LIVE TRADING BLOCKED: API credentials missing")
+                logging.error("Set BINANCE_US_KEY and BINANCE_US_SECRET in your .env file")
+                logging.error("=" * 80)
+                logging.warning("Falling back to PAPER trading mode for safety")
+                trading_mode = "paper"
+            else:
+                use_live_trader = True
+                logging.warning("=" * 80)
+                logging.warning("⚠️  LIVE TRADING MODE ENABLED - REAL MONEY AT RISK! ⚠️")
+                logging.warning("=" * 80)
+        else:  # dry_run
+            use_live_trader = True
+            logging.info("=" * 80)
+            logging.info("📝 DRY RUN MODE - Signals logged but NOT executed")
+            logging.info("=" * 80)
+    
+    if use_live_trader:
+        # Create LiveTrader for live/dry_run modes
+        mode = TradingMode.LIVE if trading_mode == "live" else TradingMode.DRY_RUN
+        
+        trader = LiveTrader(
+            exchange=exchange,
+            config=config,
+            mode=mode,
+            db_manager=db_manager,
+        )
+        
+        # Sync balances and positions from exchange
+        try:
+            trader.sync_balances()
+            trader.sync_positions()
+            logging.info(f"Exchange sync complete: USDT=${trader.usdt_balance:.2f}, BTC={trader.base_balance:.8f}")
+        except Exception as e:
+            logging.error(f"Failed to sync with exchange: {e}")
+            if trading_mode == "live":
+                logging.error("Cannot start live trading without exchange sync. Exiting.")
+                return
+    else:
+        # Create PaperTrader for paper trading (default/safe mode)
+        logging.info("=" * 80)
+        logging.info("📄 PAPER TRADING MODE - Simulated trades only")
+        logging.info("=" * 80)
+        
+        trader = PaperTrader(
+            initial_usdt=config.initial_usdt,
+            fee_rate=config.fee_rate,
+            slippage=config.slippage,
+            log_path=config.trades_log_path,
+            use_trailing_stop=config.use_trailing_stop,
+            trailing_stop_pct=config.trailing_stop_pct,
+            db_manager=db_manager,
+            enable_database=config.enable_database,
+            enable_csv_logging=config.enable_csv_logging,
+        )
     
     # Initialize strategy system
     strategy_manager = None
@@ -109,6 +177,12 @@ def main():
             rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
             strategies.append(rsi_bb_strategy)
             logging.info(f"Enabled strategy: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
+        
+        # MACD + Volume Momentum Strategy
+        if strategy_configs["macd_volume"]["enabled"]:
+            macd_strategy = MACDVolumeStrategy(strategy_configs["macd_volume"])
+            strategies.append(macd_strategy)
+            logging.info(f"Enabled strategy: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
         
         if strategies:
             # Create strategy manager

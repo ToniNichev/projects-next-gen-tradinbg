@@ -81,6 +81,17 @@ class BotConfig:
     strategy_rsi_bb_stop_loss_pct: float = 0.02
     strategy_rsi_bb_take_profit_pct: float = 0.03
     
+    # Strategy: MACD + Volume Momentum
+    strategy_macd_enabled: bool = True
+    strategy_macd_weight: float = 1.0
+    strategy_macd_fast_period: int = 12
+    strategy_macd_slow_period: int = 26
+    strategy_macd_signal_period: int = 9
+    strategy_macd_volume_multiplier: float = 1.3
+    strategy_macd_require_zero_cross: bool = False
+    strategy_macd_stop_loss_pct: float = 0.025
+    strategy_macd_take_profit_pct: float = 0.05
+    
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
     dashboard_username: str = "admin"  # Username for dashboard access
@@ -90,6 +101,15 @@ class BotConfig:
     enable_rate_limiting: bool = True  # Enable rate limiting
     rate_limit_per_minute: int = 60  # Max requests per minute
     allowed_origins: str = "*"  # CORS allowed origins (comma-separated)
+    
+    # Live Trading Configuration (CRITICAL - Handle with care!)
+    trading_mode: str = "paper"  # "paper" | "dry_run" | "live"
+    live_trading_enabled: bool = False  # Safety flag - must be explicitly enabled
+    require_trade_confirmation: bool = True  # Require confirmation for trades > threshold
+    confirmation_threshold_usd: float = 100.0  # Threshold for trade confirmation
+    max_single_trade_usd: float = 500.0  # Maximum single trade size in USD
+    api_retry_attempts: int = 3  # Number of retry attempts for API calls
+    api_retry_delay_seconds: float = 1.0  # Delay between retry attempts
 
     @classmethod
     def load(cls) -> "BotConfig":
@@ -189,6 +209,16 @@ class BotConfig:
             strategy_rsi_bb_bb_std_dev=get_val("strategy_rsi_bb_bb_std_dev", "BOT_STRATEGY_RSI_BB_BB_STD_DEV", 2.0, float),
             strategy_rsi_bb_stop_loss_pct=get_val("strategy_rsi_bb_stop_loss_pct", "BOT_STRATEGY_RSI_BB_STOP_LOSS_PCT", 0.02, float),
             strategy_rsi_bb_take_profit_pct=get_val("strategy_rsi_bb_take_profit_pct", "BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT", 0.03, float),
+            # MACD+Volume Strategy (can be overridden by database)
+            strategy_macd_enabled=get_val("strategy_macd_enabled", "BOT_STRATEGY_MACD_ENABLED", True, bool),
+            strategy_macd_weight=get_val("strategy_macd_weight", "BOT_STRATEGY_MACD_WEIGHT", 1.0, float),
+            strategy_macd_fast_period=get_val("strategy_macd_fast_period", "BOT_STRATEGY_MACD_FAST_PERIOD", 12, int),
+            strategy_macd_slow_period=get_val("strategy_macd_slow_period", "BOT_STRATEGY_MACD_SLOW_PERIOD", 26, int),
+            strategy_macd_signal_period=get_val("strategy_macd_signal_period", "BOT_STRATEGY_MACD_SIGNAL_PERIOD", 9, int),
+            strategy_macd_volume_multiplier=get_val("strategy_macd_volume_multiplier", "BOT_STRATEGY_MACD_VOLUME_MULTIPLIER", 1.3, float),
+            strategy_macd_require_zero_cross=get_val("strategy_macd_require_zero_cross", "BOT_STRATEGY_MACD_REQUIRE_ZERO_CROSS", False, bool),
+            strategy_macd_stop_loss_pct=get_val("strategy_macd_stop_loss_pct", "BOT_STRATEGY_MACD_STOP_LOSS_PCT", 0.025, float),
+            strategy_macd_take_profit_pct=get_val("strategy_macd_take_profit_pct", "BOT_STRATEGY_MACD_TAKE_PROFIT_PCT", 0.05, float),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),
@@ -198,6 +228,14 @@ class BotConfig:
             enable_rate_limiting=env.get("DASHBOARD_ENABLE_RATE_LIMITING", "true").lower() == "true",
             rate_limit_per_minute=int(env.get("DASHBOARD_RATE_LIMIT_PER_MINUTE", 60)),
             allowed_origins=env.get("DASHBOARD_ALLOWED_ORIGINS", "*"),
+            # Live Trading Configuration
+            trading_mode=env.get("BOT_TRADING_MODE", "paper"),
+            live_trading_enabled=env.get("BOT_LIVE_TRADING_ENABLED", "false").lower() == "true",
+            require_trade_confirmation=env.get("BOT_REQUIRE_TRADE_CONFIRMATION", "true").lower() == "true",
+            confirmation_threshold_usd=float(env.get("BOT_CONFIRMATION_THRESHOLD_USD", 100.0)),
+            max_single_trade_usd=float(env.get("BOT_MAX_SINGLE_TRADE_USD", 500.0)),
+            api_retry_attempts=int(env.get("BOT_API_RETRY_ATTEMPTS", 3)),
+            api_retry_delay_seconds=float(env.get("BOT_API_RETRY_DELAY_SECONDS", 1.0)),
         )
     
     def get_strategy_configs(self) -> dict:
@@ -243,6 +281,25 @@ class BotConfig:
                 "use_dynamic_sizing": self.use_dynamic_sizing,
                 "min_position_size": self.min_position_size,
                 "max_position_size": self.max_position_size,
+            },
+            "macd_volume": {
+                "enabled": self.strategy_macd_enabled,
+                "weight": self.strategy_macd_weight,
+                "macd_fast_period": self.strategy_macd_fast_period,
+                "macd_slow_period": self.strategy_macd_slow_period,
+                "macd_signal_period": self.strategy_macd_signal_period,
+                "volume_multiplier": self.strategy_macd_volume_multiplier,
+                "require_zero_cross": self.strategy_macd_require_zero_cross,
+                "atr_period": self.atr_period,
+                "atr_stop_multiplier": self.atr_stop_multiplier,
+                "use_atr_stops": self.use_atr_stops,
+                "stop_loss_pct": self.strategy_macd_stop_loss_pct,
+                "take_profit_pct": self.strategy_macd_take_profit_pct,
+                "use_dynamic_sizing": self.use_dynamic_sizing,
+                "min_position_size": self.min_position_size,
+                "max_position_size": self.max_position_size,
+                "use_volume_filter": self.require_volume_confirmation,
+                "volume_threshold": self.volume_threshold,
             }
         }
 

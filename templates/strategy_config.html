@@ -648,6 +648,43 @@
     opacity: 1;
   }
   
+  /* Strategy info tooltip in overview cards - wider and better positioned */
+  .strategy-info-icon {
+    cursor: help;
+    vertical-align: middle;
+  }
+  
+  .strategy-info-tooltip {
+    width: 340px !important;
+    left: auto !important;
+    right: -20px !important;
+    transform: none !important;
+    bottom: auto !important;
+    top: 125% !important;
+    text-align: left;
+    font-weight: normal !important;
+  }
+  
+  .strategy-info-tooltip::after {
+    content: "";
+    position: absolute;
+    bottom: 100% !important;
+    top: auto !important;
+    left: 30px !important;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent transparent var(--border-color) transparent !important;
+  }
+  
+  .strategy-info-tooltip strong {
+    display: inline;
+  }
+  
+  .strategy-info-tooltip hr {
+    opacity: 0.3;
+  }
+  
   .form-label {
     display: flex;
     align-items: center;
@@ -1108,10 +1145,10 @@
   </div>
   
   <!-- EMA Crossover Strategy -->
-  <div class="strategy-section">
+  <div class="strategy-section" id="strategy-ema">
     <h3>📈 EMA Crossover Strategy (Trend Following)</h3>
     
-    <div class="form-group">
+    <div class="form-group" id="strategy-ema-settings">
       <div class="form-switch">
         <input type="checkbox" id="emaEnabled" name="ema_enabled">
         <label for="emaEnabled">Enable EMA Strategy</label>
@@ -1180,10 +1217,10 @@
   </div>
 
   <!-- RSI + Bollinger Bands Strategy -->
-  <div class="strategy-section">
+  <div class="strategy-section" id="strategy-rsi-bb">
     <h3>🌊 RSI + Bollinger Bands Strategy (Mean Reversion)</h3>
     
-    <div class="form-group">
+    <div class="form-group" id="strategy-rsi-bb-settings">
       <div class="form-switch">
         <input type="checkbox" id="rsiBbEnabled" name="rsi_bb_enabled">
         <label for="rsiBbEnabled">Enable RSI+BB Strategy</label>
@@ -1296,6 +1333,169 @@
       </div>
     </div>
   </div>
+
+  <!-- MACD + Volume Strategy -->
+  <div class="strategy-section" id="strategy-macd" style="border-left-color: #f39c12;">
+    <h3 style="color: #f39c12;">📊 MACD + Volume Strategy (Momentum Breakout)</h3>
+    
+    <div class="form-group" id="strategy-macd-settings">
+      <div class="form-switch">
+        <input type="checkbox" id="macdEnabled" name="macd_enabled">
+        <label for="macdEnabled">Enable MACD+Volume Strategy</label>
+      </div>
+    </div>
+    
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">
+          Strategy Weight
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Influence in aggregated signals. Higher weight = more impact on final trading decision. Works with other strategies via weighted voting.
+              <hr>
+              <span class="risk-indicator risk-low">1.0</span> Standard
+              <span class="risk-indicator risk-medium">1.5</span> High Priority
+              <span class="risk-indicator risk-high">2.0</span> Dominant
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="macdWeight" name="macd_weight" 
+               min="0.5" max="2.0" step="0.1" value="1.0">
+        <span class="form-text">
+          <span class="range-value" id="macdWeightValue">1.0</span>
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          MACD Fast Period
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Fast EMA period for MACD calculation. Shorter periods react faster to price changes. Standard is 12.
+              <hr>
+              <span class="risk-indicator risk-low">12</span> Standard
+              <span class="risk-indicator risk-medium">8</span> Faster signals
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-control" id="macdFastPeriod" name="macd_fast_period" 
+               value="12" min="5" max="20">
+        <span class="form-text">Default: 12</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          MACD Slow Period
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Slow EMA period for MACD calculation. Must be larger than fast period. Standard is 26.
+              <hr>
+              <span class="risk-indicator risk-low">26</span> Standard
+              <span class="risk-indicator risk-medium">21</span> Faster signals
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-control" id="macdSlowPeriod" name="macd_slow_period" 
+               value="26" min="15" max="50">
+        <span class="form-text">Default: 26</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Signal Period
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              EMA period for the signal line. MACD crossovers above/below this line generate signals. Standard is 9.
+              <hr>
+              <span class="risk-indicator risk-low">9</span> Standard
+              <span class="risk-indicator risk-medium">7</span> More sensitive
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-control" id="macdSignalPeriod" name="macd_signal_period" 
+               value="9" min="3" max="15">
+        <span class="form-text">Default: 9</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Volume Multiplier
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Minimum volume required (as multiple of 20-period average). Higher values = stronger breakout confirmation but fewer signals.
+              <hr>
+              <span class="risk-indicator risk-low">1.3x</span> Standard
+              <span class="risk-indicator risk-medium">1.5x</span> Strong breakouts only
+              <span class="risk-indicator risk-high">2.0x</span> Very selective
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="macdVolumeMultiplier" name="macd_volume_multiplier" 
+               min="1.0" max="2.5" step="0.1" value="1.3">
+        <span class="form-text">
+          <span class="range-value" id="macdVolumeMultiplierValue">1.3x</span>
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Require Zero-Line Cross
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              When enabled, MACD must cross the zero line for signals. More conservative - fewer but higher quality signals.
+              <hr>
+              <span class="risk-indicator risk-low">OFF</span> More signals
+              <span class="risk-indicator risk-medium">ON</span> Conservative
+            </span>
+          </span>
+        </label>
+        <div class="form-switch">
+          <input type="checkbox" id="macdRequireZeroCross" name="macd_require_zero_cross">
+          <label for="macdRequireZeroCross">Require Zero-Line Cross</label>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Stop Loss %
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Strategy-specific stop loss for MACD momentum trades. Wider stops (2.5-3%) allow room for breakout volatility.
+              <hr>
+              <span class="risk-indicator risk-low">2.5%</span> Standard
+              <span class="risk-indicator risk-medium">2.0%</span> Tighter
+              <span class="risk-indicator risk-high">1.5%</span> Very tight
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="macdStopLoss" name="macd_stop_loss" 
+               min="0.01" max="0.05" step="0.005" value="0.025">
+        <span class="form-text">
+          <span class="range-value" id="macdStopLossValue">2.5%</span>
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Take Profit %
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Strategy-specific take profit for MACD trades. Momentum breakouts can have larger targets (4-6%) as trends can extend.
+              <hr>
+              <span class="risk-indicator risk-low">5%</span> Standard
+              <span class="risk-indicator risk-medium">7%</span> Extended target
+              <span class="risk-indicator risk-high">3%</span> Quick profit
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="macdTakeProfit" name="macd_take_profit" 
+               min="0.03" max="0.10" step="0.005" value="0.05">
+        <span class="form-text">
+          <span class="range-value" id="macdTakeProfitValue">5.0%</span>
+        </span>
+      </div>
+    </div>
+  </div>
   </div><!-- End strategySettings collapsible -->
 
   <!-- Action Buttons -->
@@ -1362,6 +1562,10 @@
     'rsiBbWeight': (v) => parseFloat(v).toFixed(1),
     'rsiBbStopLoss': (v) => (v * 100).toFixed(1) + '%',
     'rsiBbTakeProfit': (v) => (v * 100).toFixed(1) + '%',
+    'macdWeight': (v) => parseFloat(v).toFixed(1),
+    'macdVolumeMultiplier': (v) => parseFloat(v).toFixed(1) + 'x',
+    'macdStopLoss': (v) => (v * 100).toFixed(1) + '%',
+    'macdTakeProfit': (v) => (v * 100).toFixed(1) + '%',
     'atrStopMultiplier': (v) => parseFloat(v).toFixed(1) + 'x',
     'stopLossPct': (v) => (v * 100).toFixed(1) + '%',
     'takeProfitPct': (v) => (v * 100).toFixed(1) + '%',
@@ -1478,6 +1682,34 @@
       document.getElementById('rsiBbStopLoss').value = rsiBbStop;
       document.getElementById('rsiBbStopLossValue').textContent = (rsiBbStop * 100).toFixed(1) + '%';
       
+      const rsiBbTP = config.strategy_rsi_bb_take_profit_pct || 0.03;
+      document.getElementById('rsiBbTakeProfit').value = rsiBbTP;
+      document.getElementById('rsiBbTakeProfitValue').textContent = (rsiBbTP * 100).toFixed(1) + '%';
+      
+      // MACD+Volume Strategy
+      document.getElementById('macdEnabled').checked = config.strategy_macd_enabled !== false;
+      const macdWeight = config.strategy_macd_weight || 1.0;
+      document.getElementById('macdWeight').value = macdWeight;
+      document.getElementById('macdWeightValue').textContent = macdWeight.toFixed(1);
+      document.getElementById('macdFastPeriod').value = config.strategy_macd_fast_period || 12;
+      document.getElementById('macdSlowPeriod').value = config.strategy_macd_slow_period || 26;
+      document.getElementById('macdSignalPeriod').value = config.strategy_macd_signal_period || 9;
+      
+      const macdVolMult = config.strategy_macd_volume_multiplier || 1.3;
+      document.getElementById('macdVolumeMultiplier').value = macdVolMult;
+      document.getElementById('macdVolumeMultiplierValue').textContent = macdVolMult.toFixed(1) + 'x';
+      
+      document.getElementById('macdRequireZeroCross').checked = config.strategy_macd_require_zero_cross === true;
+      
+      const macdStop = config.strategy_macd_stop_loss_pct || 0.025;
+      document.getElementById('macdStopLoss').value = macdStop;
+      document.getElementById('macdStopLossValue').textContent = (macdStop * 100).toFixed(1) + '%';
+      
+      const macdTP = config.strategy_macd_take_profit_pct || 0.05;
+      document.getElementById('macdTakeProfit').value = macdTP;
+      document.getElementById('macdTakeProfitValue').textContent = (macdTP * 100).toFixed(1) + '%';
+      document.getElementById('rsiBbStopLossValue').textContent = (rsiBbStop * 100).toFixed(1) + '%';
+      
       const rsiBbProfit = config.strategy_rsi_bb_take_profit_pct || 0.03;
       document.getElementById('rsiBbTakeProfit').value = rsiBbProfit;
       document.getElementById('rsiBbTakeProfitValue').textContent = (rsiBbProfit * 100).toFixed(1) + '%';
@@ -1551,6 +1783,17 @@
         strategy_rsi_bb_bb_std_dev: parseFloat(document.getElementById('bbStdDev').value),
         strategy_rsi_bb_stop_loss_pct: parseFloat(document.getElementById('rsiBbStopLoss').value),
         strategy_rsi_bb_take_profit_pct: parseFloat(document.getElementById('rsiBbTakeProfit').value),
+        
+        // MACD+Volume Strategy
+        strategy_macd_enabled: document.getElementById('macdEnabled').checked,
+        strategy_macd_weight: parseFloat(document.getElementById('macdWeight').value),
+        strategy_macd_fast_period: parseInt(document.getElementById('macdFastPeriod').value),
+        strategy_macd_slow_period: parseInt(document.getElementById('macdSlowPeriod').value),
+        strategy_macd_signal_period: parseInt(document.getElementById('macdSignalPeriod').value),
+        strategy_macd_volume_multiplier: parseFloat(document.getElementById('macdVolumeMultiplier').value),
+        strategy_macd_require_zero_cross: document.getElementById('macdRequireZeroCross').checked,
+        strategy_macd_stop_loss_pct: parseFloat(document.getElementById('macdStopLoss').value),
+        strategy_macd_take_profit_pct: parseFloat(document.getElementById('macdTakeProfit').value),
       };
       
       // Step 1: Save configuration to database
@@ -1648,12 +1891,23 @@ BOT_MIN_TREND_STRENGTH=${document.getElementById('emaTrendStrength').value}
 # RSI + Bollinger Bands Strategy
 BOT_STRATEGY_RSI_BB_ENABLED=${document.getElementById('rsiBbEnabled').checked}
 BOT_STRATEGY_RSI_BB_WEIGHT=${document.getElementById('rsiBbWeight').value}
-BOT_STRATEGY_RSI_BB_RSI_OVERSOLD=${document.getElementById('rsiOversold').value}
-BOT_STRATEGY_RSI_BB_RSI_OVERBOUGHT=${document.getElementById('rsiOverbought').value}
+BOT_STRATEGY_RSI_BB_RSI_OVERSOLD=${document.getElementById('rsiOversoldRsiBb').value}
+BOT_STRATEGY_RSI_BB_RSI_OVERBOUGHT=${document.getElementById('rsiOverboughtRsiBb').value}
 BOT_STRATEGY_RSI_BB_BB_PERIOD=${document.getElementById('bbPeriod').value}
 BOT_STRATEGY_RSI_BB_BB_STD_DEV=${document.getElementById('bbStdDev').value}
 BOT_STRATEGY_RSI_BB_STOP_LOSS_PCT=${document.getElementById('rsiBbStopLoss').value}
 BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit').value}
+
+# MACD + Volume Strategy
+BOT_STRATEGY_MACD_ENABLED=${document.getElementById('macdEnabled').checked}
+BOT_STRATEGY_MACD_WEIGHT=${document.getElementById('macdWeight').value}
+BOT_STRATEGY_MACD_FAST_PERIOD=${document.getElementById('macdFastPeriod').value}
+BOT_STRATEGY_MACD_SLOW_PERIOD=${document.getElementById('macdSlowPeriod').value}
+BOT_STRATEGY_MACD_SIGNAL_PERIOD=${document.getElementById('macdSignalPeriod').value}
+BOT_STRATEGY_MACD_VOLUME_MULTIPLIER=${document.getElementById('macdVolumeMultiplier').value}
+BOT_STRATEGY_MACD_REQUIRE_ZERO_CROSS=${document.getElementById('macdRequireZeroCross').checked}
+BOT_STRATEGY_MACD_STOP_LOSS_PCT=${document.getElementById('macdStopLoss').value}
+BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').value}
 
 # =============================================================================
 # Instructions:
@@ -1751,13 +2005,67 @@ BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit')
       document.getElementById('systemMinConf').textContent = 
         (data.min_confidence * 100).toFixed(0) + '%';
 
+      // Strategy info with detailed explanations
+      const strategyInfo = {
+        'EMA Crossover': {
+          type: 'Trend Following',
+          howItWorks: 'Uses two Exponential Moving Averages (fast & slow). Buys when fast EMA crosses above slow EMA (uptrend), sells when it crosses below (downtrend).',
+          bestFor: 'Trending markets with clear directional moves',
+          avoids: 'Choppy, sideways markets (can generate false signals)',
+          keyParams: 'Short Window (9), Long Window (21), Trend Strength',
+          riskLevel: 'Medium',
+          docLink: '/static/docs/ema-strategy.md'
+        },
+        'RSI + Bollinger Bands': {
+          type: 'Mean Reversion',
+          howItWorks: 'Combines RSI (overbought/oversold) with Bollinger Bands (price extremes). Buys when price is oversold AND below lower band, sells when overbought AND above upper band.',
+          bestFor: 'Range-bound, sideways markets',
+          avoids: 'Strong trending markets (can fight the trend)',
+          keyParams: 'RSI Period, Oversold/Overbought levels, BB Period & StdDev',
+          riskLevel: 'Low-Medium',
+          docLink: '/static/docs/rsi-bb-strategy.md'
+        },
+        'MACD_Volume_Momentum': {
+          type: 'Momentum Breakout',
+          howItWorks: 'Uses MACD crossovers confirmed by above-average volume. Catches breakout moves early when momentum accelerates with strong participation.',
+          bestFor: 'Breakout scenarios, volatile markets with volume',
+          avoids: 'Low-volume consolidation periods',
+          keyParams: 'MACD (12/26/9), Volume Multiplier, Zero-line Cross',
+          riskLevel: 'Medium-High',
+          docLink: '/static/docs/macd-strategy.md'
+        }
+      };
+      
       // Render strategy overview cards
       const container = document.getElementById('strategyOverviewContainer');
       container.innerHTML = data.strategies.map(strategy => {
-        const icon = strategy.name.includes('EMA') ? '📈' : '🌊';
+        let icon = '🌊';
+        if (strategy.name.includes('EMA')) icon = '📈';
+        else if (strategy.name.includes('MACD')) icon = '📊';
         const statusClass = strategy.enabled ? 'enabled' : 'disabled';
         const toggleBtnClass = strategy.enabled ? 'disable' : 'enable';
         const toggleBtnText = strategy.enabled ? '🔴 Disable' : '🟢 Enable';
+        
+        // Get strategy info
+        const info = strategyInfo[strategy.name] || {};
+        const infoTooltip = info.howItWorks ? `
+          <span class="info-icon strategy-info-icon" style="position: relative; margin-left: 0.5rem; font-size: 0.7rem;">i
+            <span class="info-tooltip strategy-info-tooltip">
+              <strong style="color: var(--accent-blue); display: block; margin-bottom: 0.5rem;">${info.type || 'Strategy'}</strong>
+              <strong>How it works:</strong><br>
+              ${info.howItWorks}<br><br>
+              <strong style="color: #58D68D;">✓ Best for:</strong> ${info.bestFor}<br>
+              <strong style="color: #e74c3c;">✗ Avoids:</strong> ${info.avoids}<br><br>
+              <strong>Key Parameters:</strong> ${info.keyParams}<br>
+              <strong>Risk Level:</strong> <span style="color: ${info.riskLevel === 'Low-Medium' ? '#58D68D' : info.riskLevel === 'Medium' ? '#f39c12' : '#e74c3c'};">${info.riskLevel}</span>
+              <hr style="margin: 0.5rem 0; border-color: var(--border-color);">
+              <a href="#strategy-${strategy.name.includes('EMA') ? 'ema' : strategy.name.includes('MACD') ? 'macd' : 'rsi-bb'}-settings" 
+                 style="color: var(--accent-blue); text-decoration: none; font-size: 0.8rem;">
+                ⚙️ Configure this strategy →
+              </a>
+            </span>
+          </span>
+        ` : '';
         
         return `
           <div class="strategy-overview-card ${statusClass}">
@@ -1765,7 +2073,7 @@ BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit')
               <div class="strategy-overview-title">
                 <span class="strategy-overview-icon">${icon}</span>
                 <div>
-                  <h3>${strategy.name}</h3>
+                  <h3>${strategy.name}${infoTooltip}</h3>
                   <span class="badge ${strategy.enabled ? 'badge-enabled' : 'badge-disabled'}" style="font-size: 0.65rem;">
                     ${strategy.enabled ? 'ENABLED' : 'DISABLED'}
                   </span>
@@ -1918,8 +2226,16 @@ BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit')
       const data = await response.json();
       
       if (data.success) {
-        showAlert(data.message, 'success');
+        // Show message with backtest info
+        let message = data.message;
+        if (data.affects_backtest) {
+          message += ' (also applies to backtests)';
+        }
+        showAlert(message, 'success');
         await loadStrategyOverview();
+        
+        // Also sync the checkbox in Strategy Configuration section
+        syncConfigCheckbox(strategyName, data.enabled);
       } else {
         showAlert(data.error || 'Failed to toggle strategy', 'danger');
         button.disabled = false;
@@ -1932,6 +2248,22 @@ BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit')
       button.innerHTML = originalHTML;
     }
   }
+  
+  // Sync the Strategy Configuration checkboxes when Overview toggles change
+  function syncConfigCheckbox(strategyName, enabled) {
+    const checkboxMap = {
+      'EMA Crossover': 'emaEnabled',
+      'RSI + Bollinger Bands': 'rsiBbEnabled',
+      'MACD_Volume_Momentum': 'macdEnabled'
+    };
+    const checkboxId = checkboxMap[strategyName];
+    if (checkboxId) {
+      const checkbox = document.getElementById(checkboxId);
+      if (checkbox) {
+        checkbox.checked = enabled;
+      }
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -1942,6 +2274,70 @@ BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit')
   
   // Load strategy overview
   loadStrategyOverview();
+  
+  // Handle hash navigation from backtest page - scroll to and highlight strategy section
+  function handleHashNavigation() {
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#strategy-')) {
+      // First expand the Strategy Configuration collapsible if collapsed
+      const strategySettingsContent = document.getElementById('strategySettings');
+      const strategySettingsHeader = strategySettingsContent?.previousElementSibling;
+      if (strategySettingsContent && !strategySettingsContent.classList.contains('expanded')) {
+        strategySettingsContent.classList.add('expanded');
+        if (strategySettingsHeader) {
+          strategySettingsHeader.classList.add('expanded');
+        }
+      }
+      
+      // Wait a bit for the collapse animation, then scroll and highlight
+      setTimeout(() => {
+        const targetElement = document.querySelector(hash);
+        if (targetElement) {
+          // Scroll to element with offset for sticky header
+          const yOffset = -100;
+          const y = targetElement.getBoundingClientRect().top + window.pageYOffset + yOffset;
+          window.scrollTo({ top: y, behavior: 'smooth' });
+          
+          // Find the parent strategy-section for highlighting (if we're targeting settings)
+          const strategySection = targetElement.closest('.strategy-section') || targetElement;
+          
+          // Add highlight effect to the full strategy section
+          strategySection.style.transition = 'box-shadow 0.3s, transform 0.3s';
+          strategySection.style.boxShadow = '0 0 0 3px var(--accent-blue), 0 0 20px rgba(88, 166, 255, 0.4)';
+          strategySection.style.transform = 'scale(1.01)';
+          
+          // Also highlight the specific enable checkbox
+          const enableCheckbox = targetElement.querySelector('input[type="checkbox"]');
+          if (enableCheckbox) {
+            const label = enableCheckbox.nextElementSibling;
+            if (label) {
+              label.style.transition = 'background 0.3s';
+              label.style.background = 'rgba(88, 166, 255, 0.3)';
+              label.style.borderRadius = '4px';
+              label.style.padding = '2px 8px';
+              
+              setTimeout(() => {
+                label.style.background = '';
+                label.style.padding = '';
+              }, 3000);
+            }
+          }
+          
+          // Remove highlight after a delay
+          setTimeout(() => {
+            strategySection.style.boxShadow = '';
+            strategySection.style.transform = '';
+          }, 2500);
+        }
+      }, 300);
+    }
+  }
+  
+  // Run hash navigation on page load
+  handleHashNavigation();
+  
+  // Also handle hash changes (in case user navigates with back/forward)
+  window.addEventListener('hashchange', handleHashNavigation);
   
   // Refresh stats every 10 seconds
   setInterval(loadStats, 10000);

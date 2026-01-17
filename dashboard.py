@@ -730,11 +730,18 @@ def disable_strategy(strategy_name):
 @require_auth
 @limiter.limit("10 per minute")
 def toggle_strategy(strategy_name):
-    """Toggle a strategy on/off dynamically"""
+    """Toggle a strategy on/off dynamically - persists to database for backtests"""
     if not _strategy_manager:
         return jsonify({
             "error": "Multi-strategy system not enabled"
         }), 503
+    
+    # Map strategy names to their database config keys
+    strategy_config_keys = {
+        "EMA Crossover": "strategy_ema_enabled",
+        "RSI + Bollinger Bands": "strategy_rsi_bb_enabled",
+        "MACD_Volume_Momentum": "strategy_macd_enabled",
+    }
     
     try:
         # Find the strategy
@@ -763,11 +770,32 @@ def toggle_strategy(strategy_name):
             _strategy_manager.enable_strategy(strategy_name)
             new_state = True
         
+        # Persist to database so backtests also respect this setting
+        config_key = strategy_config_keys.get(strategy_name)
+        if config_key:
+            try:
+                db = get_database()
+                db.set_strategy_config(
+                    key=config_key,
+                    value=new_state,
+                    value_type="bool",
+                    category="strategy",
+                    description=f"Enable/disable {strategy_name} strategy"
+                )
+                persisted = True
+            except Exception as db_err:
+                logging.warning(f"Failed to persist strategy toggle to database: {db_err}")
+                persisted = False
+        else:
+            persisted = False
+        
         return jsonify({
             "success": True,
             "message": f"Strategy '{strategy_name}' {'enabled' if new_state else 'disabled'}",
             "strategy": strategy_name,
-            "enabled": new_state
+            "enabled": new_state,
+            "persisted": persisted,
+            "affects_backtest": persisted
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1096,6 +1124,159 @@ def manual_sell():
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/trading/mode")
+@require_auth
+@limiter.limit("30 per minute")
+def get_trading_mode():
+    """Get current trading mode and status"""
+    try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        # Check if we have a live trader
+        is_live_trader = hasattr(_trader_instance, 'mode') if _trader_instance else False
+        
+        response = {
+            "configured_mode": config.trading_mode,
+            "live_trading_enabled": config.live_trading_enabled,
+            "is_live_trader": is_live_trader,
+        }
+        
+        if is_live_trader and _trader_instance:
+            response.update({
+                "actual_mode": _trader_instance.mode.value,
+                "trading_enabled": _trader_instance.trading_enabled,
+                "emergency_stop": _trader_instance.emergency_stop,
+                "daily_trades": _trader_instance.daily_trades,
+                "daily_pnl": _trader_instance.daily_pnl,
+                "total_pnl": _trader_instance.total_pnl,
+            })
+        else:
+            response.update({
+                "actual_mode": "paper",
+                "trading_enabled": True,
+                "emergency_stop": False,
+            })
+        
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/trading/emergency-stop", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")
+def trigger_emergency_stop():
+    """Trigger emergency stop - closes all positions and disables trading"""
+    if not _trader_instance:
+        return jsonify({"error": "Trader not available"}), 503
+    
+    # Check if this is a live trader with emergency stop capability
+    if not hasattr(_trader_instance, 'trigger_emergency_stop'):
+        return jsonify({
+            "error": "Emergency stop not available in paper trading mode",
+            "mode": "paper"
+        }), 400
+    
+    try:
+        params = request.get_json() or {}
+        close_positions = params.get("close_positions", True)
+        
+        with _trader_lock:
+            _trader_instance.trigger_emergency_stop(close_positions=close_positions)
+        
+        return jsonify({
+            "success": True,
+            "message": "🚨 EMERGENCY STOP TRIGGERED",
+            "positions_closed": close_positions,
+            "trading_enabled": False,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/trading/enable", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")
+def enable_trading():
+    """Re-enable trading after emergency stop"""
+    if not _trader_instance:
+        return jsonify({"error": "Trader not available"}), 503
+    
+    if not hasattr(_trader_instance, 'enable_trading'):
+        return jsonify({"error": "Not available in paper trading mode"}), 400
+    
+    try:
+        with _trader_lock:
+            # Reset emergency stop first if active
+            if hasattr(_trader_instance, 'emergency_stop') and _trader_instance.emergency_stop:
+                _trader_instance.reset_emergency_stop()
+            _trader_instance.enable_trading()
+        
+        return jsonify({
+            "success": True,
+            "message": "Trading enabled",
+            "trading_enabled": True,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/trading/disable", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")
+def disable_trading():
+    """Disable trading (softer than emergency stop - doesn't close positions)"""
+    if not _trader_instance:
+        return jsonify({"error": "Trader not available"}), 503
+    
+    if not hasattr(_trader_instance, 'disable_trading'):
+        return jsonify({"error": "Not available in paper trading mode"}), 400
+    
+    try:
+        with _trader_lock:
+            _trader_instance.disable_trading()
+        
+        return jsonify({
+            "success": True,
+            "message": "Trading disabled",
+            "trading_enabled": False,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/trading/sync", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def sync_exchange():
+    """Sync balances and positions from exchange"""
+    if not _trader_instance:
+        return jsonify({"error": "Trader not available"}), 503
+    
+    if not hasattr(_trader_instance, 'sync_balances'):
+        return jsonify({"error": "Not available in paper trading mode"}), 400
+    
+    try:
+        with _trader_lock:
+            balances = _trader_instance.sync_balances()
+            position = _trader_instance.sync_positions()
+        
+        return jsonify({
+            "success": True,
+            "balances": balances,
+            "position": {
+                "side": position.side,
+                "amount": position.amount,
+                "entry_price": position.entry_price,
+                "stop_loss": position.stop_loss,
+                "take_profit": position.take_profit,
+            } if position else None,
+        })
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
