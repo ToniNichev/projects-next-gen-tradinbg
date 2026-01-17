@@ -74,29 +74,35 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         logging.info("MULTI-STRATEGY BACKTEST MODE")
         logging.info("=" * 80)
         
-        # Create strategies
+        # Create ALL strategies (respecting their enabled state from config)
         strategies = []
         strategy_configs = config.get_strategy_configs()
         
         # EMA Crossover Strategy
-        if strategy_configs["ema_crossover"]["enabled"]:
-            ema_strategy = EMACrossoverStrategy(strategy_configs["ema_crossover"])
-            strategies.append(ema_strategy)
-            logging.info(f"✓ Enabled: {ema_strategy.name} (weight: {ema_strategy.get_weight()})")
+        ema_strategy = EMACrossoverStrategy(strategy_configs["ema_crossover"])
+        ema_strategy.set_enabled(strategy_configs["ema_crossover"]["enabled"])
+        strategies.append(ema_strategy)
+        status = "✓ Enabled" if ema_strategy.is_enabled() else "✗ Disabled"
+        logging.info(f"{status}: {ema_strategy.name} (weight: {ema_strategy.get_weight()})")
         
         # RSI + Bollinger Bands Strategy
-        if strategy_configs["rsi_bb"]["enabled"]:
-            rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
-            strategies.append(rsi_bb_strategy)
-            logging.info(f"✓ Enabled: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
+        rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
+        rsi_bb_strategy.set_enabled(strategy_configs["rsi_bb"]["enabled"])
+        strategies.append(rsi_bb_strategy)
+        status = "✓ Enabled" if rsi_bb_strategy.is_enabled() else "✗ Disabled"
+        logging.info(f"{status}: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
         
         # MACD + Volume Momentum Strategy
-        if strategy_configs.get("macd_volume", {}).get("enabled", True):
-            macd_strategy = MACDVolumeStrategy(strategy_configs.get("macd_volume", {}))
-            strategies.append(macd_strategy)
-            logging.info(f"✓ Enabled: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
+        macd_config = strategy_configs.get("macd_volume", {})
+        macd_strategy = MACDVolumeStrategy(macd_config)
+        macd_strategy.set_enabled(macd_config.get("enabled", False))  # Default to False if missing
+        strategies.append(macd_strategy)
+        status = "✓ Enabled" if macd_strategy.is_enabled() else "✗ Disabled"
+        logging.info(f"{status}: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
         
-        if strategies:
+        # Check if at least one strategy is enabled
+        enabled_strategies = [s for s in strategies if s.is_enabled()]
+        if enabled_strategies:
             # Create strategy manager
             aggregation_mode_map = {
                 "voting": SignalAggregationMode.VOTING,

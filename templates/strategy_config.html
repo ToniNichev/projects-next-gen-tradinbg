@@ -1147,15 +1147,11 @@
   <!-- EMA Crossover Strategy -->
   <div class="strategy-section" id="strategy-ema">
     <h3>📈 EMA Crossover Strategy (Trend Following)</h3>
+    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
+    </p>
     
-    <div class="form-group" id="strategy-ema-settings">
-      <div class="form-switch">
-        <input type="checkbox" id="emaEnabled" name="ema_enabled">
-        <label for="emaEnabled">Enable EMA Strategy</label>
-      </div>
-    </div>
-    
-    <div class="form-grid">
+    <div class="form-grid" id="strategy-ema-settings">
       <div class="form-group">
         <label class="form-label">
           Strategy Weight
@@ -1219,15 +1215,11 @@
   <!-- RSI + Bollinger Bands Strategy -->
   <div class="strategy-section" id="strategy-rsi-bb">
     <h3>🌊 RSI + Bollinger Bands Strategy (Mean Reversion)</h3>
+    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
+    </p>
     
-    <div class="form-group" id="strategy-rsi-bb-settings">
-      <div class="form-switch">
-        <input type="checkbox" id="rsiBbEnabled" name="rsi_bb_enabled">
-        <label for="rsiBbEnabled">Enable RSI+BB Strategy</label>
-      </div>
-    </div>
-    
-    <div class="form-grid">
+    <div class="form-grid" id="strategy-rsi-bb-settings">
       <div class="form-group">
         <label class="form-label">
           Strategy Weight
@@ -1337,15 +1329,11 @@
   <!-- MACD + Volume Strategy -->
   <div class="strategy-section" id="strategy-macd" style="border-left-color: #f39c12;">
     <h3 style="color: #f39c12;">📊 MACD + Volume Strategy (Momentum Breakout)</h3>
+    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
+    </p>
     
-    <div class="form-group" id="strategy-macd-settings">
-      <div class="form-switch">
-        <input type="checkbox" id="macdEnabled" name="macd_enabled">
-        <label for="macdEnabled">Enable MACD+Volume Strategy</label>
-      </div>
-    </div>
-    
-    <div class="form-grid">
+    <div class="form-grid" id="strategy-macd-settings">
       <div class="form-group">
         <label class="form-label">
           Strategy Weight
@@ -1659,8 +1647,7 @@
       document.getElementById('minConfidence').value = minConf;
       document.getElementById('minConfidenceValue').textContent = (minConf * 100).toFixed(0) + '%';
       
-      // EMA Strategy
-      document.getElementById('emaEnabled').checked = config.strategy_ema_enabled !== false;
+      // EMA Strategy (enable/disable via Overview toggle only)
       const emaWeight = config.strategy_ema_weight || 1.0;
       document.getElementById('emaWeight').value = emaWeight;
       document.getElementById('emaWeightValue').textContent = emaWeight.toFixed(1);
@@ -1668,8 +1655,7 @@
       document.getElementById('emaLongWindow').value = config.long_window || 26;
       document.getElementById('emaTrendStrength').value = config.min_trend_strength || 0.00005;
       
-      // RSI+BB Strategy
-      document.getElementById('rsiBbEnabled').checked = config.strategy_rsi_bb_enabled !== false;
+      // RSI+BB Strategy (enable/disable via Overview toggle only)
       const rsiBbWeight = config.strategy_rsi_bb_weight || 1.0;
       document.getElementById('rsiBbWeight').value = rsiBbWeight;
       document.getElementById('rsiBbWeightValue').textContent = rsiBbWeight.toFixed(1);
@@ -1686,8 +1672,7 @@
       document.getElementById('rsiBbTakeProfit').value = rsiBbTP;
       document.getElementById('rsiBbTakeProfitValue').textContent = (rsiBbTP * 100).toFixed(1) + '%';
       
-      // MACD+Volume Strategy
-      document.getElementById('macdEnabled').checked = config.strategy_macd_enabled !== false;
+      // MACD+Volume Strategy (enable/disable via Overview toggle only)
       const macdWeight = config.strategy_macd_weight || 1.0;
       document.getElementById('macdWeight').value = macdWeight;
       document.getElementById('macdWeightValue').textContent = macdWeight.toFixed(1);
@@ -1708,11 +1693,6 @@
       const macdTP = config.strategy_macd_take_profit_pct || 0.05;
       document.getElementById('macdTakeProfit').value = macdTP;
       document.getElementById('macdTakeProfitValue').textContent = (macdTP * 100).toFixed(1) + '%';
-      document.getElementById('rsiBbStopLossValue').textContent = (rsiBbStop * 100).toFixed(1) + '%';
-      
-      const rsiBbProfit = config.strategy_rsi_bb_take_profit_pct || 0.03;
-      document.getElementById('rsiBbTakeProfit').value = rsiBbProfit;
-      document.getElementById('rsiBbTakeProfitValue').textContent = (rsiBbProfit * 100).toFixed(1) + '%';
       
       showAlert('Configuration loaded successfully', 'success');
     } catch (error) {
@@ -1767,15 +1747,13 @@
         strategy_aggregation_mode: document.getElementById('aggregationMode').value,
         min_signal_confidence: parseFloat(document.getElementById('minConfidence').value),
         
-        // EMA Strategy
-        strategy_ema_enabled: document.getElementById('emaEnabled').checked,
+        // EMA Strategy (enabled state managed by Overview toggles, not here)
         strategy_ema_weight: parseFloat(document.getElementById('emaWeight').value),
         short_window: parseInt(document.getElementById('emaShortWindow').value),
         long_window: parseInt(document.getElementById('emaLongWindow').value),
         min_trend_strength: parseFloat(document.getElementById('emaTrendStrength').value),
         
-        // RSI+BB Strategy
-        strategy_rsi_bb_enabled: document.getElementById('rsiBbEnabled').checked,
+        // RSI+BB Strategy (enabled state managed by Overview toggles, not here)
         strategy_rsi_bb_weight: parseFloat(document.getElementById('rsiBbWeight').value),
         strategy_rsi_bb_rsi_oversold: parseFloat(document.getElementById('rsiOversoldRsiBb').value),
         strategy_rsi_bb_rsi_overbought: parseFloat(document.getElementById('rsiOverboughtRsiBb').value),
@@ -1784,8 +1762,7 @@
         strategy_rsi_bb_stop_loss_pct: parseFloat(document.getElementById('rsiBbStopLoss').value),
         strategy_rsi_bb_take_profit_pct: parseFloat(document.getElementById('rsiBbTakeProfit').value),
         
-        // MACD+Volume Strategy
-        strategy_macd_enabled: document.getElementById('macdEnabled').checked,
+        // MACD+Volume Strategy (enabled state managed by Overview toggles, not here)
         strategy_macd_weight: parseFloat(document.getElementById('macdWeight').value),
         strategy_macd_fast_period: parseInt(document.getElementById('macdFastPeriod').value),
         strategy_macd_slow_period: parseInt(document.getElementById('macdSlowPeriod').value),
@@ -1833,6 +1810,9 @@
       applyBtn.innerHTML = '✅ Configuration Applied Successfully!';
       
       showAlert('✅ Configuration applied successfully! Changes are now active. All strategies have been reloaded with new parameters.', 'success');
+      
+      // Refresh the Strategy Overview to reflect changes in active strategies count
+      await loadStrategyOverview();
       
       // Reset button after animation
       setTimeout(() => {
@@ -2006,8 +1986,9 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
         (data.min_confidence * 100).toFixed(0) + '%';
 
       // Strategy info with detailed explanations
+      // Note: Strategy names must match the actual class names (with underscores)
       const strategyInfo = {
-        'EMA Crossover': {
+        'EMA_Crossover': {
           type: 'Trend Following',
           howItWorks: 'Uses two Exponential Moving Averages (fast & slow). Buys when fast EMA crosses above slow EMA (uptrend), sells when it crosses below (downtrend).',
           bestFor: 'Trending markets with clear directional moves',
@@ -2016,7 +1997,7 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
           riskLevel: 'Medium',
           docLink: '/static/docs/ema-strategy.md'
         },
-        'RSI + Bollinger Bands': {
+        'RSI_BB_MeanReversion': {
           type: 'Mean Reversion',
           howItWorks: 'Combines RSI (overbought/oversold) with Bollinger Bands (price extremes). Buys when price is oversold AND below lower band, sells when overbought AND above upper band.',
           bestFor: 'Range-bound, sideways markets',
@@ -2249,20 +2230,11 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
     }
   }
   
-  // Sync the Strategy Configuration checkboxes when Overview toggles change
+  // Note: Strategy enable/disable is now ONLY handled via the Overview toggle buttons
+  // The Configuration section no longer has enable/disable checkboxes (removed for cleaner UX)
   function syncConfigCheckbox(strategyName, enabled) {
-    const checkboxMap = {
-      'EMA Crossover': 'emaEnabled',
-      'RSI + Bollinger Bands': 'rsiBbEnabled',
-      'MACD_Volume_Momentum': 'macdEnabled'
-    };
-    const checkboxId = checkboxMap[strategyName];
-    if (checkboxId) {
-      const checkbox = document.getElementById(checkboxId);
-      if (checkbox) {
-        checkbox.checked = enabled;
-      }
-    }
+    // This function is kept for backwards compatibility but does nothing
+    // since we removed the configuration checkboxes
   }
 
   // ═══════════════════════════════════════════════════════════════

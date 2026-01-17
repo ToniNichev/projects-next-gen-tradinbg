@@ -451,6 +451,17 @@ def get_strategy_config():
                 "strategy_rsi_bb_bb_std_dev": config.strategy_rsi_bb_bb_std_dev,
                 "strategy_rsi_bb_stop_loss_pct": config.strategy_rsi_bb_stop_loss_pct,
                 "strategy_rsi_bb_take_profit_pct": config.strategy_rsi_bb_take_profit_pct,
+                
+                # MACD+Volume Strategy
+                "strategy_macd_enabled": config.strategy_macd_enabled,
+                "strategy_macd_weight": config.strategy_macd_weight,
+                "strategy_macd_fast_period": config.strategy_macd_fast_period,
+                "strategy_macd_slow_period": config.strategy_macd_slow_period,
+                "strategy_macd_signal_period": config.strategy_macd_signal_period,
+                "strategy_macd_volume_multiplier": config.strategy_macd_volume_multiplier,
+                "strategy_macd_require_zero_cross": config.strategy_macd_require_zero_cross,
+                "strategy_macd_stop_loss_pct": config.strategy_macd_stop_loss_pct,
+                "strategy_macd_take_profit_pct": config.strategy_macd_take_profit_pct,
             }
         
         return jsonify({
@@ -531,6 +542,17 @@ def update_strategy_config():
             "strategy_rsi_bb_bb_std_dev": {"type": "float", "category": "rsi_bb"},
             "strategy_rsi_bb_stop_loss_pct": {"type": "float", "category": "rsi_bb"},
             "strategy_rsi_bb_take_profit_pct": {"type": "float", "category": "rsi_bb"},
+            
+            # MACD+Volume Strategy
+            "strategy_macd_enabled": {"type": "bool", "category": "macd"},
+            "strategy_macd_weight": {"type": "float", "category": "macd"},
+            "strategy_macd_fast_period": {"type": "int", "category": "macd"},
+            "strategy_macd_slow_period": {"type": "int", "category": "macd"},
+            "strategy_macd_signal_period": {"type": "int", "category": "macd"},
+            "strategy_macd_volume_multiplier": {"type": "float", "category": "macd"},
+            "strategy_macd_require_zero_cross": {"type": "bool", "category": "macd"},
+            "strategy_macd_stop_loss_pct": {"type": "float", "category": "macd"},
+            "strategy_macd_take_profit_pct": {"type": "float", "category": "macd"},
         }
         
         # Prepare configs for batch update
@@ -737,9 +759,10 @@ def toggle_strategy(strategy_name):
         }), 503
     
     # Map strategy names to their database config keys
+    # Note: Strategy names must match the actual class names (with underscores)
     strategy_config_keys = {
-        "EMA Crossover": "strategy_ema_enabled",
-        "RSI + Bollinger Bands": "strategy_rsi_bb_enabled",
+        "EMA_Crossover": "strategy_ema_enabled",
+        "RSI_BB_MeanReversion": "strategy_rsi_bb_enabled",
         "MACD_Volume_Momentum": "strategy_macd_enabled",
     }
     

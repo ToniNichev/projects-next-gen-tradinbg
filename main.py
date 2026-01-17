@@ -162,54 +162,59 @@ def main():
     # Initialize strategy system
     strategy_manager = None
     if config.use_multi_strategy and MULTI_STRATEGY_AVAILABLE:
-        # Create strategies
+        # Create ALL strategies (regardless of enabled state)
+        # This allows toggling via dashboard without restart
         strategies = []
         strategy_configs = config.get_strategy_configs()
         
-        # EMA Crossover Strategy
-        if strategy_configs["ema_crossover"]["enabled"]:
-            ema_strategy = EMACrossoverStrategy(strategy_configs["ema_crossover"])
-            strategies.append(ema_strategy)
-            logging.info(f"Enabled strategy: {ema_strategy.name} (weight: {ema_strategy.get_weight()})")
+        # EMA Crossover Strategy - always create, set enabled state from config
+        ema_strategy = EMACrossoverStrategy(strategy_configs["ema_crossover"])
+        ema_strategy.set_enabled(strategy_configs["ema_crossover"]["enabled"])
+        strategies.append(ema_strategy)
+        status = "✓ Enabled" if ema_strategy.is_enabled() else "✗ Disabled"
+        logging.info(f"{status}: {ema_strategy.name} (weight: {ema_strategy.get_weight()})")
         
-        # RSI + Bollinger Bands Strategy
-        if strategy_configs["rsi_bb"]["enabled"]:
-            rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
-            strategies.append(rsi_bb_strategy)
-            logging.info(f"Enabled strategy: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
+        # RSI + Bollinger Bands Strategy - always create, set enabled state from config
+        rsi_bb_strategy = RSIBollingerBandsStrategy(strategy_configs["rsi_bb"])
+        rsi_bb_strategy.set_enabled(strategy_configs["rsi_bb"]["enabled"])
+        strategies.append(rsi_bb_strategy)
+        status = "✓ Enabled" if rsi_bb_strategy.is_enabled() else "✗ Disabled"
+        logging.info(f"{status}: {rsi_bb_strategy.name} (weight: {rsi_bb_strategy.get_weight()})")
         
-        # MACD + Volume Momentum Strategy
-        if strategy_configs["macd_volume"]["enabled"]:
-            macd_strategy = MACDVolumeStrategy(strategy_configs["macd_volume"])
-            strategies.append(macd_strategy)
-            logging.info(f"Enabled strategy: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
+        # MACD + Volume Momentum Strategy - always create, set enabled state from config
+        macd_strategy = MACDVolumeStrategy(strategy_configs["macd_volume"])
+        macd_strategy.set_enabled(strategy_configs["macd_volume"]["enabled"])
+        strategies.append(macd_strategy)
+        status = "✓ Enabled" if macd_strategy.is_enabled() else "✗ Disabled"
+        logging.info(f"{status}: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
         
-        if strategies:
-            # Create strategy manager
-            aggregation_mode_map = {
-                "voting": SignalAggregationMode.VOTING,
-                "weighted_voting": SignalAggregationMode.WEIGHTED_VOTING,
-                "unanimous": SignalAggregationMode.UNANIMOUS,
-                "any": SignalAggregationMode.ANY,
-                "best": SignalAggregationMode.BEST,
-            }
-            aggregation_mode = aggregation_mode_map.get(
-                config.strategy_aggregation_mode,
-                SignalAggregationMode.WEIGHTED_VOTING
-            )
-            
-            strategy_manager = StrategyManager(
-                strategies=strategies,
-                aggregation_mode=aggregation_mode,
-                min_confidence=config.min_signal_confidence,
-            )
-            logging.info(
-                f"Multi-strategy system enabled: {len(strategies)} strategies, "
-                f"aggregation mode: {aggregation_mode.value}"
-            )
-        else:
-            logging.warning("No strategies enabled! Falling back to legacy single strategy.")
-            strategy_manager = None
+        # Create strategy manager with all strategies
+        aggregation_mode_map = {
+            "voting": SignalAggregationMode.VOTING,
+            "weighted_voting": SignalAggregationMode.WEIGHTED_VOTING,
+            "unanimous": SignalAggregationMode.UNANIMOUS,
+            "any": SignalAggregationMode.ANY,
+            "best": SignalAggregationMode.BEST,
+        }
+        aggregation_mode = aggregation_mode_map.get(
+            config.strategy_aggregation_mode,
+            SignalAggregationMode.WEIGHTED_VOTING
+        )
+        
+        strategy_manager = StrategyManager(
+            strategies=strategies,
+            aggregation_mode=aggregation_mode,
+            min_confidence=config.min_signal_confidence,
+        )
+        
+        enabled_count = len([s for s in strategies if s.is_enabled()])
+        logging.info(
+            f"Multi-strategy system initialized: {enabled_count}/{len(strategies)} strategies enabled, "
+            f"aggregation mode: {aggregation_mode.value}"
+        )
+        
+        if enabled_count == 0:
+            logging.warning("⚠️ No strategies are currently enabled! Enable at least one in the dashboard.")
     else:
         if not config.use_multi_strategy:
             logging.info("Multi-strategy disabled in config. Using legacy single strategy.")

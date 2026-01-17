@@ -612,9 +612,10 @@
         const enabledStrategies = data.strategies.filter(s => s.enabled);
         
         // Map strategy names to their config section anchors (points directly to settings)
+        // Note: Strategy names must match the actual class names (with underscores)
         const strategyAnchors = {
-          'EMA Crossover': 'strategy-ema-settings',
-          'RSI + Bollinger Bands': 'strategy-rsi-bb-settings',
+          'EMA_Crossover': 'strategy-ema-settings',
+          'RSI_BB_MeanReversion': 'strategy-rsi-bb-settings',
           'MACD_Volume_Momentum': 'strategy-macd-settings'
         };
         
