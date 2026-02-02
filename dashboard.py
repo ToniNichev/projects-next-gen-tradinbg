@@ -579,6 +579,245 @@ def update_strategy_config():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/presets", methods=["GET"])
+@require_auth
+@limiter.limit("60 per minute")
+def get_presets():
+    """Get all strategy presets"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        db = get_database()
+        presets = db.get_all_presets()
+        
+        return jsonify({
+            "success": True,
+            "presets": presets,
+            "count": len(presets)
+        })
+    except Exception as e:
+        logging.error(f"Error fetching presets: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/presets/<preset_name>", methods=["GET"])
+@require_auth
+@limiter.limit("60 per minute")
+def get_preset(preset_name):
+    """Get a specific preset by name"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        db = get_database()
+        preset = db.get_preset(preset_name)
+        
+        if not preset:
+            return jsonify({"error": "Preset not found"}), 404
+        
+        return jsonify({
+            "success": True,
+            "preset": preset
+        })
+    except Exception as e:
+        logging.error(f"Error fetching preset: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/presets", methods=["POST"])
+@require_auth
+@limiter.limit("20 per minute")
+def save_preset_api():
+    """Save a new preset or update existing"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        name = data.get("name")
+        display_name = data.get("display_name")
+        description = data.get("description", "")
+        config = data.get("config")
+        category = data.get("category", "custom")
+        
+        if not name or not display_name or not config:
+            return jsonify({"error": "Missing required fields: name, display_name, config"}), 400
+        
+        db = get_database()
+        preset = db.save_preset(
+            name=name,
+            display_name=display_name,
+            description=description,
+            config=config,
+            category=category,
+            is_builtin=False,
+            is_default=False
+        )
+        
+        return jsonify({
+            "success": True,
+            "message": f"Preset '{display_name}' saved successfully",
+            "preset": preset
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logging.error(f"Error saving preset: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/presets/<preset_name>", methods=["DELETE"])
+@require_auth
+@limiter.limit("20 per minute")
+def delete_preset_api(preset_name):
+    """Delete a preset"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        db = get_database()
+        deleted = db.delete_preset(preset_name)
+        
+        if not deleted:
+            return jsonify({"error": "Preset not found or cannot be deleted (built-in presets cannot be deleted)"}), 404
+        
+        return jsonify({
+            "success": True,
+            "message": f"Preset '{preset_name}' deleted successfully"
+        })
+    except Exception as e:
+        logging.error(f"Error deleting preset: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/presets/<preset_name>/apply", methods=["POST"])
+@require_auth
+@limiter.limit("30 per minute")
+def apply_preset_api(preset_name):
+    """Load a preset and apply its configuration"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        db = get_database()
+        preset = db.get_preset(preset_name)
+        
+        if not preset:
+            return jsonify({"error": "Preset not found"}), 404
+        
+        # Get the config from the preset
+        config = preset["config"]
+        
+        # Map of config keys to their types and categories (reuse from update_strategy_config)
+        config_mapping = {
+            # Trading parameters
+            "symbol": {"type": "str", "category": "trading"},
+            "timeframe": {"type": "str", "category": "trading"},
+            "initial_usdt": {"type": "float", "category": "trading"},
+            "order_pct": {"type": "float", "category": "trading"},
+            
+            # Indicators
+            "rsi_period": {"type": "int", "category": "indicators"},
+            "rsi_oversold": {"type": "float", "category": "indicators"},
+            "rsi_overbought": {"type": "float", "category": "indicators"},
+            "atr_period": {"type": "int", "category": "indicators"},
+            "atr_stop_multiplier": {"type": "float", "category": "indicators"},
+            "use_atr_stops": {"type": "bool", "category": "indicators"},
+            
+            # Risk Management
+            "stop_loss_pct": {"type": "float", "category": "risk"},
+            "take_profit_pct": {"type": "float", "category": "risk"},
+            "trailing_stop_pct": {"type": "float", "category": "risk"},
+            "use_trailing_stop": {"type": "bool", "category": "risk"},
+            
+            # Position Sizing
+            "min_position_size": {"type": "float", "category": "position"},
+            "max_position_size": {"type": "float", "category": "position"},
+            "use_dynamic_sizing": {"type": "bool", "category": "position"},
+            
+            # Signal Filters
+            "volume_threshold": {"type": "float", "category": "filters"},
+            "require_volume_confirmation": {"type": "bool", "category": "filters"},
+            "require_macd_confirmation": {"type": "bool", "category": "filters"},
+            "max_trades_per_day": {"type": "int", "category": "filters"},
+            
+            # Multi-Strategy
+            "strategy_aggregation_mode": {"type": "str", "category": "multi_strategy"},
+            "min_signal_confidence": {"type": "float", "category": "multi_strategy"},
+            
+            # EMA Strategy
+            "strategy_ema_enabled": {"type": "bool", "category": "ema"},
+            "strategy_ema_weight": {"type": "float", "category": "ema"},
+            "short_window": {"type": "int", "category": "ema"},
+            "long_window": {"type": "int", "category": "ema"},
+            "min_trend_strength": {"type": "float", "category": "ema"},
+            
+            # RSI+BB Strategy
+            "strategy_rsi_bb_enabled": {"type": "bool", "category": "rsi_bb"},
+            "strategy_rsi_bb_weight": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_rsi_oversold": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_rsi_overbought": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_bb_period": {"type": "int", "category": "rsi_bb"},
+            "strategy_rsi_bb_bb_std_dev": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_stop_loss_pct": {"type": "float", "category": "rsi_bb"},
+            "strategy_rsi_bb_take_profit_pct": {"type": "float", "category": "rsi_bb"},
+            
+            # MACD+Volume Strategy
+            "strategy_macd_enabled": {"type": "bool", "category": "macd"},
+            "strategy_macd_weight": {"type": "float", "category": "macd"},
+            "strategy_macd_fast_period": {"type": "int", "category": "macd"},
+            "strategy_macd_slow_period": {"type": "int", "category": "macd"},
+            "strategy_macd_signal_period": {"type": "int", "category": "macd"},
+            "strategy_macd_volume_multiplier": {"type": "float", "category": "macd"},
+            "strategy_macd_require_zero_cross": {"type": "bool", "category": "macd"},
+            "strategy_macd_stop_loss_pct": {"type": "float", "category": "macd"},
+            "strategy_macd_take_profit_pct": {"type": "float", "category": "macd"},
+        }
+        
+        # Prepare configs for batch update
+        configs_to_save = {}
+        for key, value in config.items():
+            if key in config_mapping:
+                configs_to_save[key] = {
+                    "value": value,
+                    "type": config_mapping[key]["type"],
+                    "category": config_mapping[key]["category"],
+                    "description": f"Strategy parameter: {key}"
+                }
+        
+        # Save to database
+        count = db.set_multiple_strategy_configs(configs_to_save)
+        
+        # Apply to running strategies (if strategy manager is available)
+        applied_to_runtime = False
+        if _strategy_manager:
+            try:
+                from config import BotConfig
+                updated_config = BotConfig.load()
+                _strategy_manager.reload_config(updated_config)
+                applied_to_runtime = True
+                logging.info(f"Preset '{preset_name}' applied to running strategies")
+            except Exception as e:
+                logging.warning(f"Failed to apply preset to runtime: {e}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Preset '{preset['display_name']}' applied successfully",
+            "preset": preset,
+            "configs_updated": count,
+            "applied_to_runtime": applied_to_runtime,
+            "requires_restart": "timeframe" in config or "symbol" in config
+        })
+        
+    except Exception as e:
+        logging.error(f"Error applying preset: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/strategy-config/apply", methods=["POST"])
 @require_auth
 @limiter.limit("30 per minute")  # Increased for frequent config testing

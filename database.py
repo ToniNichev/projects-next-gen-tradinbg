@@ -217,6 +217,28 @@ class StrategyConfig(Base):
             return self.value
 
 
+class StrategyPreset(Base):
+    """Strategy configuration presets for quick switching between different trading styles"""
+
+    __tablename__ = "strategy_presets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    display_name = Column(String(100), nullable=False)
+    description = Column(String(500))
+    config_json = Column(String(10000), nullable=False)  # JSON blob of all parameters
+    is_builtin = Column(Boolean, default=False, index=True)  # Built-in vs user-created
+    is_default = Column(Boolean, default=False)
+    category = Column(String(50))  # conservative, aggressive, scalping, swing, custom
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<StrategyPreset(name={self.name}, category={self.category})>"
+
+
 class DatabaseManager:
     """Database connection and session management"""
 
@@ -236,6 +258,12 @@ class DatabaseManager:
         """Create all tables if they don't exist"""
         Base.metadata.create_all(bind=self.engine)
         self.logger.info("Database tables created successfully")
+        
+        # Initialize built-in presets
+        try:
+            self.initialize_builtin_presets()
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize built-in presets: {e}")
 
     def drop_tables(self):
         """Drop all tables (use with caution!)"""
@@ -530,6 +558,629 @@ class DatabaseManager:
             deleted_count = session.query(StrategyConfig).delete()
             self.logger.warning(f"Cleared {deleted_count} strategy configuration records")
             return deleted_count
+    
+    # =====================================================================
+    # STRATEGY PRESET METHODS
+    # =====================================================================
+    
+    def get_preset(self, name: str) -> Optional[Dict]:
+        """
+        Get a strategy preset by name.
+        
+        Args:
+            name: Preset name
+            
+        Returns:
+            Dict with preset data or None if not found
+        """
+        with self.get_session() as session:
+            preset = session.query(StrategyPreset).filter(StrategyPreset.name == name).first()
+            if preset:
+                import json
+                return {
+                    "id": preset.id,
+                    "name": preset.name,
+                    "display_name": preset.display_name,
+                    "description": preset.description,
+                    "config": json.loads(preset.config_json),
+                    "is_builtin": preset.is_builtin,
+                    "is_default": preset.is_default,
+                    "category": preset.category,
+                    "created_at": preset.created_at.isoformat() if preset.created_at else None,
+                    "updated_at": preset.updated_at.isoformat() if preset.updated_at else None,
+                }
+            return None
+    
+    def get_all_presets(self) -> List[Dict]:
+        """
+        Get all strategy presets.
+        
+        Returns:
+            List of preset dicts
+        """
+        with self.get_session() as session:
+            presets = session.query(StrategyPreset).order_by(
+                StrategyPreset.is_builtin.desc(),
+                StrategyPreset.created_at.desc()
+            ).all()
+            
+            import json
+            return [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "display_name": p.display_name,
+                    "description": p.description,
+                    "config": json.loads(p.config_json),
+                    "is_builtin": p.is_builtin,
+                    "is_default": p.is_default,
+                    "category": p.category,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                }
+                for p in presets
+            ]
+    
+    def save_preset(self, name: str, display_name: str, description: str, 
+                    config: Dict, category: str = "custom", is_builtin: bool = False,
+                    is_default: bool = False) -> Dict:
+        """
+        Save or update a strategy preset.
+        
+        Args:
+            name: Unique preset identifier (slug)
+            display_name: Human-readable name
+            description: Preset description
+            config: Configuration dict
+            category: Preset category
+            is_builtin: Whether this is a built-in preset
+            is_default: Whether this is the default preset
+            
+        Returns:
+            Saved preset dict
+        """
+        import json
+        with self.get_session() as session:
+            preset = session.query(StrategyPreset).filter(StrategyPreset.name == name).first()
+            
+            if preset:
+                # Update existing (but don't allow modifying built-in presets)
+                if preset.is_builtin and not is_builtin:
+                    raise ValueError("Cannot modify built-in presets")
+                
+                preset.display_name = display_name
+                preset.description = description
+                preset.config_json = json.dumps(config)
+                preset.category = category
+                preset.is_default = is_default
+                preset.updated_at = datetime.utcnow()
+            else:
+                # Create new
+                preset = StrategyPreset(
+                    name=name,
+                    display_name=display_name,
+                    description=description,
+                    config_json=json.dumps(config),
+                    category=category,
+                    is_builtin=is_builtin,
+                    is_default=is_default,
+                )
+                session.add(preset)
+            
+            # If this is set as default, unset other defaults
+            if is_default:
+                session.query(StrategyPreset).filter(
+                    StrategyPreset.name != name
+                ).update({"is_default": False})
+            
+            session.flush()
+            session.refresh(preset)
+            
+            return {
+                "id": preset.id,
+                "name": preset.name,
+                "display_name": preset.display_name,
+                "description": preset.description,
+                "config": json.loads(preset.config_json),
+                "is_builtin": preset.is_builtin,
+                "is_default": preset.is_default,
+                "category": preset.category,
+            }
+    
+    def delete_preset(self, name: str) -> bool:
+        """
+        Delete a strategy preset.
+        
+        Args:
+            name: Preset name
+            
+        Returns:
+            True if deleted, False if not found or is built-in
+        """
+        with self.get_session() as session:
+            preset = session.query(StrategyPreset).filter(StrategyPreset.name == name).first()
+            if not preset:
+                return False
+            
+            if preset.is_builtin:
+                self.logger.warning(f"Cannot delete built-in preset: {name}")
+                return False
+            
+            session.delete(preset)
+            self.logger.info(f"Deleted preset: {name}")
+            return True
+    
+    def initialize_builtin_presets(self):
+        """Initialize built-in strategy presets if they don't exist"""
+        builtin_presets = [
+            {
+                "name": "conservative",
+                "display_name": "Conservative (Low Risk)",
+                "description": "Lower risk settings with tight stops, high confidence threshold, and unanimous strategy agreement. Best for cautious traders.",
+                "category": "conservative",
+                "config": {
+                    # Risk Management - Tight
+                    "stop_loss_pct": 0.015,
+                    "take_profit_pct": 0.03,
+                    "trailing_stop_pct": 0.01,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing - Small
+                    "order_pct": 0.15,
+                    "min_position_size": 0.10,
+                    "max_position_size": 0.20,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - Unanimous
+                    "strategy_aggregation_mode": "unanimous",
+                    "min_signal_confidence": 0.5,
+                    
+                    # Filters - Strict
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.3,
+                    "require_macd_confirmation": False,
+                    "max_trades_per_day": 3,
+                    
+                    # Strategy Weights
+                    "strategy_ema_weight": 1.0,
+                    "strategy_rsi_bb_weight": 1.0,
+                    "strategy_macd_weight": 1.0,
+                },
+            },
+            {
+                "name": "balanced",
+                "display_name": "Balanced (Default)",
+                "description": "Balanced risk/reward with moderate stops and weighted voting. Good starting point for most traders.",
+                "category": "balanced",
+                "config": {
+                    # Risk Management - Moderate
+                    "stop_loss_pct": 0.025,
+                    "take_profit_pct": 0.04,
+                    "trailing_stop_pct": 0.015,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing - Medium
+                    "order_pct": 0.25,
+                    "min_position_size": 0.15,
+                    "max_position_size": 0.35,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - Weighted Voting
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.3,
+                    
+                    # Filters - Balanced
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.1,
+                    "require_macd_confirmation": False,
+                    "max_trades_per_day": 5,
+                    
+                    # Strategy Weights
+                    "strategy_ema_weight": 1.0,
+                    "strategy_rsi_bb_weight": 1.0,
+                    "strategy_macd_weight": 1.0,
+                },
+            },
+            {
+                "name": "aggressive",
+                "display_name": "Aggressive (High Risk)",
+                "description": "Higher risk with wider stops, lower confidence threshold, and 'any' strategy mode. For experienced traders comfortable with volatility.",
+                "category": "aggressive",
+                "config": {
+                    # Risk Management - Wide
+                    "stop_loss_pct": 0.04,
+                    "take_profit_pct": 0.08,
+                    "trailing_stop_pct": 0.025,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing - Large
+                    "order_pct": 0.40,
+                    "min_position_size": 0.25,
+                    "max_position_size": 0.50,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - Any
+                    "strategy_aggregation_mode": "any",
+                    "min_signal_confidence": 0.2,
+                    
+                    # Filters - Relaxed
+                    "require_volume_confirmation": False,
+                    "volume_threshold": 1.0,
+                    "require_macd_confirmation": False,
+                    "max_trades_per_day": 10,
+                    
+                    # Strategy Weights
+                    "strategy_ema_weight": 1.0,
+                    "strategy_rsi_bb_weight": 1.0,
+                    "strategy_macd_weight": 1.0,
+                },
+            },
+            {
+                "name": "scalping_5m",
+                "display_name": "Scalping (5m timeframe)",
+                "description": "Fast 5-minute scalping with tight stops and quick profits. Requires constant monitoring.",
+                "category": "scalping",
+                "config": {
+                    # Trading Parameters
+                    "timeframe": "5m",
+                    
+                    # Risk Management - Very Tight
+                    "stop_loss_pct": 0.008,
+                    "take_profit_pct": 0.015,
+                    "trailing_stop_pct": 0.006,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing
+                    "order_pct": 0.20,
+                    "min_position_size": 0.15,
+                    "max_position_size": 0.30,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy
+                    "strategy_aggregation_mode": "best",
+                    "min_signal_confidence": 0.4,
+                    
+                    # Filters
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.5,
+                    "max_trades_per_day": 15,
+                    
+                    # EMA - Faster
+                    "short_window": 8,
+                    "long_window": 21,
+                    "min_trend_strength": 0.0001,
+                },
+            },
+            {
+                "name": "swing_4h",
+                "display_name": "Swing Trading (4h timeframe)",
+                "description": "Longer-term swing trading on 4-hour candles with wider stops and bigger targets. Lower frequency, less monitoring needed.",
+                "category": "swing",
+                "config": {
+                    # Trading Parameters
+                    "timeframe": "4h",
+                    
+                    # Risk Management - Wide
+                    "stop_loss_pct": 0.05,
+                    "take_profit_pct": 0.12,
+                    "trailing_stop_pct": 0.03,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing
+                    "order_pct": 0.35,
+                    "min_position_size": 0.20,
+                    "max_position_size": 0.45,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.35,
+                    
+                    # Filters
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.2,
+                    "max_trades_per_day": 3,
+                    
+                    # EMA - Slower
+                    "short_window": 21,
+                    "long_window": 55,
+                    "min_trend_strength": 0.00003,
+                },
+            },
+            {
+                "name": "day_trading_1h",
+                "display_name": "Day Trading (1h timeframe)",
+                "description": "Balanced day trading on 1-hour candles. Perfect middle ground between scalping and swing trading. Check 2-3 times per day.",
+                "category": "day_trading",
+                "config": {
+                    # Trading Parameters
+                    "timeframe": "1h",
+                    
+                    # Risk Management
+                    "stop_loss_pct": 0.02,
+                    "take_profit_pct": 0.05,
+                    "trailing_stop_pct": 0.015,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing
+                    "order_pct": 0.30,
+                    "min_position_size": 0.20,
+                    "max_position_size": 0.40,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.35,
+                    
+                    # Filters
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.2,
+                    "max_trades_per_day": 8,
+                    
+                    # EMA
+                    "short_window": 12,
+                    "long_window": 26,
+                    "min_trend_strength": 0.00005,
+                },
+            },
+            {
+                "name": "trend_following",
+                "display_name": "Trend Following (EMA Focus)",
+                "description": "Prioritizes EMA crossover strategy for catching and riding strong trends. Higher EMA weight, requires clear directional moves.",
+                "category": "specialized",
+                "config": {
+                    # Risk Management
+                    "stop_loss_pct": 0.03,
+                    "take_profit_pct": 0.08,
+                    "trailing_stop_pct": 0.02,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing
+                    "order_pct": 0.30,
+                    "min_position_size": 0.20,
+                    "max_position_size": 0.40,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - EMA focused
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.4,
+                    "strategy_ema_weight": 2.0,  # Double weight for EMA
+                    "strategy_rsi_bb_weight": 0.5,  # Lower weight
+                    "strategy_macd_weight": 1.0,
+                    
+                    # Filters
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.2,
+                    "max_trades_per_day": 5,
+                    
+                    # EMA - Longer for stronger trends
+                    "short_window": 15,
+                    "long_window": 35,
+                    "min_trend_strength": 0.0001,  # Higher threshold
+                },
+            },
+            {
+                "name": "mean_reversion",
+                "display_name": "Mean Reversion (RSI+BB Focus)",
+                "description": "Focuses on RSI+Bollinger Bands for counter-trend entries. Buys oversold, sells overbought. Best in ranging markets.",
+                "category": "specialized",
+                "config": {
+                    # Risk Management - Tight stops for mean reversion
+                    "stop_loss_pct": 0.018,
+                    "take_profit_pct": 0.035,
+                    "trailing_stop_pct": 0.012,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing
+                    "order_pct": 0.25,
+                    "min_position_size": 0.15,
+                    "max_position_size": 0.35,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - RSI+BB focused
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.4,
+                    "strategy_ema_weight": 0.5,  # Lower weight
+                    "strategy_rsi_bb_weight": 2.0,  # Double weight for mean reversion
+                    "strategy_macd_weight": 0.8,
+                    
+                    # Filters
+                    "require_volume_confirmation": False,  # Less important for mean reversion
+                    "volume_threshold": 1.0,
+                    "max_trades_per_day": 6,
+                    
+                    # RSI+BB - More sensitive
+                    "strategy_rsi_bb_rsi_oversold": 25,
+                    "strategy_rsi_bb_rsi_overbought": 75,
+                    "strategy_rsi_bb_bb_period": 20,
+                    "strategy_rsi_bb_bb_std_dev": 2.0,
+                },
+            },
+            {
+                "name": "breakout_hunter",
+                "display_name": "Breakout Hunter (MACD+Volume Focus)",
+                "description": "Optimized for catching momentum breakouts with volume confirmation. Prioritizes MACD+Volume strategy for explosive moves.",
+                "category": "specialized",
+                "config": {
+                    # Risk Management - Wider stops for breakouts
+                    "stop_loss_pct": 0.035,
+                    "take_profit_pct": 0.09,
+                    "trailing_stop_pct": 0.025,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing - Larger for confirmed breakouts
+                    "order_pct": 0.35,
+                    "min_position_size": 0.25,
+                    "max_position_size": 0.45,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - MACD+Volume focused
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.35,
+                    "strategy_ema_weight": 0.8,
+                    "strategy_rsi_bb_weight": 0.5,
+                    "strategy_macd_weight": 2.0,  # Double weight for breakouts
+                    
+                    # Filters - Strong volume required
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.5,  # 50% above average
+                    "max_trades_per_day": 6,
+                    
+                    # MACD - More sensitive
+                    "strategy_macd_fast_period": 10,
+                    "strategy_macd_slow_period": 22,
+                    "strategy_macd_signal_period": 8,
+                    "strategy_macd_volume_multiplier": 1.5,
+                    "strategy_macd_require_zero_cross": False,
+                },
+            },
+            {
+                "name": "night_mode",
+                "display_name": "Night Mode (Unmonitored)",
+                "description": "Ultra-conservative for overnight or when you can't monitor. Tight stops, small positions, requires all strategies to agree.",
+                "category": "conservative",
+                "config": {
+                    # Risk Management - Very tight
+                    "stop_loss_pct": 0.012,
+                    "take_profit_pct": 0.025,
+                    "trailing_stop_pct": 0.008,
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing - Very small
+                    "order_pct": 0.12,
+                    "min_position_size": 0.08,
+                    "max_position_size": 0.15,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - Unanimous only
+                    "strategy_aggregation_mode": "unanimous",
+                    "min_signal_confidence": 0.6,  # Very high confidence
+                    
+                    # Filters - Very strict
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.4,
+                    "max_trades_per_day": 2,
+                    
+                    # Strategy Weights
+                    "strategy_ema_weight": 1.0,
+                    "strategy_rsi_bb_weight": 1.0,
+                    "strategy_macd_weight": 1.0,
+                },
+            },
+            {
+                "name": "high_volatility",
+                "display_name": "High Volatility Market",
+                "description": "Adapted for volatile markets with wider stops and larger ATR multipliers. Prevents premature stop-outs during big swings.",
+                "category": "market_condition",
+                "config": {
+                    # Risk Management - Wide for volatility
+                    "stop_loss_pct": 0.045,
+                    "take_profit_pct": 0.10,
+                    "trailing_stop_pct": 0.03,
+                    "use_trailing_stop": True,
+                    
+                    # ATR - Wider stops
+                    "atr_stop_multiplier": 3.5,
+                    "use_atr_stops": True,
+                    
+                    # Position Sizing - Smaller due to risk
+                    "order_pct": 0.20,
+                    "min_position_size": 0.12,
+                    "max_position_size": 0.28,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.45,  # Higher confidence in volatile markets
+                    
+                    # Filters - Stricter
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.3,
+                    "max_trades_per_day": 4,
+                },
+            },
+            {
+                "name": "low_volatility",
+                "display_name": "Low Volatility Market",
+                "description": "Optimized for stable, low-volatility conditions. Tighter stops, more frequent trades, smaller targets.",
+                "category": "market_condition",
+                "config": {
+                    # Risk Management - Tight for low volatility
+                    "stop_loss_pct": 0.015,
+                    "take_profit_pct": 0.03,
+                    "trailing_stop_pct": 0.01,
+                    "use_trailing_stop": True,
+                    
+                    # ATR - Tighter stops
+                    "atr_stop_multiplier": 1.8,
+                    "use_atr_stops": True,
+                    
+                    # Position Sizing - Larger positions, lower risk
+                    "order_pct": 0.35,
+                    "min_position_size": 0.25,
+                    "max_position_size": 0.45,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.25,  # Lower confidence ok in stable markets
+                    
+                    # Filters - Relaxed
+                    "require_volume_confirmation": False,
+                    "volume_threshold": 1.0,
+                    "max_trades_per_day": 8,
+                },
+            },
+            {
+                "name": "crypto_bull",
+                "display_name": "Crypto Bull Market",
+                "description": "Optimized for strong uptrends. Favors long positions, wider take profits, aggressive position sizing. Ride the bull!",
+                "category": "market_condition",
+                "config": {
+                    # Risk Management - Let profits run
+                    "stop_loss_pct": 0.028,
+                    "take_profit_pct": 0.15,  # Large target
+                    "trailing_stop_pct": 0.035,  # Wider trailing
+                    "use_trailing_stop": True,
+                    
+                    # Position Sizing - Aggressive in bull
+                    "order_pct": 0.40,
+                    "min_position_size": 0.30,
+                    "max_position_size": 0.50,
+                    "use_dynamic_sizing": True,
+                    
+                    # Multi-Strategy - Trend following bias
+                    "strategy_aggregation_mode": "weighted_voting",
+                    "min_signal_confidence": 0.3,
+                    "strategy_ema_weight": 1.5,  # Higher weight for trends
+                    "strategy_rsi_bb_weight": 0.7,  # Lower mean reversion
+                    "strategy_macd_weight": 1.3,
+                    
+                    # Filters
+                    "require_volume_confirmation": True,
+                    "volume_threshold": 1.2,
+                    "max_trades_per_day": 6,
+                    
+                    # EMA - Faster to catch uptrends
+                    "short_window": 9,
+                    "long_window": 21,
+                },
+            },
+        ]
+        
+        for preset_data in builtin_presets:
+            try:
+                self.save_preset(
+                    name=preset_data["name"],
+                    display_name=preset_data["display_name"],
+                    description=preset_data["description"],
+                    config=preset_data["config"],
+                    category=preset_data["category"],
+                    is_builtin=True,
+                    is_default=(preset_data["name"] == "balanced"),
+                )
+                self.logger.info(f"Initialized built-in preset: {preset_data['name']}")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize preset {preset_data['name']}: {e}")
 
 
 # Global database manager instance

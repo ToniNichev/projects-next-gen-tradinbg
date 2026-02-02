@@ -754,6 +754,63 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PRESET SELECTOR -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="collapsible-header" onclick="toggleSection('presetSection')">
+  <h2 style="color: var(--accent-green); display: flex; align-items: center; gap: 0.5rem;">
+    <span>🎨 Configuration Presets</span>
+  </h2>
+  <span class="collapse-icon">▼</span>
+</div>
+<div id="presetSection" class="collapsible-content">
+  <div class="config-section">
+    <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+      Quick-start with pre-configured trading styles. Load a preset to instantly configure all parameters, then fine-tune as needed.
+    </p>
+    
+    <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1.5rem;">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label">
+          Load Preset
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip" style="width: 320px;">
+              Choose a preset to instantly configure all strategy parameters. Built-in presets cannot be deleted but you can create your own custom presets.
+            </span>
+          </span>
+        </label>
+        <select class="form-select" id="presetSelect" onchange="loadPreset(this.value)" style="font-size: 0.95rem;">
+          <option value="">-- Select a Preset --</option>
+        </select>
+      </div>
+      
+      <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+        <button type="button" class="btn" onclick="saveCurrentAsPreset()" style="white-space: nowrap;">
+          💾 Save Current
+        </button>
+        <button type="button" class="secondary" id="deletePresetBtn" onclick="deleteCurrentPreset()" style="display: none; white-space: nowrap;">
+          🗑️ Delete
+        </button>
+      </div>
+    </div>
+    
+    <div id="presetDescription" style="display: none; padding: 1rem; background: var(--bg-tertiary); border-radius: 0.5rem; border-left: 4px solid var(--accent-blue); margin-bottom: 1rem;">
+      <div style="display: flex; align-items: start; gap: 1rem;">
+        <div style="flex: 1;">
+          <strong style="color: var(--accent-blue);" id="presetDescTitle"></strong>
+          <p style="margin: 0.5rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;" id="presetDescText"></p>
+        </div>
+        <span class="badge badge-info" id="presetCategory" style="text-transform: capitalize;"></span>
+      </div>
+    </div>
+    
+    <!-- Preset Grid -->
+    <div id="presetGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 1.5rem;">
+      <!-- Preset cards will be loaded here -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- CONFIGURATION FORM -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <form id="configForm">
@@ -2383,6 +2440,310 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
   
   // Refresh stats every 10 seconds
   setInterval(loadStats, 10000);
+  
+  // ═══════════════════════════════════════════════════════════════
+  // PRESET MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+  
+  let currentPresetName = null;
+  let allPresets = [];
+  
+  async function loadPresets() {
+    try {
+      const response = await fetch('/api/presets');
+      const data = await response.json();
+      
+      if (data.success) {
+        allPresets = data.presets;
+        renderPresetSelect();
+        renderPresetGrid();
+      }
+    } catch (error) {
+      console.error('Error loading presets:', error);
+    }
+  }
+  
+  function renderPresetSelect() {
+    const select = document.getElementById('presetSelect');
+    const currentValue = select.value;
+    
+    // Clear and rebuild options
+    select.innerHTML = '<option value="">-- Select a Preset --</option>';
+    
+    // Group by category
+    const builtin = allPresets.filter(p => p.is_builtin);
+    const custom = allPresets.filter(p => !p.is_builtin);
+    
+    if (builtin.length > 0) {
+      const builtinGroup = document.createElement('optgroup');
+      builtinGroup.label = '🎯 Built-in Presets';
+      builtin.forEach(preset => {
+        const option = document.createElement('option');
+        option.value = preset.name;
+        option.textContent = preset.display_name + (preset.is_default ? ' (Default)' : '');
+        builtinGroup.appendChild(option);
+      });
+      select.appendChild(builtinGroup);
+    }
+    
+    if (custom.length > 0) {
+      const customGroup = document.createElement('optgroup');
+      customGroup.label = '✨ Custom Presets';
+      custom.forEach(preset => {
+        const option = document.createElement('option');
+        option.value = preset.name;
+        option.textContent = preset.display_name;
+        customGroup.appendChild(option);
+      });
+      select.appendChild(customGroup);
+    }
+    
+    // Restore selection
+    if (currentValue) {
+      select.value = currentValue;
+    }
+  }
+  
+  function renderPresetGrid() {
+    const grid = document.getElementById('presetGrid');
+    
+    if (allPresets.length === 0) {
+      grid.innerHTML = '<p style="color: var(--text-secondary); padding: 1rem; text-align: center;">No presets available</p>';
+      return;
+    }
+    
+    // Create preset cards
+    grid.innerHTML = allPresets.map(preset => {
+      const categoryColors = {
+        conservative: '#58D68D',
+        balanced: '#539BF5',
+        aggressive: '#FF5E57',
+        scalping: '#f39c12',
+        swing: '#9b59b6',
+        custom: '#7f8c8d'
+      };
+      
+      const color = categoryColors[preset.category] || categoryColors.custom;
+      const icon = preset.is_builtin ? '🎯' : '✨';
+      
+      return `
+        <div class="strategy-overview-card" style="border-left-color: ${color}; cursor: pointer;" onclick="selectPresetFromGrid('${preset.name}')">
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
+            <div>
+              <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-primary);">
+                ${icon} ${preset.display_name}
+              </h4>
+              <span class="badge badge-info" style="background: ${color}; font-size: 0.65rem; margin-top: 0.25rem;">
+                ${preset.category}
+              </span>
+            </div>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0; line-height: 1.4;">
+            ${preset.description}
+          </p>
+        </div>
+      `;
+    }).join('');
+  }
+  
+  function selectPresetFromGrid(presetName) {
+    document.getElementById('presetSelect').value = presetName;
+    loadPreset(presetName);
+  }
+  
+  async function loadPreset(presetName) {
+    if (!presetName) {
+      currentPresetName = null;
+      document.getElementById('presetDescription').style.display = 'none';
+      document.getElementById('deletePresetBtn').style.display = 'none';
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/presets/${presetName}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        const preset = data.preset;
+        currentPresetName = presetName;
+        
+        // Show description
+        document.getElementById('presetDescTitle').textContent = preset.display_name;
+        document.getElementById('presetDescText').textContent = preset.description;
+        document.getElementById('presetCategory').textContent = preset.category;
+        document.getElementById('presetDescription').style.display = 'block';
+        
+        // Show delete button for custom presets only
+        if (!preset.is_builtin) {
+          document.getElementById('deletePresetBtn').style.display = 'block';
+        } else {
+          document.getElementById('deletePresetBtn').style.display = 'none';
+        }
+        
+        // Load config values into form
+        const config = preset.config;
+        for (const [key, value] of Object.entries(config)) {
+          const element = document.getElementById(key);
+          if (element) {
+            if (element.type === 'checkbox') {
+              element.checked = value;
+            } else {
+              element.value = value;
+            }
+            
+            // Trigger input event to update range displays
+            element.dispatchEvent(new Event('input'));
+          }
+        }
+        
+        showAlert(`Preset "${preset.display_name}" loaded. Click "Apply Configuration" to activate.`, 'info');
+      }
+    } catch (error) {
+      console.error('Error loading preset:', error);
+      showAlert('Failed to load preset: ' + error.message, 'danger');
+    }
+  }
+  
+  async function saveCurrentAsPreset() {
+    const presetName = prompt('Enter a name for this preset (lowercase, use underscores for spaces):');
+    if (!presetName) return;
+    
+    const displayName = prompt('Enter a display name for this preset:');
+    if (!displayName) return;
+    
+    const description = prompt('Enter a description for this preset:') || '';
+    
+    try {
+      // Collect all current form values
+      const config = {
+        // Trading parameters
+        symbol: document.getElementById('symbol').value,
+        timeframe: document.getElementById('timeframe').value,
+        initial_usdt: parseFloat(document.getElementById('initialUsdt').value),
+        order_pct: parseFloat(document.getElementById('orderPct').value),
+        
+        // Indicators
+        rsi_period: parseInt(document.getElementById('rsiPeriod').value),
+        rsi_oversold: parseFloat(document.getElementById('rsiOversold').value),
+        rsi_overbought: parseFloat(document.getElementById('rsiOverbought').value),
+        atr_period: parseInt(document.getElementById('atrPeriod').value),
+        atr_stop_multiplier: parseFloat(document.getElementById('atrStopMultiplier').value),
+        use_atr_stops: document.getElementById('useAtrStops').checked,
+        
+        // Risk Management
+        stop_loss_pct: parseFloat(document.getElementById('stopLossPct').value) / 100,
+        take_profit_pct: parseFloat(document.getElementById('takeProfitPct').value) / 100,
+        trailing_stop_pct: parseFloat(document.getElementById('trailingStopPct').value) / 100,
+        use_trailing_stop: document.getElementById('useTrailingStop').checked,
+        
+        // Position Sizing
+        min_position_size: parseFloat(document.getElementById('minPositionSize').value) / 100,
+        max_position_size: parseFloat(document.getElementById('maxPositionSize').value) / 100,
+        use_dynamic_sizing: document.getElementById('useDynamicSizing').checked,
+        
+        // Signal Filters
+        volume_threshold: parseFloat(document.getElementById('volumeThreshold').value),
+        require_volume_confirmation: document.getElementById('requireVolumeConfirmation').checked,
+        require_macd_confirmation: document.getElementById('requireMacdConfirmation').checked,
+        max_trades_per_day: parseInt(document.getElementById('maxTradesPerDay').value),
+        
+        // Multi-Strategy
+        strategy_aggregation_mode: document.getElementById('aggregationMode').value,
+        min_signal_confidence: parseFloat(document.getElementById('minConfidence').value),
+        
+        // EMA Strategy
+        strategy_ema_weight: parseFloat(document.getElementById('emaWeight').value),
+        short_window: parseInt(document.getElementById('emaShortWindow').value),
+        long_window: parseInt(document.getElementById('emaLongWindow').value),
+        min_trend_strength: parseFloat(document.getElementById('emaTrendStrength').value),
+        
+        // RSI+BB Strategy
+        strategy_rsi_bb_weight: parseFloat(document.getElementById('rsiBbWeight').value),
+        strategy_rsi_bb_rsi_oversold: parseFloat(document.getElementById('rsiOversoldRsiBb').value),
+        strategy_rsi_bb_rsi_overbought: parseFloat(document.getElementById('rsiOverboughtRsiBb').value),
+        strategy_rsi_bb_bb_period: parseInt(document.getElementById('bbPeriod').value),
+        strategy_rsi_bb_bb_std_dev: parseFloat(document.getElementById('bbStdDev').value),
+        strategy_rsi_bb_stop_loss_pct: parseFloat(document.getElementById('rsiBbStopLoss').value),
+        strategy_rsi_bb_take_profit_pct: parseFloat(document.getElementById('rsiBbTakeProfit').value),
+        
+        // MACD+Volume Strategy
+        strategy_macd_weight: parseFloat(document.getElementById('macdWeight').value),
+        strategy_macd_fast_period: parseInt(document.getElementById('macdFastPeriod').value),
+        strategy_macd_slow_period: parseInt(document.getElementById('macdSlowPeriod').value),
+        strategy_macd_signal_period: parseInt(document.getElementById('macdSignalPeriod').value),
+        strategy_macd_volume_multiplier: parseFloat(document.getElementById('macdVolumeMultiplier').value),
+        strategy_macd_require_zero_cross: document.getElementById('macdRequireZeroCross').checked,
+        strategy_macd_stop_loss_pct: parseFloat(document.getElementById('macdStopLoss').value),
+        strategy_macd_take_profit_pct: parseFloat(document.getElementById('macdTakeProfit').value),
+      };
+      
+      const response = await fetch('/api/presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: presetName,
+          display_name: displayName,
+          description: description,
+          config: config,
+          category: 'custom'
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showAlert('Preset saved successfully!', 'success');
+        await loadPresets();
+        document.getElementById('presetSelect').value = presetName;
+      } else {
+        showAlert('Failed to save preset: ' + (data.error || 'Unknown error'), 'danger');
+      }
+    } catch (error) {
+      console.error('Error saving preset:', error);
+      showAlert('Failed to save preset: ' + error.message, 'danger');
+    }
+  }
+  
+  async function deleteCurrentPreset() {
+    if (!currentPresetName) return;
+    
+    const preset = allPresets.find(p => p.name === currentPresetName);
+    if (!preset) return;
+    
+    if (preset.is_builtin) {
+      showAlert('Cannot delete built-in presets', 'danger');
+      return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete the preset "${preset.display_name}"?`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/presets/${currentPresetName}`, {
+        method: 'DELETE'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showAlert('Preset deleted successfully', 'success');
+        currentPresetName = null;
+        document.getElementById('presetSelect').value = '';
+        document.getElementById('presetDescription').style.display = 'none';
+        document.getElementById('deletePresetBtn').style.display = 'none';
+        await loadPresets();
+      } else {
+        showAlert('Failed to delete preset: ' + (data.error || 'Unknown error'), 'danger');
+      }
+    } catch (error) {
+      console.error('Error deleting preset:', error);
+      showAlert('Failed to delete preset: ' + error.message, 'danger');
+    }
+  }
+  
+  // Load presets on page load
+  loadPresets();
 </script>
 
 <!-- Chart.js Library -->
