@@ -1144,12 +1144,40 @@
     </div>
   </div>
   
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- INDIVIDUAL STRATEGY OVERRIDES SEPARATOR -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div style="margin: 3rem 0 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, rgba(88, 214, 141, 0.1) 0%, rgba(83, 155, 245, 0.1) 100%); border: 2px solid var(--accent-blue); border-radius: 0.75rem; position: relative;">
+    <div style="position: absolute; top: -14px; left: 20px; background: var(--bg-primary); padding: 0 10px;">
+      <span style="color: var(--accent-blue); font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em;">
+        ⚙️ Individual Strategy Overrides
+      </span>
+    </div>
+    <h3 style="margin: 0 0 0.75rem 0; color: var(--accent-blue); font-size: 1.1rem;">
+      🎯 Strategy-Specific Parameters
+    </h3>
+    <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">
+      The sections below allow each strategy to <strong style="color: var(--text-primary);">override the global settings</strong> configured above. 
+      For example, mean-reversion strategies typically use tighter stop losses than trend-following strategies. 
+      If a strategy doesn't have specific overrides, it will use the global Risk Management and Position Sizing settings.
+    </p>
+    <div style="margin-top: 0.75rem; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border-radius: 0.5rem; border-left: 3px solid var(--accent-green);">
+      <strong style="color: var(--accent-green); font-size: 0.875rem;">💡 Tip:</strong>
+      <span style="color: var(--text-secondary); font-size: 0.875rem;">
+        Strategy-specific Stop Loss and Take Profit settings will override the global Risk Management values for trades from that strategy only.
+      </span>
+    </div>
+  </div>
+  
   <!-- EMA Crossover Strategy -->
   <div class="strategy-section" id="strategy-ema">
     <h3>📈 EMA Crossover Strategy (Trend Following)</h3>
     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
       💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
     </p>
+    <div class="alert alert-info" style="margin-bottom: 1rem; padding: 0.75rem; font-size: 0.875rem;">
+      ℹ️ This strategy uses the <strong>global Risk Management</strong> settings (Stop Loss, Take Profit, Trailing Stop) configured above. No strategy-specific overrides.
+    </div>
     
     <div class="form-grid" id="strategy-ema-settings">
       <div class="form-group">
@@ -1291,10 +1319,22 @@
                name="bb_std_dev" min="1.0" max="3.0" step="0.1" value="2.0">
         <span class="form-text">Band width (σ)</span>
       </div>
-      
+    </div>
+    
+    <!-- Risk Management Overrides for RSI+BB -->
+    <div style="margin: 1.5rem 0 1rem 0; padding: 0.75rem 1rem; background: rgba(88, 214, 141, 0.1); border-left: 4px solid var(--accent-green); border-radius: 0.5rem;">
+      <strong style="color: var(--accent-green); font-size: 0.875rem;">
+        🎯 Strategy-Specific Risk Overrides
+      </strong>
+      <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.8rem;">
+        These settings override the global Risk Management values for RSI+BB trades only.
+      </p>
+    </div>
+    
+    <div class="form-grid">
       <div class="form-group">
         <label class="form-label">
-          Stop Loss %
+          Stop Loss % <span style="color: var(--accent-green); font-size: 0.7rem; font-weight: 700;">[OVERRIDE]</span>
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip">
               Strategy-specific stop loss for RSI+BB trades. Mean-reversion trades typically use tighter stops (1.5-2.5%) than trend trades.
@@ -1310,7 +1350,7 @@
       
       <div class="form-group">
         <label class="form-label">
-          Take Profit %
+          Take Profit % <span style="color: var(--accent-green); font-size: 0.7rem; font-weight: 700;">[OVERRIDE]</span>
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip">
               Strategy-specific take profit for RSI+BB. Mean-reversion targets are typically smaller (2-4%) than trend-following, as moves reverse quickly.
@@ -1442,10 +1482,22 @@
           <label for="macdRequireZeroCross">Require Zero-Line Cross</label>
         </div>
       </div>
-      
+    </div>
+    
+    <!-- Risk Management Overrides for MACD -->
+    <div style="margin: 1.5rem 0 1rem 0; padding: 0.75rem 1rem; background: rgba(243, 156, 18, 0.1); border-left: 4px solid #f39c12; border-radius: 0.5rem;">
+      <strong style="color: #f39c12; font-size: 0.875rem;">
+        🎯 Strategy-Specific Risk Overrides
+      </strong>
+      <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.8rem;">
+        These settings override the global Risk Management values for MACD+Volume trades only.
+      </p>
+    </div>
+    
+    <div class="form-grid">
       <div class="form-group">
         <label class="form-label">
-          Stop Loss %
+          Stop Loss % <span style="color: #f39c12; font-size: 0.7rem; font-weight: 700;">[OVERRIDE]</span>
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip">
               Strategy-specific stop loss for MACD momentum trades. Wider stops (2.5-3%) allow room for breakout volatility.
@@ -1465,7 +1517,7 @@
       
       <div class="form-group">
         <label class="form-label">
-          Take Profit %
+          Take Profit % <span style="color: #f39c12; font-size: 0.7rem; font-weight: 700;">[OVERRIDE]</span>
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip">
               Strategy-specific take profit for MACD trades. Momentum breakouts can have larger targets (4-6%) as trends can extend.
@@ -1497,7 +1549,7 @@
     <button type="button" class="success" onclick="applyConfig()" id="applyBtn">
       ✅ Apply Configuration
     </button>
-    <button type="button" class="btn" style="opacity: 0.7;" onclick="generateEnvFile()" title="Export current settings as backup">
+    <button type="button" class="btn" style="opacity: 0.7;" onclick="generateEnvFile()" title="Export parameter settings as .env backup (strategy enable/disable states are stored in database)">
       📄 Export Backup
     </button>
   </div>
@@ -1506,18 +1558,19 @@
   <div class="info-box">
     <h6>✨ Instant Configuration</h6>
     <p>
-      Click <strong>"Apply Configuration"</strong> and your changes are saved to the database 
-      and applied immediately to the running bot. No restart needed!
+      Click <strong>"Apply Configuration"</strong> to save parameter changes to the database 
+      and apply them immediately to the running bot. Use the <strong>Strategy Overview toggles</strong> 
+      above to enable/disable individual strategies.
     </p>
     <div style="margin-top: 0.75rem; padding: 0.5rem; background: rgba(83, 155, 245, 0.1); border-radius: 0.25rem;">
       <strong style="color: var(--accent-blue);">⚡ Hot Reload:</strong> 
       <span style="color: var(--text-secondary);">
         Risk management, position sizing, strategy weights, and all indicator parameters 
-        update instantly.
+        update instantly. No restart needed!
       </span>
     </div>
     <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">
-      <strong>Requires restart:</strong> Symbol and Timeframe only.
+      <strong>Requires restart:</strong> Symbol and Timeframe changes only.
     </small>
   </div>
 </form>
@@ -1853,7 +1906,10 @@
 
   function generateEnvContent() {
     return `# =============================================================================
-# Multi-Strategy Configuration
+# Multi-Strategy Configuration Backup
+# =============================================================================
+# NOTE: Strategy enable/disable states are managed via the Strategy Overview 
+# toggles and stored in the database. This export contains only parameters.
 # =============================================================================
 
 # Multi-Strategy System
@@ -1861,15 +1917,30 @@ BOT_USE_MULTI_STRATEGY=true
 BOT_STRATEGY_AGGREGATION_MODE=${document.getElementById('aggregationMode').value}
 BOT_MIN_SIGNAL_CONFIDENCE=${document.getElementById('minConfidence').value}
 
-# EMA Crossover Strategy
-BOT_STRATEGY_EMA_ENABLED=${document.getElementById('emaEnabled').checked}
+# Trading Parameters
+BOT_SYMBOL=${document.getElementById('symbol').value}
+BOT_TIMEFRAME=${document.getElementById('timeframe').value}
+BOT_INITIAL_USDT=${document.getElementById('initialUsdt').value}
+BOT_ORDER_PCT=${document.getElementById('orderPct').value}
+
+# Risk Management
+BOT_STOP_LOSS_PCT=${parseFloat(document.getElementById('stopLossPct').value) / 100}
+BOT_TAKE_PROFIT_PCT=${parseFloat(document.getElementById('takeProfitPct').value) / 100}
+BOT_TRAILING_STOP_PCT=${parseFloat(document.getElementById('trailingStopPct').value) / 100}
+BOT_USE_TRAILING_STOP=${document.getElementById('useTrailingStop').checked}
+
+# Position Sizing
+BOT_MIN_POSITION_SIZE=${parseFloat(document.getElementById('minPositionSize').value) / 100}
+BOT_MAX_POSITION_SIZE=${parseFloat(document.getElementById('maxPositionSize').value) / 100}
+BOT_USE_DYNAMIC_SIZING=${document.getElementById('useDynamicSizing').checked}
+
+# EMA Crossover Strategy Parameters
 BOT_STRATEGY_EMA_WEIGHT=${document.getElementById('emaWeight').value}
 BOT_SHORT_WINDOW=${document.getElementById('emaShortWindow').value}
 BOT_LONG_WINDOW=${document.getElementById('emaLongWindow').value}
 BOT_MIN_TREND_STRENGTH=${document.getElementById('emaTrendStrength').value}
 
-# RSI + Bollinger Bands Strategy
-BOT_STRATEGY_RSI_BB_ENABLED=${document.getElementById('rsiBbEnabled').checked}
+# RSI + Bollinger Bands Strategy Parameters
 BOT_STRATEGY_RSI_BB_WEIGHT=${document.getElementById('rsiBbWeight').value}
 BOT_STRATEGY_RSI_BB_RSI_OVERSOLD=${document.getElementById('rsiOversoldRsiBb').value}
 BOT_STRATEGY_RSI_BB_RSI_OVERBOUGHT=${document.getElementById('rsiOverboughtRsiBb').value}
@@ -1878,8 +1949,7 @@ BOT_STRATEGY_RSI_BB_BB_STD_DEV=${document.getElementById('bbStdDev').value}
 BOT_STRATEGY_RSI_BB_STOP_LOSS_PCT=${document.getElementById('rsiBbStopLoss').value}
 BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT=${document.getElementById('rsiBbTakeProfit').value}
 
-# MACD + Volume Strategy
-BOT_STRATEGY_MACD_ENABLED=${document.getElementById('macdEnabled').checked}
+# MACD + Volume Strategy Parameters
 BOT_STRATEGY_MACD_WEIGHT=${document.getElementById('macdWeight').value}
 BOT_STRATEGY_MACD_FAST_PERIOD=${document.getElementById('macdFastPeriod').value}
 BOT_STRATEGY_MACD_SLOW_PERIOD=${document.getElementById('macdSlowPeriod').value}
@@ -1891,9 +1961,9 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
 
 # =============================================================================
 # Instructions:
-# 1. Copy the values above to your .env file
-# 2. Save the .env file
-# 3. Restart the bot: ./restart.sh
+# 1. To restore these settings, copy the values above to your .env file
+# 2. To enable/disable strategies, use the Strategy Overview toggles in the UI
+# 3. Save the .env file and restart the bot: ./restart.sh
 # =============================================================================
 `;
   }

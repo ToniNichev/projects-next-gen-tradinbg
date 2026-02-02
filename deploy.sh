@@ -227,6 +227,21 @@ create_launch_agent() {
     # Ensure LaunchAgents directory exists
     mkdir -p "$HOME/Library/LaunchAgents"
     
+    # Determine which Python executable to use
+    PYTHON_EXECUTABLE="$VENV_DIR/bin/python3"
+    if [ ! -f "$PYTHON_EXECUTABLE" ]; then
+        print_warning "Virtual environment python executable not found at $PYTHON_EXECUTABLE"
+        print_warning "Falling back to system python3"
+        PYTHON_EXECUTABLE=$(command -v python3)
+        if [ -z "$PYTHON_EXECUTABLE" ]; then
+            print_error "System python3 not found. Please install Python 3."
+            exit 1
+        fi
+        print_success "Using system Python: $PYTHON_EXECUTABLE"
+    else
+        print_success "Using venv Python: $PYTHON_EXECUTABLE"
+    fi
+    
     # Create the plist file
     cat > "$PLIST_FILE" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -238,7 +253,7 @@ create_launch_agent() {
     
     <key>ProgramArguments</key>
     <array>
-        <string>$VENV_DIR/bin/python3</string>
+        <string>$PYTHON_EXECUTABLE</string>
         <string>$PROJECT_DIR/main.py</string>
     </array>
     
