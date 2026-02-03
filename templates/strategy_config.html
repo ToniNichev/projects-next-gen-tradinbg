@@ -798,6 +798,14 @@
         <div style="flex: 1;">
           <strong style="color: var(--accent-blue);" id="presetDescTitle"></strong>
           <p style="margin: 0.5rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;" id="presetDescText"></p>
+          <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
+            <button type="button" class="btn" onclick="applyAndBacktest()" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+              ⚡ Apply & Run Backtest
+            </button>
+            <span style="color: var(--text-secondary); font-size: 0.75rem; align-self: center; font-style: italic;">
+              (Applies preset, then runs 30-day backtest)
+            </span>
+          </div>
         </div>
         <span class="badge badge-info" id="presetCategory" style="text-transform: capitalize;"></span>
       </div>
@@ -1600,6 +1608,9 @@
     <button type="button" class="secondary" onclick="loadCurrentConfig()">
       🔄 Reset to Current
     </button>
+    <button type="button" class="btn" onclick="debugConfig()" title="Show what configuration is currently active">
+      🐛 Debug Config
+    </button>
     <button type="button" class="btn" onclick="previewChanges()">
       👁️ Preview Changes
     </button>
@@ -2225,25 +2236,43 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
   async function loadStats() {
     try {
       const response = await fetch('/api/strategies/stats');
+      
+      if (!response.ok) {
+        console.warn('Stats API returned non-OK status:', response.status);
+        return;
+      }
+      
       const data = await response.json();
       
       if (!data.multi_strategy_enabled) return;
 
-      document.getElementById('totalSignals').textContent = data.total_signals_generated;
+      // Update total signals with null check
+      const totalSignalsEl = document.getElementById('totalSignals');
+      if (totalSignalsEl) {
+        totalSignalsEl.textContent = data.total_signals_generated || 0;
+      }
       
-      // Update individual strategy stats
+      // Update individual strategy stats with null checks
       Object.entries(data.stats).forEach(([name, stats]) => {
         const signalsEl = document.getElementById(`signals-${name}`);
         const confEl = document.getElementById(`conf-${name}`);
-        if (signalsEl) signalsEl.textContent = stats.signals_generated;
-        if (confEl) confEl.textContent = (stats.avg_confidence * 100).toFixed(0) + '%';
+        if (signalsEl) {
+          signalsEl.textContent = stats.signals_generated || 0;
+        }
+        if (confEl) {
+          confEl.textContent = ((stats.avg_confidence || 0) * 100).toFixed(0) + '%';
+        }
       });
 
-      // Update charts
-      updateCharts(data.stats);
+      // Update charts only if we have valid data
+      if (data.stats && Object.keys(data.stats).length > 0) {
+        updateCharts(data.stats);
+      }
 
     } catch (error) {
       console.error('Error loading stats:', error);
+      // Don't show alert to user, just log to console
+      // Stats will retry in 10 seconds anyway
     }
   }
 
@@ -2253,77 +2282,134 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
     const usageData = labels.map(name => stats[name].signals_used);
     const colors = ['rgba(83, 155, 245, 0.8)', 'rgba(88, 214, 141, 0.8)', 'rgba(255, 193, 7, 0.8)'];
 
-    // Generation Chart
+    // Generation Chart with error handling
     const genCtx = document.getElementById('generationChart');
     if (genCtx) {
-      if (generationChart) generationChart.destroy();
-      generationChart = new Chart(genCtx.getContext('2d'), {
-        type: 'doughnut',
-        data: {
-          labels: labels,
-          datasets: [{
-            data: generationData,
-            backgroundColor: colors,
-            borderWidth: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { 
-              position: 'bottom',
-              labels: { color: '#e1e8ff' }
-            },
-            title: {
-              display: true,
-              text: 'Signal Generation',
-              color: '#e1e8ff'
+      try {
+        if (generationChart) {
+          generationChart.destroy();
+        }
+        generationChart = new Chart(genCtx.getContext('2d'), {
+          type: 'doughnut',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: generationData,
+              backgroundColor: colors,
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { 
+                position: 'bottom',
+                labels: { color: '#e1e8ff' }
+              },
+              title: {
+                display: true,
+                text: 'Signal Generation',
+                color: '#e1e8ff'
+              }
             }
           }
-        }
-      });
+        });
+      } catch (error) {
+        console.warn('Failed to update generation chart:', error);
+        // Reset chart reference to allow retry on next update
+        generationChart = null;
+      }
     }
 
-    // Usage Chart
+    // Usage Chart with error handling
     const useCtx = document.getElementById('usageChart');
     if (useCtx) {
-      if (usageChart) usageChart.destroy();
-      usageChart = new Chart(useCtx.getContext('2d'), {
-        type: 'doughnut',
-        data: {
-          labels: labels,
-          datasets: [{
-            data: usageData,
-            backgroundColor: colors,
-            borderWidth: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { 
-              position: 'bottom',
-              labels: { color: '#e1e8ff' }
-            },
-            title: {
-              display: true,
-              text: 'Signal Usage',
-              color: '#e1e8ff'
+      try {
+        if (usageChart) {
+          usageChart.destroy();
+        }
+        usageChart = new Chart(useCtx.getContext('2d'), {
+          type: 'doughnut',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: usageData,
+              backgroundColor: colors,
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { 
+                position: 'bottom',
+                labels: { color: '#e1e8ff' }
+              },
+              title: {
+                display: true,
+                text: 'Signal Usage',
+                color: '#e1e8ff'
+              }
             }
           }
-        }
-      });
+        });
+      } catch (error) {
+        console.warn('Failed to update usage chart:', error);
+        // Reset chart reference to allow retry on next update
+        usageChart = null;
+      }
     }
   }
 
+  // Debounce map to prevent rapid clicks
+  let toggleDebounce = {};
+  
   async function toggleStrategy(strategyName, currentlyEnabled) {
-    const button = document.getElementById(`toggle-${strategyName}`);
-    const originalHTML = button.innerHTML;
+    // Client-side validation: prevent disabling last active strategy
+    if (currentlyEnabled) {
+      const enabledCount = document.querySelectorAll('.strategy-overview-card.enabled').length;
+      if (enabledCount <= 1) {
+        showAlert('⚠️ Cannot disable the last active strategy. At least one strategy must remain enabled.', 'warning');
+        return;
+      }
+    }
     
+    // Prevent double-clicks with debounce
+    if (toggleDebounce[strategyName]) {
+      console.log('Toggle already in progress for', strategyName);
+      return;
+    }
+    toggleDebounce[strategyName] = true;
+    
+    const button = document.getElementById(`toggle-${strategyName}`);
+    const card = button.closest('.strategy-overview-card');
+    const badge = card.querySelector('.badge');
+    const originalHTML = button.innerHTML;
+    const originalButtonClass = button.className;
+    const originalCardClass = card.className;
+    const originalBadgeClass = badge.className;
+    const originalBadgeText = badge.textContent;
+    
+    // Optimistic UI update - update immediately for better UX
     button.disabled = true;
     button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
+    
+    const newEnabled = !currentlyEnabled;
+    if (newEnabled) {
+      card.classList.remove('disabled');
+      card.classList.add('enabled');
+      badge.classList.remove('badge-disabled');
+      badge.classList.add('badge-enabled');
+      badge.textContent = 'ENABLED';
+    } else {
+      card.classList.remove('enabled');
+      card.classList.add('disabled');
+      badge.classList.remove('badge-enabled');
+      badge.classList.add('badge-disabled');
+      badge.textContent = 'DISABLED';
+    }
     
     try {
       const response = await fetch(`/api/strategies/${strategyName}/toggle`, {
@@ -2334,7 +2420,7 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       const data = await response.json();
       
       if (data.success) {
-        // Show message with backtest info
+        // Success - show message and reload to confirm
         let message = data.message;
         if (data.affects_backtest) {
           message += ' (also applies to backtests)';
@@ -2345,15 +2431,30 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
         // Also sync the checkbox in Strategy Configuration section
         syncConfigCheckbox(strategyName, data.enabled);
       } else {
-        showAlert(data.error || 'Failed to toggle strategy', 'danger');
+        // API returned error - revert optimistic update
+        card.className = originalCardClass;
+        badge.className = originalBadgeClass;
+        badge.textContent = originalBadgeText;
         button.disabled = false;
         button.innerHTML = originalHTML;
+        button.className = originalButtonClass;
+        showAlert(data.error || 'Failed to toggle strategy', 'danger');
       }
     } catch (error) {
+      // Network error - revert optimistic update
       console.error('Error toggling strategy:', error);
-      showAlert('Network error: ' + error.message, 'danger');
+      card.className = originalCardClass;
+      badge.className = originalBadgeClass;
+      badge.textContent = originalBadgeText;
       button.disabled = false;
       button.innerHTML = originalHTML;
+      button.className = originalButtonClass;
+      showAlert('Network error: ' + error.message, 'danger');
+    } finally {
+      // Clear debounce after a delay
+      setTimeout(() => {
+        toggleDebounce[strategyName] = false;
+      }, 1000);
     }
   }
   
@@ -2739,6 +2840,109 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
     } catch (error) {
       console.error('Error deleting preset:', error);
       showAlert('Failed to delete preset: ' + error.message, 'danger');
+    }
+  }
+  
+  async function debugConfig() {
+    try {
+      const response = await fetch('/api/config/debug');
+      const data = await response.json();
+      
+      if (data.success) {
+        const config = data.config_summary;
+        const message = `
+<strong>Current Active Configuration:</strong><br><br>
+
+<strong>Source:</strong> ${data.has_database && data.database_configs_count > 0 ? 'Database (' + data.database_configs_count + ' params)' : 'Environment (.env file)'}<br><br>
+
+<strong>Risk Management:</strong><br>
+• Stop Loss: ${(config.stop_loss_pct * 100).toFixed(1)}%<br>
+• Take Profit: ${(config.take_profit_pct * 100).toFixed(1)}%<br>
+• Position Size: ${(config.order_pct * 100).toFixed(0)}%<br><br>
+
+<strong>Multi-Strategy:</strong><br>
+• Aggregation: ${config.strategy_aggregation_mode}<br>
+• Min Confidence: ${(config.min_signal_confidence * 100).toFixed(0)}%<br><br>
+
+<strong>Strategies:</strong><br>
+• EMA: ${config.strategy_ema_enabled ? '✅ Enabled' : '❌ Disabled'} (weight: ${config.strategy_ema_weight})<br>
+• RSI+BB: ${config.strategy_rsi_bb_enabled ? '✅ Enabled' : '❌ Disabled'} (weight: ${config.strategy_rsi_bb_weight})<br>
+• MACD: ${config.strategy_macd_enabled ? '✅ Enabled' : '❌ Disabled'} (weight: ${config.strategy_macd_weight})<br>
+        `;
+        
+        // Show in preview modal
+        document.getElementById('previewContent').innerHTML = `<div style="line-height: 1.8;">${message}</div>`;
+        document.getElementById('previewModal').classList.add('show');
+      } else {
+        showAlert('Failed to load debug info: ' + data.error, 'danger');
+      }
+    } catch (error) {
+      console.error('Error loading debug info:', error);
+      showAlert('Error loading debug info: ' + error.message, 'danger');
+    }
+  }
+  
+  async function applyAndBacktest() {
+    if (!currentPresetName) {
+      showAlert('Please select a preset first', 'danger');
+      return;
+    }
+    
+    try {
+      // Step 1: Apply the preset
+      showAlert('Applying preset configuration...', 'info');
+      
+      const applyResponse = await fetch(`/api/presets/${currentPresetName}/apply`, {
+        method: 'POST'
+      });
+      
+      const applyData = await applyResponse.json();
+      
+      if (!applyData.success) {
+        showAlert('Failed to apply preset: ' + (applyData.error || 'Unknown error'), 'danger');
+        return;
+      }
+      
+      showAlert('Preset applied! Starting backtest...', 'success');
+      
+      // Step 2: Wait a moment for database to flush
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Step 3: Run backtest
+      const presetDisplayName = allPresets.find(p => p.name === currentPresetName)?.display_name;
+      
+      const backtestResponse = await fetch('/api/backtest/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          days_back: 30,
+          use_preset_config: true,  // Flag to indicate we want to use database config
+          preset_name: presetDisplayName  // Track which preset was used
+        })
+      });
+      
+      const backtestData = await backtestResponse.json();
+      
+      if (backtestResponse.ok) {
+        const presetDisplayName = allPresets.find(p => p.name === currentPresetName)?.display_name;
+        
+        showAlert(
+          `✅ Backtest started with "${presetDisplayName}" preset! ` +
+          `Opening Backtest page...`,
+          'success'
+        );
+        
+        // Auto-open backtest page in new tab
+        setTimeout(() => {
+          window.open('/backtest', '_blank');
+        }, 500);
+      } else {
+        showAlert('Failed to start backtest: ' + (backtestData.error || 'Unknown error'), 'danger');
+      }
+      
+    } catch (error) {
+      console.error('Error in applyAndBacktest:', error);
+      showAlert('Error: ' + error.message, 'danger');
     }
   }
   

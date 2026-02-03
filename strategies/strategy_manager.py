@@ -378,7 +378,8 @@ class StrategyManager:
         # Update each strategy
         for strategy in self.strategies:
             try:
-                if strategy.name == "EMA Crossover":
+                # Match strategy names with underscores (actual strategy names)
+                if strategy.name == "EMA_Crossover":
                     ema_config = strategy_configs.get("ema_crossover", {})
                     strategy.set_enabled(ema_config.get("enabled", True))
                     strategy.weight = ema_config.get("weight", 1.0)
@@ -391,7 +392,7 @@ class StrategyManager:
                     
                     self.logger.info(f"Reloaded EMA Crossover: enabled={strategy.is_enabled()}, weight={strategy.weight}")
                 
-                elif strategy.name == "RSI + Bollinger Bands":
+                elif strategy.name == "RSI_BB_MeanReversion":
                     rsi_bb_config = strategy_configs.get("rsi_bb", {})
                     strategy.set_enabled(rsi_bb_config.get("enabled", True))
                     strategy.weight = rsi_bb_config.get("weight", 1.0)
