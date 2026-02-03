@@ -39,16 +39,39 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     
     # Initialize main trading database for reading configuration
     # (This is separate from the backtest results database)
+    db_config_loaded = False
     if DATABASE_AVAILABLE:
         try:
-            from database import initialize_database as init_db
+            from database import initialize_database as init_db, get_database
             init_db("sqlite:///data/trading.db")
-            logging.info("✓ Trading database initialized for config reading")
+            
+            # Verify database has configurations
+            db = get_database()
+            db_configs = db.get_all_strategy_configs()
+            if db_configs:
+                logging.info(f"✓ Trading database initialized with {len(db_configs)} config parameters")
+                db_config_loaded = True
+            else:
+                logging.warning("⚠ Database has no configurations, using .env defaults")
         except Exception as e:
             logging.warning(f"Could not initialize trading database: {e}")
             logging.warning("Using .env configuration instead")
     
     config = BotConfig.load()
+    
+    # Log key configuration values for verification
+    logging.info("=" * 80)
+    logging.info("CONFIGURATION SOURCE: " + ("DATABASE" if db_config_loaded else "ENVIRONMENT"))
+    logging.info("=" * 80)
+    logging.info(f"  Stop Loss: {config.stop_loss_pct * 100:.1f}%")
+    logging.info(f"  Take Profit: {config.take_profit_pct * 100:.1f}%")
+    logging.info(f"  Position Size: {config.order_pct * 100:.0f}%")
+    logging.info(f"  Aggregation Mode: {config.strategy_aggregation_mode}")
+    logging.info(f"  Min Confidence: {config.min_signal_confidence * 100:.0f}%")
+    logging.info(f"  EMA Strategy: {'Enabled' if config.strategy_ema_enabled else 'Disabled'} (weight: {config.strategy_ema_weight})")
+    logging.info(f"  RSI+BB Strategy: {'Enabled' if config.strategy_rsi_bb_enabled else 'Disabled'} (weight: {config.strategy_rsi_bb_weight})")
+    logging.info(f"  MACD Strategy: {'Enabled' if config.strategy_macd_enabled else 'Disabled'} (weight: {config.strategy_macd_weight})")
+    logging.info("=" * 80)
     
     # Apply config overrides (for presets like conservative, balanced, aggressive)
     if config_overrides:
