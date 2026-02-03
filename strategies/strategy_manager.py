@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from .base_strategy import BaseStrategy, StrategySignal
+from .constants import StrategyNames
 
 
 class SignalAggregationMode(Enum):
@@ -375,48 +376,36 @@ class StrategyManager:
         # Get strategy configs
         strategy_configs = config.get_strategy_configs()
         
-        # Update each strategy
+        # Update each strategy using centralized constants
         for strategy in self.strategies:
             try:
-                # Match strategy names with underscores (actual strategy names)
-                if strategy.name == "EMA_Crossover":
-                    ema_config = strategy_configs.get("ema_crossover", {})
-                    strategy.set_enabled(ema_config.get("enabled", True))
-                    strategy.weight = ema_config.get("weight", 1.0)
-                    
-                    # Update strategy parameters if it has a config attribute
-                    if hasattr(strategy, 'config'):
-                        for key, value in ema_config.items():
-                            if hasattr(strategy.config, key):
-                                setattr(strategy.config, key, value)
-                    
-                    self.logger.info(f"Reloaded EMA Crossover: enabled={strategy.is_enabled()}, weight={strategy.weight}")
+                # Get config section name from constants
+                config_section = StrategyNames.get_config_section(strategy.name)
                 
-                elif strategy.name == "RSI_BB_MeanReversion":
-                    rsi_bb_config = strategy_configs.get("rsi_bb", {})
-                    strategy.set_enabled(rsi_bb_config.get("enabled", True))
-                    strategy.weight = rsi_bb_config.get("weight", 1.0)
-                    
-                    # Update strategy parameters
-                    if hasattr(strategy, 'config'):
-                        for key, value in rsi_bb_config.items():
-                            if hasattr(strategy.config, key):
-                                setattr(strategy.config, key, value)
-                    
-                    self.logger.info(f"Reloaded RSI+BB: enabled={strategy.is_enabled()}, weight={strategy.weight}")
+                if not config_section:
+                    self.logger.warning(f"No config section found for strategy: {strategy.name}")
+                    continue
                 
-                elif strategy.name == "MACD_Volume_Momentum":
-                    macd_config = strategy_configs.get("macd_volume", {})
-                    strategy.set_enabled(macd_config.get("enabled", True))
-                    strategy.weight = macd_config.get("weight", 1.0)
-                    
-                    # Update strategy parameters
-                    if hasattr(strategy, 'config'):
-                        for key, value in macd_config.items():
-                            if hasattr(strategy.config, key):
-                                setattr(strategy.config, key, value)
-                    
-                    self.logger.info(f"Reloaded MACD+Volume: enabled={strategy.is_enabled()}, weight={strategy.weight}")
+                # Load strategy config
+                strategy_config = strategy_configs.get(config_section, {})
+                
+                # Update enabled state and weight
+                strategy.set_enabled(strategy_config.get("enabled", True))
+                strategy.weight = strategy_config.get("weight", 1.0)
+                
+                # Update strategy-specific parameters if available
+                if hasattr(strategy, 'config'):
+                    for key, value in strategy_config.items():
+                        if hasattr(strategy.config, key):
+                            setattr(strategy.config, key, value)
+                
+                # Log the reload
+                display_name = StrategyNames.get_display_name(strategy.name)
+                self.logger.info(
+                    f"Reloaded {display_name}: "
+                    f"enabled={strategy.is_enabled()}, "
+                    f"weight={strategy.weight}"
+                )
             
             except Exception as e:
                 self.logger.error(f"Failed to reload strategy {strategy.name}: {e}", exc_info=True)

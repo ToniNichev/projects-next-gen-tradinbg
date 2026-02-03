@@ -383,6 +383,49 @@ def get_config():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/config/debug", methods=["GET"])
+@require_auth
+@limiter.limit("60 per minute")
+def debug_config():
+    """Debug endpoint to see what configuration is currently loaded"""
+    try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        # Get database configs if available
+        db_configs = {}
+        db_count = 0
+        if DATABASE_AVAILABLE:
+            try:
+                db = get_database()
+                db_configs = db.get_all_strategy_configs()
+                db_count = len(db_configs)
+            except:
+                pass
+        
+        return jsonify({
+            "success": True,
+            "database_configs_count": db_count,
+            "has_database": DATABASE_AVAILABLE,
+            "config_summary": {
+                "stop_loss_pct": config.stop_loss_pct,
+                "take_profit_pct": config.take_profit_pct,
+                "order_pct": config.order_pct,
+                "strategy_aggregation_mode": config.strategy_aggregation_mode,
+                "min_signal_confidence": config.min_signal_confidence,
+                "strategy_ema_enabled": config.strategy_ema_enabled,
+                "strategy_ema_weight": config.strategy_ema_weight,
+                "strategy_rsi_bb_enabled": config.strategy_rsi_bb_enabled,
+                "strategy_rsi_bb_weight": config.strategy_rsi_bb_weight,
+                "strategy_macd_enabled": config.strategy_macd_enabled,
+                "strategy_macd_weight": config.strategy_macd_weight,
+            },
+            "sample_db_keys": list(db_configs.keys())[:10] if db_configs else []
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/strategy-config", methods=["GET"])
 @require_auth
 @limiter.limit("30 per minute")
@@ -997,13 +1040,14 @@ def toggle_strategy(strategy_name):
             "error": "Multi-strategy system not enabled"
         }), 503
     
-    # Map strategy names to their database config keys
-    # Note: Strategy names must match the actual class names (with underscores)
-    strategy_config_keys = {
-        "EMA_Crossover": "strategy_ema_enabled",
-        "RSI_BB_MeanReversion": "strategy_rsi_bb_enabled",
-        "MACD_Volume_Momentum": "strategy_macd_enabled",
-    }
+    # Import constants for strategy name mapping
+    from strategies.constants import StrategyNames
+    
+    # Validate strategy name
+    if not StrategyNames.is_valid_strategy(strategy_name):
+        return jsonify({
+            "error": f"Invalid strategy name: {strategy_name}"
+        }), 400
     
     try:
         # Find the strategy
@@ -1033,7 +1077,9 @@ def toggle_strategy(strategy_name):
             new_state = True
         
         # Persist to database so backtests also respect this setting
-        config_key = strategy_config_keys.get(strategy_name)
+        config_key = StrategyNames.get_config_key(strategy_name)
+        display_name = StrategyNames.get_display_name(strategy_name)
+        
         if config_key:
             try:
                 db = get_database()
@@ -1042,13 +1088,14 @@ def toggle_strategy(strategy_name):
                     value=new_state,
                     value_type="bool",
                     category="strategy",
-                    description=f"Enable/disable {strategy_name} strategy"
+                    description=f"Enable/disable {display_name} strategy"
                 )
                 persisted = True
             except Exception as db_err:
                 logging.warning(f"Failed to persist strategy toggle to database: {db_err}")
                 persisted = False
         else:
+            logging.warning(f"No config key found for strategy: {strategy_name}")
             persisted = False
         
         return jsonify({
@@ -1076,6 +1123,7 @@ def run_backtest_api():
     try:
         params = request.get_json() or {}
         days_back = params.get("days_back", 30)
+        preset_name = params.get("preset_name")  # Track preset if provided
         
         # Override config with custom parameters
         config_overrides = {}
@@ -1113,6 +1161,7 @@ def run_backtest_api():
                     "timestamp": backtest_id,
                     "days_back": days_back,
                     "parameters": config_overrides,
+                    "preset_name": preset_name,  # Store preset name if provided
                     "result": result,
                     "status": "completed"
                 }
