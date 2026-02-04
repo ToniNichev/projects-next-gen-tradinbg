@@ -411,38 +411,67 @@
     margin-top: 2rem;
   }
   
-  .alert {
-    padding: 1rem;
+  /* Toast Notification Container */
+  .toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 450px;
+    pointer-events: none;
+  }
+  
+  .toast-notification {
+    pointer-events: auto;
+    background: rgba(0, 0, 0, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 0.5rem;
-    margin-bottom: 1.5rem;
-    border: 1px solid var(--border-color);
-    animation: slideIn 0.3s ease-out;
+    padding: 1rem 1.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    animation: slideInFromBottom 0.4s ease-out;
+    transition: opacity 0.3s, transform 0.3s;
   }
   
-  .alert-info {
-    background: rgba(83, 155, 245, 0.1);
-    border-color: var(--accent-blue);
+  .toast-notification.hiding {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  
+  .toast-notification.success {
+    border-left: 4px solid var(--accent-green);
+    box-shadow: 0 4px 12px rgba(88, 214, 141, 0.3);
+  }
+  
+  .toast-notification.danger {
+    border-left: 4px solid var(--accent-red);
+    box-shadow: 0 4px 12px rgba(255, 94, 87, 0.3);
+  }
+  
+  .toast-notification.info {
+    border-left: 4px solid var(--accent-blue);
+    box-shadow: 0 4px 12px rgba(83, 155, 245, 0.3);
+  }
+  
+  .toast-notification strong {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+  }
+  
+  .toast-notification p {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.4;
     color: var(--text-primary);
   }
   
-  .alert-success {
-    background: rgba(88, 214, 141, 0.1);
-    border-color: var(--accent-green);
-    color: var(--text-primary);
-    box-shadow: 0 0 20px rgba(88, 214, 141, 0.3);
-  }
-  
-  .alert-danger {
-    background: rgba(255, 94, 87, 0.1);
-    border-color: var(--accent-red);
-    color: var(--text-primary);
-    box-shadow: 0 0 20px rgba(255, 94, 87, 0.3);
-  }
-  
-  @keyframes slideIn {
+  @keyframes slideInFromBottom {
     from {
       opacity: 0;
-      transform: translateY(-20px);
+      transform: translateY(100px);
     }
     to {
       opacity: 1;
@@ -698,8 +727,8 @@
   Monitor performance, enable/disable strategies, and configure all parameters in one place. Changes apply <strong>instantly</strong>.
 </p>
 
-<!-- Alert Container -->
-<div id="alertContainer"></div>
+<!-- Toast Notification Container -->
+<div id="toastContainer" class="toast-container"></div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SYSTEM STATUS OVERVIEW -->
@@ -2061,23 +2090,19 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
   }
 
   function showAlert(message, type) {
-    const alertContainer = document.getElementById('alertContainer');
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type}`;
-    alertDiv.innerHTML = `
+    const toastContainer = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast-notification ${type}`;
+    toast.innerHTML = `
       <strong>${type === 'success' ? '✅ Success!' : type === 'danger' ? '❌ Error!' : 'ℹ️ Info'}</strong>
-      <p style="margin: 0.5rem 0 0 0;">${message}</p>
+      <p>${message}</p>
     `;
-    alertContainer.appendChild(alertDiv);
-    
-    // Scroll to top to show alert
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    toastContainer.appendChild(toast);
     
     // Auto-remove after 8 seconds (longer for important messages)
     setTimeout(() => {
-      alertDiv.style.opacity = '0';
-      alertDiv.style.transform = 'translateY(-20px)';
-      setTimeout(() => alertDiv.remove(), 300);
+      toast.classList.add('hiding');
+      setTimeout(() => toast.remove(), 300);
     }, 8000);
   }
 
@@ -2665,6 +2690,26 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
     loadPreset(presetName);
   }
   
+  // Helper function to convert snake_case to camelCase
+  function snakeToCamel(str) {
+    return str.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
+  }
+  
+  // Store default form values on page load
+  const defaultFormValues = {};
+  
+  function captureDefaultValues() {
+    // Get all form inputs
+    const inputs = document.querySelectorAll('input[id], select[id], textarea[id]');
+    inputs.forEach(element => {
+      if (element.type === 'checkbox') {
+        defaultFormValues[element.id] = element.checked;
+      } else {
+        defaultFormValues[element.id] = element.value;
+      }
+    });
+  }
+  
   async function loadPreset(presetName) {
     if (!presetName) {
       currentPresetName = null;
@@ -2706,13 +2751,54 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
         
         // Load config values into form
         const config = preset.config;
+        
+        // Fields that need decimal to percentage conversion (multiply by 100)
+        const percentageFields = ['stopLossPct', 'takeProfitPct', 'trailingStopPct', 
+                                   'minPositionSize', 'maxPositionSize'];
+        
+        // Special field name mappings for mismatched keys
+        const fieldNameMap = {
+          'minSignalConfidence': 'minConfidence',                     // min_signal_confidence → minConfidence
+          'strategyAggregationMode': 'aggregationMode',               // strategy_aggregation_mode → aggregationMode
+          'strategyEmaWeight': 'emaWeight',                           // strategy_ema_weight → emaWeight
+          'strategyRsiBbWeight': 'rsiBbWeight',                       // strategy_rsi_bb_weight → rsiBbWeight
+          'strategyMacdWeight': 'macdWeight',                         // strategy_macd_weight → macdWeight
+          'strategyMacdVolumeMultiplier': 'macdVolumeMultiplier',     // strategy_macd_volume_multiplier → macdVolumeMultiplier
+          'strategyMacdRequireZeroCross': 'macdRequireZeroCross',     // strategy_macd_require_zero_cross → macdRequireZeroCross
+        };
+        
+        // Step 1: Reset all fields to default values
+        for (const [elementId, defaultValue] of Object.entries(defaultFormValues)) {
+          const element = document.getElementById(elementId);
+          if (element) {
+            if (element.type === 'checkbox') {
+              element.checked = defaultValue;
+            } else {
+              element.value = defaultValue;
+            }
+            // Trigger input event to update range displays
+            element.dispatchEvent(new Event('input'));
+          }
+        }
+        
+        // Step 2: Apply preset values (overriding defaults)
         for (const [key, value] of Object.entries(config)) {
-          const element = document.getElementById(key);
+          // Convert snake_case to camelCase for element ID lookup
+          let elementId = snakeToCamel(key);
+          
+          // Apply field name mapping if exists
+          if (fieldNameMap[elementId]) {
+            elementId = fieldNameMap[elementId];
+          }
+          
+          const element = document.getElementById(elementId);
           if (element) {
             if (element.type === 'checkbox') {
               element.checked = value;
             } else {
-              element.value = value;
+              // Convert decimal to percentage for certain fields
+              const displayValue = percentageFields.includes(elementId) ? value * 100 : value;
+              element.value = displayValue;
             }
             
             // Trigger input event to update range displays
@@ -2969,6 +3055,9 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       showAlert('Error: ' + error.message, 'danger');
     }
   }
+  
+  // Capture default form values on page load
+  captureDefaultValues();
   
   // Load presets on page load
   loadPresets();
