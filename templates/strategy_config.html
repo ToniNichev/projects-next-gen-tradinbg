@@ -2555,6 +2555,7 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
   // PRESET MANAGEMENT
   // ═══════════════════════════════════════════════════════════════
   
+  const SELECTED_PRESET_KEY = 'selected_preset_name';
   let currentPresetName = null;
   let allPresets = [];
   
@@ -2565,6 +2566,13 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       
       if (data.success) {
         allPresets = data.presets;
+        
+        // Restore previously selected preset from localStorage
+        const savedPresetName = localStorage.getItem(SELECTED_PRESET_KEY);
+        if (savedPresetName && allPresets.find(p => p.name === savedPresetName)) {
+          currentPresetName = savedPresetName;
+        }
+        
         updateCurrentPresetDisplay();
         renderPresetGrid();
       }
@@ -2660,6 +2668,7 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
   async function loadPreset(presetName) {
     if (!presetName) {
       currentPresetName = null;
+      localStorage.removeItem(SELECTED_PRESET_KEY);
       document.getElementById('presetDescription').style.display = 'none';
       document.getElementById('deletePresetBtn').style.display = 'none';
       updateCurrentPresetDisplay();
@@ -2674,6 +2683,9 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       if (data.success) {
         const preset = data.preset;
         currentPresetName = presetName;
+        
+        // Persist selected preset to localStorage
+        localStorage.setItem(SELECTED_PRESET_KEY, presetName);
         
         // Update current preset display
         updateCurrentPresetDisplay();
@@ -2806,7 +2818,8 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       if (data.success) {
         showAlert('Preset saved successfully!', 'success');
         await loadPresets();
-        document.getElementById('presetSelect').value = presetName;
+        // Auto-select the newly created preset
+        await loadPreset(presetName);
       } else {
         showAlert('Failed to save preset: ' + (data.error || 'Unknown error'), 'danger');
       }
@@ -2841,6 +2854,7 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       if (data.success) {
         showAlert('Preset deleted successfully', 'success');
         currentPresetName = null;
+        localStorage.removeItem(SELECTED_PRESET_KEY);
         document.getElementById('presetDescription').style.display = 'none';
         document.getElementById('deletePresetBtn').style.display = 'none';
         await loadPresets();
