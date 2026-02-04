@@ -768,46 +768,48 @@
       Quick-start with pre-configured trading styles. Load a preset to instantly configure all parameters, then fine-tune as needed.
     </p>
     
-    <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1.5rem;">
-      <div class="form-group" style="margin-bottom: 0;">
-        <label class="form-label">
-          Load Preset
-          <span class="info-icon" style="position: relative;">i
-            <span class="info-tooltip" style="width: 320px;">
-              Choose a preset to instantly configure all strategy parameters. Built-in presets cannot be deleted but you can create your own custom presets.
+    <!-- Preset Control Panel -->
+    <div id="presetControlPanel" style="background: var(--bg-tertiary); border: 2px solid var(--border-color); border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1.5rem;">
+      <!-- Header with current preset and action buttons -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+        <div style="flex: 1; min-width: 250px;">
+          <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+            Currently Active
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span id="currentPresetDisplay" style="font-size: 1.1rem; font-weight: 600; color: var(--accent-blue);">
+              None Selected
             </span>
-          </span>
-        </label>
-        <select class="form-select" id="presetSelect" onchange="loadPreset(this.value)" style="font-size: 0.95rem;">
-          <option value="">-- Select a Preset --</option>
-        </select>
-      </div>
-      
-      <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
-        <button type="button" class="btn" onclick="saveCurrentAsPreset()" style="white-space: nowrap;">
-          💾 Save Current
-        </button>
-        <button type="button" class="secondary" id="deletePresetBtn" onclick="deleteCurrentPreset()" style="display: none; white-space: nowrap;">
-          🗑️ Delete
-        </button>
-      </div>
-    </div>
-    
-    <div id="presetDescription" style="display: none; padding: 1rem; background: var(--bg-tertiary); border-radius: 0.5rem; border-left: 4px solid var(--accent-blue); margin-bottom: 1rem;">
-      <div style="display: flex; align-items: start; gap: 1rem;">
-        <div style="flex: 1;">
-          <strong style="color: var(--accent-blue);" id="presetDescTitle"></strong>
-          <p style="margin: 0.5rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;" id="presetDescText"></p>
-          <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
-            <button type="button" class="btn" onclick="applyAndBacktest()" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
-              ⚡ Apply & Run Backtest
-            </button>
-            <span style="color: var(--text-secondary); font-size: 0.75rem; align-self: center; font-style: italic;">
-              (Applies preset, then runs 30-day backtest)
-            </span>
+            <span id="currentPresetBadge" class="badge badge-info" style="font-size: 0.7rem; display: none;"></span>
           </div>
         </div>
-        <span class="badge badge-info" id="presetCategory" style="text-transform: capitalize;"></span>
+        
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn" onclick="saveCurrentAsPreset()" style="white-space: nowrap; font-size: 0.875rem;">
+            💾 Save Current
+          </button>
+          <button type="button" class="secondary" id="deletePresetBtn" onclick="deleteCurrentPreset()" style="display: none; white-space: nowrap; font-size: 0.875rem;">
+            🗑️ Delete
+          </button>
+        </div>
+      </div>
+      
+      <!-- Description and actions (shown when preset is loaded) -->
+      <div id="presetDescription" style="display: none; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+        <p id="presetDescText" style="margin: 0 0 1rem 0; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;"></p>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn" onclick="applyAndBacktest()" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+            ⚡ Apply & Run Backtest
+          </button>
+          <span style="color: var(--text-secondary); font-size: 0.75rem; align-self: center; font-style: italic;">
+            (Applies preset, then runs 30-day backtest)
+          </span>
+        </div>
+      </div>
+      
+      <!-- Hint when no preset selected -->
+      <div id="currentPresetHint" style="padding-top: 0.75rem; border-top: 1px solid var(--border-color); font-size: 0.85rem; color: var(--text-secondary);">
+        💡 Click a preset card below to load configuration
       </div>
     </div>
     
@@ -993,7 +995,14 @@
       </div>
       
       <div class="form-group">
-        <label class="form-label">RSI Overbought Threshold</label>
+        <label class="form-label">
+          RSI Overbought Threshold
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              RSI value above which an asset is considered overbought (potential sell signal). 70 = standard, 75-80 = conservative (fewer signals), 60-65 = aggressive (more signals). Higher values indicate stronger buying pressure and potential reversal.
+            </span>
+          </span>
+        </label>
         <input type="number" class="form-control" id="rsiOverbought" name="rsi_overbought" 
                min="60" max="90" step="5" value="75">
         <span class="form-text">Sell signal threshold (higher = stronger)</span>
@@ -2556,7 +2565,7 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       
       if (data.success) {
         allPresets = data.presets;
-        renderPresetSelect();
+        updateCurrentPresetDisplay();
         renderPresetGrid();
       }
     } catch (error) {
@@ -2564,44 +2573,28 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
     }
   }
   
-  function renderPresetSelect() {
-    const select = document.getElementById('presetSelect');
-    const currentValue = select.value;
+  function updateCurrentPresetDisplay() {
+    const displayElement = document.getElementById('currentPresetDisplay');
+    const badgeElement = document.getElementById('currentPresetBadge');
+    const hintElement = document.getElementById('currentPresetHint');
+    const descElement = document.getElementById('presetDescription');
     
-    // Clear and rebuild options
-    select.innerHTML = '<option value="">-- Select a Preset --</option>';
-    
-    // Group by category
-    const builtin = allPresets.filter(p => p.is_builtin);
-    const custom = allPresets.filter(p => !p.is_builtin);
-    
-    if (builtin.length > 0) {
-      const builtinGroup = document.createElement('optgroup');
-      builtinGroup.label = '🎯 Built-in Presets';
-      builtin.forEach(preset => {
-        const option = document.createElement('option');
-        option.value = preset.name;
-        option.textContent = preset.display_name + (preset.is_default ? ' (Default)' : '');
-        builtinGroup.appendChild(option);
-      });
-      select.appendChild(builtinGroup);
+    if (!currentPresetName) {
+      displayElement.textContent = 'None Selected';
+      displayElement.style.color = 'var(--text-secondary)';
+      badgeElement.style.display = 'none';
+      hintElement.style.display = 'block';
+      descElement.style.display = 'none';
+      return;
     }
     
-    if (custom.length > 0) {
-      const customGroup = document.createElement('optgroup');
-      customGroup.label = '✨ Custom Presets';
-      custom.forEach(preset => {
-        const option = document.createElement('option');
-        option.value = preset.name;
-        option.textContent = preset.display_name;
-        customGroup.appendChild(option);
-      });
-      select.appendChild(customGroup);
-    }
-    
-    // Restore selection
-    if (currentValue) {
-      select.value = currentValue;
+    const preset = allPresets.find(p => p.name === currentPresetName);
+    if (preset) {
+      displayElement.textContent = preset.display_name;
+      displayElement.style.color = 'var(--accent-blue)';
+      badgeElement.textContent = preset.category;
+      badgeElement.style.display = 'inline-block';
+      hintElement.style.display = 'none';
     }
   }
   
@@ -2621,14 +2614,27 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
         aggressive: '#FF5E57',
         scalping: '#f39c12',
         swing: '#9b59b6',
+        day_trading: '#3498db',
+        specialized: '#e67e22',
+        market_condition: '#16a085',
         custom: '#7f8c8d'
       };
       
       const color = categoryColors[preset.category] || categoryColors.custom;
       const icon = preset.is_builtin ? '🎯' : '✨';
+      const isActive = currentPresetName === preset.name;
+      
+      // Add active state styling
+      const activeStyles = isActive 
+        ? `border: 3px solid ${color}; box-shadow: 0 0 20px rgba(83, 155, 245, 0.4); background: rgba(83, 155, 245, 0.08);` 
+        : '';
+      const activeBadge = isActive 
+        ? `<span style="position: absolute; top: -10px; right: 10px; background: ${color}; color: #000; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.65rem; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">✓ ACTIVE</span>` 
+        : '';
       
       return `
-        <div class="strategy-overview-card" style="border-left-color: ${color}; cursor: pointer;" onclick="selectPresetFromGrid('${preset.name}')">
+        <div class="strategy-overview-card" style="border-left-color: ${color}; cursor: pointer; position: relative; ${activeStyles}" onclick="selectPresetFromGrid('${preset.name}')">
+          ${activeBadge}
           <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
             <div>
               <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-primary);">
@@ -2648,7 +2654,6 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
   }
   
   function selectPresetFromGrid(presetName) {
-    document.getElementById('presetSelect').value = presetName;
     loadPreset(presetName);
   }
   
@@ -2657,6 +2662,8 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       currentPresetName = null;
       document.getElementById('presetDescription').style.display = 'none';
       document.getElementById('deletePresetBtn').style.display = 'none';
+      updateCurrentPresetDisplay();
+      renderPresetGrid();
       return;
     }
     
@@ -2668,10 +2675,14 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
         const preset = data.preset;
         currentPresetName = presetName;
         
+        // Update current preset display
+        updateCurrentPresetDisplay();
+        
+        // Re-render grid to show active state
+        renderPresetGrid();
+        
         // Show description
-        document.getElementById('presetDescTitle').textContent = preset.display_name;
         document.getElementById('presetDescText').textContent = preset.description;
-        document.getElementById('presetCategory').textContent = preset.category;
         document.getElementById('presetDescription').style.display = 'block';
         
         // Show delete button for custom presets only
@@ -2830,7 +2841,6 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       if (data.success) {
         showAlert('Preset deleted successfully', 'success');
         currentPresetName = null;
-        document.getElementById('presetSelect').value = '';
         document.getElementById('presetDescription').style.display = 'none';
         document.getElementById('deletePresetBtn').style.display = 'none';
         await loadPresets();

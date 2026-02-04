@@ -1144,6 +1144,9 @@ def run_backtest_api():
         
         def run_backtest_thread():
             global _backtest_running, _backtest_results
+            import time
+            start_time = time.time()  # Track start time
+            
             try:
                 import logging
                 from backtest import run_backtest
@@ -1155,11 +1158,16 @@ def run_backtest_api():
                     config_overrides=config_overrides  # Pass overrides directly!
                 )
                 
+                # Calculate duration
+                duration_seconds = time.time() - start_time
+                
                 # Store result
                 result_entry = {
                     "id": backtest_id,
                     "timestamp": backtest_id,
                     "days_back": days_back,
+                    "duration_seconds": duration_seconds,  # NEW: Track duration
+                    "start_time": start_time,  # NEW: Track start time
                     "parameters": config_overrides,
                     "preset_name": preset_name,  # Store preset name if provided
                     "result": result,
@@ -1172,10 +1180,12 @@ def run_backtest_api():
                 
             except Exception as e:
                 logging.error(f"Backtest failed: {e}")
+                duration_seconds = time.time() - start_time
                 result_entry = {
                     "id": backtest_id,
                     "timestamp": backtest_id,
                     "days_back": days_back,
+                    "duration_seconds": duration_seconds,  # NEW: Track duration even on failure
                     "parameters": config_overrides,
                     "error": str(e),
                     "status": "failed"
@@ -1242,6 +1252,32 @@ def clear_backtest_results():
         "message": f"Cleared {count} backtest result(s)",
         "count": count
     }), 200
+
+
+@app.route("/api/backtest/timing-history")
+@require_auth
+@limiter.limit("30 per minute")
+def get_timing_history():
+    """Get historical backtest run times for progress estimation"""
+    # Return last 20 backtest durations grouped by days_back
+    history = {}
+    for result in _backtest_results[:20]:
+        if "duration_seconds" in result and result.get("status") == "completed":
+            days = result["days_back"]
+            if days not in history:
+                history[days] = []
+            history[days].append(result["duration_seconds"])
+    
+    # Calculate averages
+    averages = {}
+    for days, times in history.items():
+        if times:
+            averages[days] = sum(times) / len(times)
+    
+    return jsonify({
+        "averages": averages,
+        "raw_data": history
+    })
 
 
 @app.route("/api/manual/status")

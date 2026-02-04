@@ -469,6 +469,22 @@
   
   
   <div id="backtest-status" style="margin-top: 1rem;"></div>
+  
+  <!-- Progress Bar -->
+  <div id="backtest-progress" style="display: none; margin-top: 1rem; background: var(--bg-secondary); border-radius: 0.75rem; padding: 1.5rem; border: 2px solid var(--accent-blue);">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+      <span style="font-weight: 600; color: var(--accent-blue);">Backtest Progress</span>
+      <span id="progress-time" style="color: var(--text-secondary);">Estimating...</span>
+    </div>
+    <div style="background: var(--bg-tertiary); border-radius: 0.5rem; height: 24px; overflow: hidden; position: relative;">
+      <div id="progress-bar" style="background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 0.5rem;">
+        <span id="progress-percent" style="color: white; font-size: 0.75rem; font-weight: 700;"></span>
+      </div>
+    </div>
+    <div id="progress-status" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary); text-align: center;">
+      Analyzing historical data...
+    </div>
+  </div>
 </div>
 
 <!-- Chart Section (Hidden until result selected) -->
@@ -528,6 +544,52 @@
 <script>
   let selectedResults = new Set();
   let previousResultIds = new Set();
+  
+  // ========== TIMING HISTORY FOR PROGRESS ESTIMATION ==========
+  const BACKTEST_TIMING_KEY = 'backtest_timing_history';
+  
+  function getTimingHistory() {
+    try {
+      const stored = localStorage.getItem(BACKTEST_TIMING_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch (e) {
+      console.error('Error reading timing history:', e);
+      return {};
+    }
+  }
+  
+  function saveTimingData(daysBack, duration) {
+    try {
+      const history = getTimingHistory();
+      if (!history[daysBack]) {
+        history[daysBack] = [];
+      }
+      history[daysBack].push(duration);
+      
+      // Keep only last 10 runs per days_back value
+      if (history[daysBack].length > 10) {
+        history[daysBack].shift();
+      }
+      
+      localStorage.setItem(BACKTEST_TIMING_KEY, JSON.stringify(history));
+    } catch (e) {
+      console.error('Error saving timing data:', e);
+    }
+  }
+  
+  function getEstimatedDuration(daysBack) {
+    const history = getTimingHistory();
+    const durations = history[daysBack];
+    
+    if (!durations || durations.length === 0) {
+      // Default estimates based on days_back (1.5s per day as baseline)
+      return daysBack * 1.5;
+    }
+    
+    // Calculate average (like Jenkins does)
+    return durations.reduce((a, b) => a + b) / durations.length;
+  }
+  // ============================================================
   
   // Navigate to strategy configuration page with anchor
   function navigateToStrategy(url) {
@@ -646,13 +708,53 @@
     const btn = document.getElementById('run-current-btn');
     const text = document.getElementById('run-current-text');
     const status = document.getElementById('backtest-status');
+    const progressDiv = document.getElementById('backtest-progress');
+    const progressBar = document.getElementById('progress-bar');
+    const progressTime = document.getElementById('progress-time');
+    const progressPercent = document.getElementById('progress-percent');
+    const progressStatus = document.getElementById('progress-status');
+    const daysBack = parseInt(document.getElementById('days_back').value);
     
+    // Get estimated duration
+    const estimatedDuration = getEstimatedDuration(daysBack);
+    const startTime = Date.now();
+    
+    // Update button and show progress
     btn.disabled = true;
     btn.classList.add('btn-running');
-    text.innerHTML = '<span class="spinner"></span> Running Backtest... Please Wait (30-60 seconds)';
-    status.innerHTML = '<p class="text-muted" style="font-size: 1.1rem; font-weight: 600; color: var(--accent-blue);">⚡ Backtest in progress... Analyzing historical data...</p>';
+    text.textContent = '⏳ Running...';
+    progressDiv.style.display = 'block';
+    status.innerHTML = '';
     
-    const daysBack = parseInt(document.getElementById('days_back').value);
+    // Reset progress bar
+    progressBar.style.width = '0%';
+    progressPercent.textContent = '0%';
+    progressTime.textContent = `~${Math.round(estimatedDuration)}s estimated`;
+    progressStatus.textContent = 'Initializing backtest...';
+    
+    // Start progress animation
+    const progressInterval = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const progress = Math.min((elapsed / estimatedDuration) * 100, 95);
+      const remaining = Math.max(estimatedDuration - elapsed, 0);
+      
+      progressBar.style.width = `${progress}%`;
+      progressPercent.textContent = `${Math.round(progress)}%`;
+      progressTime.textContent = `~${Math.round(remaining)}s remaining`;
+      
+      // Update status message based on progress
+      if (progress < 10) {
+        progressStatus.textContent = 'Fetching historical data...';
+      } else if (progress < 30) {
+        progressStatus.textContent = 'Calculating indicators...';
+      } else if (progress < 60) {
+        progressStatus.textContent = 'Running strategy signals...';
+      } else if (progress < 90) {
+        progressStatus.textContent = 'Simulating trades...';
+      } else {
+        progressStatus.textContent = 'Finalizing results...';
+      }
+    }, 100);
     
     try {
       const response = await fetch('/api/backtest/run', {
@@ -663,18 +765,19 @@
       
       if (response.ok) {
         const data = await response.json();
-        status.innerHTML = '<p class="text-success">Backtest started! Waiting for results...</p>';
         
         // Poll for results
-        pollBacktestStatus(data.backtest_id);
+        pollBacktestStatus(data.backtest_id, progressInterval, startTime, daysBack);
       } else {
         throw new Error('Failed to start backtest');
       }
     } catch (error) {
+      clearInterval(progressInterval);
       status.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+      progressDiv.style.display = 'none';
       btn.disabled = false;
       btn.classList.remove('btn-running');
-      text.textContent = 'Run Backtest';
+      text.textContent = '🚀 Run Backtest';
     }
   }
   
@@ -751,9 +854,15 @@
     }
   }
   
-  async function pollBacktestStatus(backtestId) {
+  async function pollBacktestStatus(backtestId, progressInterval, startTime, daysBack) {
     const maxAttempts = 120; // 2 minutes max
     let attempts = 0;
+    const progressBar = document.getElementById('progress-bar');
+    const progressTime = document.getElementById('progress-time');
+    const progressPercent = document.getElementById('progress-percent');
+    const progressStatus = document.getElementById('progress-status');
+    const progressDiv = document.getElementById('backtest-progress');
+    const status = document.getElementById('backtest-status');
     
     const interval = setInterval(async () => {
       attempts++;
@@ -765,19 +874,42 @@
         
         if (result && result.status === 'completed') {
           clearInterval(interval);
-          document.getElementById('backtest-status').innerHTML = 
-            '<p class="text-success">✓ Backtest completed!</p>';
-          resetButtons();
+          clearInterval(progressInterval);
+          
+          // Complete progress bar
+          progressBar.style.width = '100%';
+          progressPercent.textContent = '100%';
+          progressTime.textContent = 'Complete!';
+          progressTime.style.color = 'var(--accent-green)';
+          progressStatus.textContent = '✓ Backtest completed successfully!';
+          progressStatus.style.color = 'var(--accent-green)';
+          
+          // Save actual duration for future estimates
+          const actualDuration = (Date.now() - startTime) / 1000;
+          saveTimingData(daysBack, actualDuration);
+          
+          // Show success message
+          status.innerHTML = `<p class="text-success">✓ Completed in ${actualDuration.toFixed(1)}s</p>`;
+          
+          // Hide progress after 3 seconds and reset button
+          setTimeout(() => {
+            progressDiv.style.display = 'none';
+            status.innerHTML = '';
+            resetButtons();
+          }, 3000);
+          
           loadResults();
         } else if (result && result.status === 'failed') {
           clearInterval(interval);
-          document.getElementById('backtest-status').innerHTML = 
-            `<p class="text-danger">✗ Backtest failed: ${result.error}</p>`;
+          clearInterval(progressInterval);
+          status.innerHTML = `<p class="text-danger">✗ Backtest failed: ${result.error}</p>`;
+          progressDiv.style.display = 'none';
           resetButtons();
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
-          document.getElementById('backtest-status').innerHTML = 
-            '<p class="text-danger">Timeout waiting for results</p>';
+          clearInterval(progressInterval);
+          status.innerHTML = '<p class="text-danger">Timeout waiting for results</p>';
+          progressDiv.style.display = 'none';
           resetButtons();
         }
       } catch (error) {
@@ -792,7 +924,10 @@
     
     currentBtn.disabled = false;
     currentBtn.classList.remove('btn-running');
-    currentText.textContent = '🚀 Run Backtest with Current Config';
+    currentText.textContent = '🚀 Run Backtest';
+    
+    // Reload strategy config to refresh button text with strategy counts
+    loadCurrentStrategyConfig();
   }
   
   async function loadResults() {
