@@ -93,12 +93,16 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
   }
   
   .strategy-overview-title {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
   }
   
   .strategy-overview-title h3 {
@@ -144,6 +148,8 @@
     border: none;
     cursor: pointer;
     transition: all 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   
   .toggle-btn.enable {
@@ -717,6 +723,34 @@
   .form-label {
     display: flex;
     align-items: center;
+  }
+  
+  /* LLM Analysis Progress Bar */
+  .llm-progress-container {
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 0.75rem;
+    display: none;
+  }
+  
+  .llm-progress-container.active {
+    display: block;
+  }
+  
+  .llm-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-blue), #9b59b6);
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 2px;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
   }
 </style>
 {% endblock %}
@@ -1639,6 +1673,211 @@
       </div>
     </div>
   </div>
+
+  <!-- LLM Pattern Analysis Strategy -->
+  <div class="strategy-section" id="strategy-llm" style="border-left-color: #9b59b6;">
+    <h3 style="color: #9b59b6;">🤖 LLM Pattern Analysis Strategy (AI-Powered)</h3>
+    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
+      <br>
+      <span style="color: #e74c3c;">⚠️ Requires Ollama installed and running.</span> See <a href="/static/LLM_SETUP.md" target="_blank" style="color: var(--accent-blue);">LLM Setup Guide</a>
+    </p>
+    
+    <div class="form-grid" id="strategy-llm-settings">
+      <div class="form-group">
+        <label class="form-label">
+          Strategy Weight
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Weight for LLM signals in multi-strategy voting. Start conservative (0.5) and increase as you gain confidence in LLM performance.
+              <hr>
+              <span class="risk-indicator risk-low">0.5</span> Advisory / Testing
+              <span class="risk-indicator risk-medium">1.0</span> Equal with others
+              <span class="risk-indicator risk-high">2.0</span> Trust LLM more
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="llmWeight" name="llm_weight" 
+               min="0.0" max="2.0" step="0.1" value="1.0">
+        <span class="form-text">
+          <span class="range-value" id="llmWeightValue">1.0</span>
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Ollama Model
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Which LLM model to use for analysis. Run "ollama pull MODEL_NAME" to install.
+              <hr>
+              <span class="risk-indicator risk-low">mistral</span> Best balance (recommended)
+              <span class="risk-indicator risk-medium">llama2</span> Reliable alternative
+              <span class="risk-indicator risk-high">phi</span> Fastest, lower quality
+            </span>
+          </span>
+        </label>
+        <select class="form-select" id="llmModel" name="llm_model">
+          <option value="mistral">Mistral (Recommended)</option>
+          <option value="llama2">Llama2</option>
+          <option value="llama2:13b">Llama2 13B (Best Quality)</option>
+          <option value="phi">Phi (Fastest)</option>
+          <option value="codellama">CodeLlama (Technical)</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Lookback Days
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              How many days of trade history to analyze. More days = better patterns but slower analysis.
+              <hr>
+              <span class="risk-indicator risk-low">3 days</span> Active trading
+              <span class="risk-indicator risk-medium">7 days</span> Balanced (recommended)
+              <span class="risk-indicator risk-high">14 days</span> Trend analysis
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-input" id="llmLookbackDays" name="llm_lookback_days" 
+               min="1" max="30" value="7">
+        <span class="form-text">Days of history to analyze</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Cache Refresh Interval
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              How often to run LLM analysis (in minutes). Shorter = more current, higher CPU usage.
+              <hr>
+              <span class="risk-indicator risk-low">5 min</span> Very active (high CPU)
+              <span class="risk-indicator risk-medium">15 min</span> Balanced (recommended)
+              <span class="risk-indicator risk-high">30 min</span> Conservative (low CPU)
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-input" id="llmCacheMinutes" name="llm_cache_minutes" 
+               min="5" max="120" step="5" value="15">
+        <span class="form-text">Minutes between analyses</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Analysis Timeout
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Maximum time to wait for LLM response (in seconds). Increase if you get timeout errors.
+              <hr>
+              <span class="risk-indicator risk-low">60s</span> Standard
+              <span class="risk-indicator risk-medium">90s</span> Slower systems
+              <span class="risk-indicator risk-high">120s</span> Large models (13B+)
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-input" id="llmTimeout" name="llm_timeout" 
+               min="30" max="300" step="10" value="60">
+        <span class="form-text">Seconds before timeout</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Ollama URL
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Ollama API endpoint. Default is local instance. Change if running Ollama on different machine/port.
+            </span>
+          </span>
+        </label>
+        <input type="text" class="form-input" id="llmOllamaUrl" name="llm_ollama_url" 
+               value="http://localhost:11434">
+        <span class="form-text">Ollama API endpoint</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Require Pattern Detection
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              When enabled, LLM signals are only generated if patterns are actually found. More conservative approach - no signal if LLM sees no clear patterns.
+              <hr>
+              <span class="risk-indicator risk-low">OFF</span> Always generate signals
+              <span class="risk-indicator risk-medium">ON</span> Only if patterns found
+            </span>
+          </span>
+        </label>
+        <div class="form-switch">
+          <input type="checkbox" id="llmRequirePatterns" name="llm_require_patterns">
+          <label for="llmRequirePatterns">Require patterns for signals</label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- LLM Status & Testing -->
+    <div style="margin: 1.5rem 0 1rem 0; padding: 0.75rem 1rem; background: rgba(155, 89, 182, 0.1); border-left: 4px solid #9b59b6; border-radius: 0.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <strong style="color: #9b59b6; font-size: 0.875rem;">
+            🔍 LLM Status & Quick Test
+          </strong>
+          <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.8rem;">
+            Test LLM connectivity and trigger immediate analysis
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn" onclick="testLLMConnection()" 
+                  style="padding: 0.5rem 1rem; font-size: 0.875rem; background: var(--accent-blue);">
+            🔌 Test Connection
+          </button>
+          <button type="button" class="btn" onclick="triggerLLMAnalysis()" id="trigger-llm-btn"
+                  style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #9b59b6;">
+            ▶️ Run Analysis Now
+          </button>
+          <button type="button" class="btn" onclick="clearLLMCache()" id="clear-cache-btn"
+                  style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #e67e22;">
+            🗑️ Clear Cache
+          </button>
+        </div>
+      </div>
+      <div id="llm-progress-container" class="llm-progress-container">
+        <div id="llm-progress-bar" class="llm-progress-bar"></div>
+      </div>
+      <div id="llm-test-result" style="margin-top: 0.75rem; padding: 0.5rem; border-radius: 0.375rem; display: none;"></div>
+    </div>
+    
+    <!-- LLM Accuracy Validation -->
+    <div style="margin: 1rem 0; padding: 0.75rem 1rem; background: rgba(46, 204, 113, 0.1); border-left: 4px solid #2ecc71; border-radius: 0.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <strong style="color: #2ecc71; font-size: 0.875rem;">
+            📊 Accuracy Validation
+          </strong>
+          <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.8rem;">
+            Test if the LLM can predict market direction (without full backtesting overhead)
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <select id="validationTests" style="padding: 0.4rem 0.6rem; font-size: 0.875rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--surface-color);">
+            <option value="1">1 Test (~15s)</option>
+            <option value="3">3 Tests (~45s)</option>
+            <option value="5" selected>5 Tests (~75s)</option>
+            <option value="10">10 Tests (~2.5m)</option>
+          </select>
+          <button type="button" class="btn" onclick="runLLMValidation()" id="validate-llm-btn"
+                  style="padding: 0.5rem 1rem; font-size: 0.875rem; background: #2ecc71;">
+            📈 Validate Accuracy
+          </button>
+        </div>
+      </div>
+      <div id="validation-progress" style="margin-top: 0.5rem; display: none;">
+        <div style="background: rgba(46, 204, 113, 0.2); border-radius: 4px; overflow: hidden; height: 6px;">
+          <div id="validation-progress-bar" style="background: #2ecc71; height: 100%; width: 0%; transition: width 1s linear;"></div>
+        </div>
+        <span id="validation-status" style="font-size: 0.75rem; color: var(--text-secondary);">Running validation...</span>
+      </div>
+      <div id="validation-result" style="margin-top: 0.75rem; padding: 0.75rem; border-radius: 0.375rem; display: none;"></div>
+    </div>
+  </div>
   </div><!-- End strategySettings collapsible -->
 
   <!-- Action Buttons -->
@@ -1714,9 +1953,9 @@
     'macdStopLoss': (v) => (v * 100).toFixed(1) + '%',
     'macdTakeProfit': (v) => (v * 100).toFixed(1) + '%',
     'atrStopMultiplier': (v) => parseFloat(v).toFixed(1) + 'x',
-    'stopLossPct': (v) => (v * 100).toFixed(1) + '%',
-    'takeProfitPct': (v) => (v * 100).toFixed(1) + '%',
-    'trailingStopPct': (v) => (v * 100).toFixed(1) + '%',
+    'stopLossPct': (v) => parseFloat(v).toFixed(1) + '%',
+    'takeProfitPct': (v) => parseFloat(v).toFixed(1) + '%',
+    'trailingStopPct': (v) => parseFloat(v).toFixed(1) + '%',
     'minPositionSize': (v) => v + '%',
     'maxPositionSize': (v) => v + '%',
     'volumeThreshold': (v) => parseFloat(v).toFixed(1) + 'x'
@@ -1839,6 +2078,17 @@
       document.getElementById('macdSlowPeriod').value = config.strategy_macd_slow_period || 26;
       document.getElementById('macdSignalPeriod').value = config.strategy_macd_signal_period || 9;
       
+      // LLM Pattern Strategy (enable/disable via Overview toggle only)
+      const llmWeight = config.strategy_llm_weight || 1.0;
+      document.getElementById('llmWeight').value = llmWeight;
+      document.getElementById('llmWeightValue').textContent = llmWeight.toFixed(1);
+      document.getElementById('llmModel').value = config.llm_ollama_model || 'mistral';
+      document.getElementById('llmLookbackDays').value = config.llm_lookback_days || 7;
+      document.getElementById('llmCacheMinutes').value = config.llm_cache_minutes || 15;
+      document.getElementById('llmTimeout').value = config.llm_timeout_seconds || 60;
+      document.getElementById('llmOllamaUrl').value = config.llm_ollama_url || 'http://localhost:11434';
+      document.getElementById('llmRequirePatterns').checked = config.llm_require_patterns || false;
+      
       const macdVolMult = config.strategy_macd_volume_multiplier || 1.3;
       document.getElementById('macdVolumeMultiplier').value = macdVolMult;
       document.getElementById('macdVolumeMultiplierValue').textContent = macdVolMult.toFixed(1) + 'x';
@@ -1930,6 +2180,15 @@
         strategy_macd_require_zero_cross: document.getElementById('macdRequireZeroCross').checked,
         strategy_macd_stop_loss_pct: parseFloat(document.getElementById('macdStopLoss').value),
         strategy_macd_take_profit_pct: parseFloat(document.getElementById('macdTakeProfit').value),
+        
+        // LLM Pattern Strategy (enabled state managed by Overview toggles, not here)
+        strategy_llm_weight: parseFloat(document.getElementById('llmWeight').value),
+        llm_ollama_model: document.getElementById('llmModel').value,
+        llm_lookback_days: parseInt(document.getElementById('llmLookbackDays').value),
+        llm_cache_minutes: parseInt(document.getElementById('llmCacheMinutes').value),
+        llm_timeout_seconds: parseInt(document.getElementById('llmTimeout').value),
+        llm_ollama_url: document.getElementById('llmOllamaUrl').value,
+        llm_require_patterns: document.getElementById('llmRequirePatterns').checked,
       };
       
       // Step 1: Save configuration to database
@@ -2065,6 +2324,15 @@ BOT_STRATEGY_MACD_REQUIRE_ZERO_CROSS=${document.getElementById('macdRequireZeroC
 BOT_STRATEGY_MACD_STOP_LOSS_PCT=${document.getElementById('macdStopLoss').value}
 BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').value}
 
+# LLM Pattern Strategy Parameters
+BOT_STRATEGY_LLM_WEIGHT=${document.getElementById('llmWeight').value}
+BOT_LLM_OLLAMA_MODEL=${document.getElementById('llmModel').value}
+BOT_LLM_LOOKBACK_DAYS=${document.getElementById('llmLookbackDays').value}
+BOT_LLM_CACHE_MINUTES=${document.getElementById('llmCacheMinutes').value}
+BOT_LLM_TIMEOUT_SECONDS=${document.getElementById('llmTimeout').value}
+BOT_LLM_OLLAMA_URL=${document.getElementById('llmOllamaUrl').value}
+BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked}
+
 # =============================================================================
 # Instructions:
 # 1. To restore these settings, copy the values above to your .env file
@@ -2186,6 +2454,15 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
           keyParams: 'MACD (12/26/9), Volume Multiplier, Zero-line Cross',
           riskLevel: 'Medium-High',
           docLink: '/static/docs/macd-strategy.md'
+        },
+        'llm_pattern': {
+          type: 'AI Pattern Recognition',
+          howItWorks: 'Uses local LLM (via Ollama) to analyze your recent trade history and identify patterns in wins/losses, support/resistance levels, and market behavior. Generates signals with reasoning.',
+          bestFor: 'Pattern-based trading, adaptive strategies, learning from history',
+          avoids: 'No trade history (needs data to analyze)',
+          keyParams: 'Model (mistral/llama2), Lookback Days, Cache Interval',
+          riskLevel: 'Experimental - Start with low weight',
+          docLink: '/LLM_SETUP.md'
         }
       };
       
@@ -2195,6 +2472,7 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
         let icon = '🌊';
         if (strategy.name.includes('EMA')) icon = '📈';
         else if (strategy.name.includes('MACD')) icon = '📊';
+        else if (strategy.name.includes('llm')) icon = '🤖';
         const statusClass = strategy.enabled ? 'enabled' : 'disabled';
         const toggleBtnClass = strategy.enabled ? 'disable' : 'enable';
         const toggleBtnText = strategy.enabled ? '🔴 Disable' : '🟢 Enable';
@@ -2227,9 +2505,6 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
                 <span class="strategy-overview-icon">${icon}</span>
                 <div>
                   <h3>${strategy.name}${infoTooltip}</h3>
-                  <span class="badge ${strategy.enabled ? 'badge-enabled' : 'badge-disabled'}" style="font-size: 0.65rem;">
-                    ${strategy.enabled ? 'ENABLED' : 'DISABLED'}
-                  </span>
                 </div>
               </div>
               <button class="toggle-btn ${toggleBtnClass}" onclick="toggleStrategy('${strategy.name}', ${strategy.enabled})" id="toggle-${strategy.name}">
@@ -2423,8 +2698,8 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
     const originalHTML = button.innerHTML;
     const originalButtonClass = button.className;
     const originalCardClass = card.className;
-    const originalBadgeClass = badge.className;
-    const originalBadgeText = badge.textContent;
+    const originalBadgeClass = badge ? badge.className : '';
+    const originalBadgeText = badge ? badge.textContent : '';
     
     // Optimistic UI update - update immediately for better UX
     button.disabled = true;
@@ -2434,15 +2709,19 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
     if (newEnabled) {
       card.classList.remove('disabled');
       card.classList.add('enabled');
-      badge.classList.remove('badge-disabled');
-      badge.classList.add('badge-enabled');
-      badge.textContent = 'ENABLED';
+      if (badge) {
+        badge.classList.remove('badge-disabled');
+        badge.classList.add('badge-enabled');
+        badge.textContent = 'ENABLED';
+      }
     } else {
       card.classList.remove('enabled');
       card.classList.add('disabled');
-      badge.classList.remove('badge-enabled');
-      badge.classList.add('badge-disabled');
-      badge.textContent = 'DISABLED';
+      if (badge) {
+        badge.classList.remove('badge-enabled');
+        badge.classList.add('badge-disabled');
+        badge.textContent = 'DISABLED';
+      }
     }
     
     try {
@@ -2467,8 +2746,10 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       } else {
         // API returned error - revert optimistic update
         card.className = originalCardClass;
-        badge.className = originalBadgeClass;
-        badge.textContent = originalBadgeText;
+        if (badge) {
+          badge.className = originalBadgeClass;
+          badge.textContent = originalBadgeText;
+        }
         button.disabled = false;
         button.innerHTML = originalHTML;
         button.className = originalButtonClass;
@@ -2478,8 +2759,10 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
       // Network error - revert optimistic update
       console.error('Error toggling strategy:', error);
       card.className = originalCardClass;
-      badge.className = originalBadgeClass;
-      badge.textContent = originalBadgeText;
+      if (badge) {
+        badge.className = originalBadgeClass;
+        badge.textContent = originalBadgeText;
+      }
       button.disabled = false;
       button.innerHTML = originalHTML;
       button.className = originalButtonClass;
@@ -3061,6 +3344,477 @@ BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').va
   
   // Load presets on page load
   loadPresets();
+  
+  // ═══════════════════════════════════════════════════════════════
+  // LLM PATTERN STRATEGY HELPERS
+  // ═══════════════════════════════════════════════════════════════
+  
+  // Update LLM weight value display
+  document.getElementById('llmWeight').addEventListener('input', (e) => {
+    document.getElementById('llmWeightValue').textContent = parseFloat(e.target.value).toFixed(1);
+  });
+  
+  async function testLLMConnection() {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    const resultDiv = document.getElementById('llm-test-result');
+    
+    btn.disabled = true;
+    btn.textContent = '⏳ Testing...';
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = 'rgba(88, 166, 255, 0.1)';
+    resultDiv.style.border = '1px solid var(--accent-blue)';
+    resultDiv.innerHTML = '<span style="color: var(--accent-blue);">Connecting to Ollama...</span>';
+    
+    try {
+      const url = document.getElementById('llmOllamaUrl').value;
+      const model = document.getElementById('llmModel').value;
+      
+      // Test basic connection
+      const response = await fetch(`${url}/api/version`, {
+        method: 'GET',
+      }).catch(() => null);
+      
+      if (!response || !response.ok) {
+        resultDiv.style.background = 'rgba(231, 76, 60, 0.1)';
+        resultDiv.style.border = '1px solid var(--accent-red)';
+        resultDiv.innerHTML = `
+          <strong style="color: var(--accent-red);">❌ Connection Failed</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            Cannot connect to Ollama at <code>${url}</code>
+            <br><br>
+            <strong>Fix:</strong>
+            <br>1. Install Ollama: <code>curl -fsSL https://ollama.ai/install.sh | sh</code>
+            <br>2. Start service: <code>ollama serve</code>
+            <br>3. Check URL is correct in config above
+          </p>
+        `;
+        btn.disabled = false;
+        btn.textContent = originalText;
+        return;
+      }
+      
+      // Connection successful
+      const versionData = await response.json();
+      
+      // Check if model is available
+      const modelsResponse = await fetch(`${url}/api/tags`);
+      const modelsData = await modelsResponse.json();
+      const modelExists = modelsData.models?.some(m => m.name.startsWith(model));
+      
+      if (modelExists) {
+        resultDiv.style.background = 'rgba(88, 214, 141, 0.1)';
+        resultDiv.style.border = '1px solid var(--accent-green)';
+        resultDiv.innerHTML = `
+          <strong style="color: var(--accent-green);">✅ Connection Successful</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            Ollama version: <code>${versionData.version || 'unknown'}</code>
+            <br>Model <code>${model}</code> is installed and ready
+            <br>Available models: ${modelsData.models?.length || 0}
+          </p>
+        `;
+      } else {
+        resultDiv.style.background = 'rgba(255, 193, 7, 0.1)';
+        resultDiv.style.border = '1px solid #FFC107';
+        resultDiv.innerHTML = `
+          <strong style="color: #FFC107;">⚠️ Model Not Found</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            Ollama is running but model <code>${model}</code> is not installed
+            <br><br>
+            <strong>Fix:</strong> <code>ollama pull ${model}</code>
+            <br><br>
+            Installed models: ${modelsData.models?.map(m => m.name).join(', ') || 'none'}
+          </p>
+        `;
+      }
+      
+    } catch (error) {
+      resultDiv.style.background = 'rgba(231, 76, 60, 0.1)';
+      resultDiv.style.border = '1px solid var(--accent-red)';
+      resultDiv.innerHTML = `
+        <strong style="color: var(--accent-red);">❌ Test Failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+          ${error.message}
+        </p>
+      `;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+  
+  async function triggerLLMAnalysis() {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    const resultDiv = document.getElementById('llm-test-result');
+    const progressContainer = document.getElementById('llm-progress-container');
+    const progressBar = document.getElementById('llm-progress-bar');
+    
+    btn.disabled = true;
+    btn.textContent = '⏳ Analyzing...';
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = 'rgba(88, 166, 255, 0.1)';
+    resultDiv.style.border = '1px solid var(--accent-blue)';
+    resultDiv.innerHTML = '<span style="color: var(--accent-blue);">🔄 Running LLM pattern analysis (this may take 10-30 seconds)...</span>';
+    
+    // Show and animate progress bar
+    progressContainer.classList.add('active');
+    progressBar.style.width = '0%';
+    
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+      progress += 1;
+      progressBar.style.width = `${Math.min(progress, 95)}%`; // Stop at 95% until complete
+      if (progress >= 100) {
+        clearInterval(progressInterval);
+      }
+    }, 300); // Update every 300ms (100 steps = 30 seconds)
+    
+    try {
+      const response = await fetch('/api/llm/trigger', {
+        method: 'POST'
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        resultDiv.style.background = 'rgba(88, 214, 141, 0.1)';
+        resultDiv.style.border = '1px solid var(--accent-green)';
+        resultDiv.innerHTML = `
+          <strong style="color: var(--accent-green);">⏳ Analysis Running...</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            Analyzing market data with LLM (10-30 seconds)...
+          </p>
+        `;
+        
+        // Poll for completion
+        let pollAttempts = 0;
+        const maxPollAttempts = 12; // 12 attempts x 3 seconds = 36 seconds max
+        const pollInterval = setInterval(async () => {
+          pollAttempts++;
+          
+          try {
+            const historyResponse = await fetch('/api/llm/history?limit=1');
+            const historyData = await historyResponse.json();
+            
+            if (historyData.analyses && historyData.analyses.length > 0) {
+              const latest = historyData.analyses[0];
+              const analysisTime = new Date(latest.timestamp);
+              const now = new Date();
+              const ageSeconds = (now - analysisTime) / 1000;
+              
+              // If we have a very recent analysis (less than 5 seconds old), consider it complete
+              if (ageSeconds < 5) {
+                clearInterval(pollInterval);
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                // Re-enable button
+                btn.disabled = false;
+                btn.textContent = originalText;
+                
+                resultDiv.style.background = 'rgba(88, 214, 141, 0.1)';
+                resultDiv.style.border = '1px solid var(--accent-green)';
+                resultDiv.innerHTML = `
+                  <strong style="color: var(--accent-green);">✅ Analysis Complete!</strong>
+                  <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+                    <strong>Direction:</strong> ${latest.direction.toUpperCase()}<br>
+                    <strong>Confidence:</strong> ${(latest.confidence * 100).toFixed(0)}%<br>
+                    <strong>Patterns:</strong> ${latest.patterns_count || 0} found
+                  </p>
+                `;
+                
+                // Hide progress bar
+                setTimeout(() => {
+                  progressContainer.classList.remove('active');
+                  progressBar.style.width = '0%';
+                }, 1500);
+                
+                // Keep result visible longer (10 seconds)
+                setTimeout(() => {
+                  resultDiv.style.display = 'none';
+                }, 10000);
+              }
+            }
+          } catch (e) {
+            console.error('Error polling for analysis completion:', e);
+          }
+          
+          // Stop polling after max attempts
+          if (pollAttempts >= maxPollAttempts) {
+            clearInterval(pollInterval);
+            clearInterval(progressInterval);
+            progressBar.style.width = '100%';
+            
+            // Re-enable button
+            btn.disabled = false;
+            btn.textContent = originalText;
+            
+            resultDiv.style.background = 'rgba(255, 193, 7, 0.1)';
+            resultDiv.style.border = '1px solid #f39c12';
+            resultDiv.innerHTML = `
+              <strong style="color: #f39c12;">⚠️ Analysis May Still Be Running</strong>
+              <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+                Check the main dashboard for results, or try again.
+              </p>
+            `;
+            
+            setTimeout(() => {
+              progressContainer.classList.remove('active');
+              progressBar.style.width = '0%';
+              resultDiv.style.display = 'none';
+            }, 8000);
+          }
+        }, 3000); // Poll every 3 seconds
+      } else {
+        clearInterval(progressInterval);
+        progressContainer.classList.remove('active');
+        
+        // Re-enable button on error
+        btn.disabled = false;
+        btn.textContent = originalText;
+        
+        resultDiv.style.background = 'rgba(231, 76, 60, 0.1)';
+        resultDiv.style.border = '1px solid var(--accent-red)';
+        resultDiv.innerHTML = `
+          <strong style="color: var(--accent-red);">❌ Failed</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            ${data.error || 'Unknown error'}
+          </p>
+        `;
+      }
+      
+    } catch (error) {
+      clearInterval(progressInterval);
+      progressContainer.classList.remove('active');
+      
+      // Re-enable button on error
+      btn.disabled = false;
+      btn.textContent = originalText;
+      
+      resultDiv.style.background = 'rgba(231, 76, 60, 0.1)';
+      resultDiv.style.border = '1px solid var(--accent-red)';
+      resultDiv.innerHTML = `
+        <strong style="color: var(--accent-red);">❌ Request Failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+          ${error.message}
+        </p>
+      `;
+    }
+  }
+  
+  async function clearLLMCache() {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    const resultDiv = document.getElementById('llm-test-result');
+    
+    // Confirm before clearing
+    if (!confirm('Clear all cached LLM analyses? This will force fresh analysis on next run.')) {
+      return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = '🗑️ Clearing...';
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = 'rgba(88, 166, 255, 0.1)';
+    resultDiv.style.border = '1px solid var(--accent-blue)';
+    resultDiv.innerHTML = '<span style="color: var(--accent-blue);">Clearing LLM cache...</span>';
+    
+    try {
+      const response = await fetch('/api/llm/clear-cache', {
+        method: 'POST'
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        resultDiv.style.background = 'rgba(88, 214, 141, 0.1)';
+        resultDiv.style.border = '1px solid var(--accent-green)';
+        resultDiv.innerHTML = `
+          <strong style="color: var(--accent-green);">✅ Cache Cleared</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            ${data.message || 'LLM cache cleared successfully'}
+            <br>Next analysis will use fresh market data.
+          </p>
+        `;
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+          resultDiv.style.display = 'none';
+        }, 5000);
+      } else {
+        resultDiv.style.background = 'rgba(231, 76, 60, 0.1)';
+        resultDiv.style.border = '1px solid var(--accent-red)';
+        resultDiv.innerHTML = `
+          <strong style="color: var(--accent-red);">❌ Failed</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            ${data.error || 'Unknown error'}
+          </p>
+        `;
+      }
+      
+    } catch (error) {
+      resultDiv.style.background = 'rgba(231, 76, 60, 0.1)';
+      resultDiv.style.border = '1px solid var(--accent-red)';
+      resultDiv.innerHTML = `
+        <strong style="color: var(--accent-red);">❌ Request Failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+          ${error.message}
+        </p>
+      `;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+  
+  // ═══════════════════════════════════════════════════════════════
+  // LLM ACCURACY VALIDATION
+  // ═══════════════════════════════════════════════════════════════
+  
+  async function runLLMValidation() {
+    const btn = document.getElementById('validate-llm-btn');
+    const originalText = btn.innerHTML;
+    const numTests = parseInt(document.getElementById('validationTests').value);
+    const progressContainer = document.getElementById('validation-progress');
+    const progressBar = document.getElementById('validation-progress-bar');
+    const statusText = document.getElementById('validation-status');
+    const resultDiv = document.getElementById('validation-result');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="border: 2px solid #fff; border-top: 2px solid transparent; border-radius: 50%; width: 14px; height: 14px; animation: spin 1s linear infinite; display: inline-block; margin-right: 8px;"></span> Running...';
+    
+    progressContainer.style.display = 'block';
+    resultDiv.style.display = 'none';
+    progressBar.style.width = '0%';
+    
+    // Estimate time: ~15s per test
+    const estimatedSeconds = numTests * 15;
+    statusText.textContent = `Running ${numTests} validation test(s)... (~${Math.ceil(estimatedSeconds)}s)`;
+    
+    // Animate progress bar (approximate)
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+      progress += 100 / (estimatedSeconds * 2); // Update every 500ms
+      if (progress < 95) {
+        progressBar.style.width = `${progress}%`;
+      }
+    }, 500);
+    
+    try {
+      const response = await fetch('/api/llm/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ num_tests: numTests })
+      });
+      
+      clearInterval(progressInterval);
+      progressBar.style.width = '100%';
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        const accuracy = data.accuracy * 100;
+        const correct = data.correct;
+        const total = data.total_tests;
+        const edge = (data.accuracy - 0.5) * 100;
+        
+        // Determine color based on accuracy
+        let color, bgColor, icon, recommendation;
+        if (accuracy >= 70) {
+          color = 'var(--accent-green)';
+          bgColor = 'rgba(88, 214, 141, 0.15)';
+          icon = '✅';
+          recommendation = 'Strong predictive ability. Good for trading signals.';
+        } else if (accuracy >= 60) {
+          color = '#f39c12';
+          bgColor = 'rgba(243, 156, 18, 0.15)';
+          icon = '⚠️';
+          recommendation = 'Moderate ability. Use as confirmation, not primary signal.';
+        } else {
+          color = 'var(--accent-red)';
+          bgColor = 'rgba(231, 76, 60, 0.15)';
+          icon = '❌';
+          recommendation = 'Weak accuracy. Not recommended for trading decisions.';
+        }
+        
+        resultDiv.style.display = 'block';
+        resultDiv.style.background = bgColor;
+        resultDiv.style.border = `1px solid ${color}`;
+        resultDiv.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <strong style="color: ${color}; font-size: 1.1rem;">${icon} ${accuracy.toFixed(1)}% Accuracy</strong>
+              <p style="margin: 0.5rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">
+                ${correct}/${total} tests correct | Edge: ${edge >= 0 ? '+' : ''}${edge.toFixed(1)}% vs random
+              </p>
+              <p style="margin: 0.5rem 0 0 0; color: ${color}; font-size: 0.8rem;">
+                <strong>Recommendation:</strong> ${recommendation}
+              </p>
+            </div>
+            <div style="text-align: right; font-size: 0.8rem; color: var(--text-secondary);">
+              Model: ${data.model || 'mistral'}<br>
+              Symbol: ${data.symbol || 'BTC/USDT'}
+            </div>
+          </div>
+          ${data.high_confidence_tests > 0 ? `
+            <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem; color: var(--text-secondary); border-top: 1px solid ${color}; padding-top: 0.5rem;">
+              High confidence (≥70%): ${(data.high_confidence_accuracy * 100).toFixed(1)}% accurate (${data.high_confidence_tests} tests)
+            </p>
+          ` : ''}
+          <details style="margin-top: 0.75rem; cursor: pointer;">
+            <summary style="color: var(--text-secondary); font-size: 0.8rem;">View Test Details</summary>
+            <div style="margin-top: 0.5rem; font-size: 0.75rem; max-height: 200px; overflow-y: auto;">
+              ${data.results.map((r, i) => `
+                <div style="padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                  Test ${i+1}: Predicted <strong>${r.predicted}</strong> (${(r.confidence * 100).toFixed(0)}%) 
+                  → Actual <strong>${r.actual}</strong> (${r.change_pct >= 0 ? '+' : ''}${r.change_pct.toFixed(2)}%)
+                  ${r.correct ? '<span style="color: var(--accent-green);">✓</span>' : '<span style="color: var(--accent-red);">✗</span>'}
+                </div>
+              `).join('')}
+            </div>
+          </details>
+        `;
+        
+        statusText.textContent = `Validation complete: ${accuracy.toFixed(1)}% accuracy`;
+        
+      } else {
+        resultDiv.style.display = 'block';
+        resultDiv.style.background = 'rgba(231, 76, 60, 0.15)';
+        resultDiv.style.border = '1px solid var(--accent-red)';
+        resultDiv.innerHTML = `
+          <strong style="color: var(--accent-red);">❌ Validation Failed</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+            ${data.error || 'Unknown error occurred'}
+          </p>
+        `;
+        statusText.textContent = 'Validation failed';
+      }
+      
+    } catch (error) {
+      clearInterval(progressInterval);
+      resultDiv.style.display = 'block';
+      resultDiv.style.background = 'rgba(231, 76, 60, 0.15)';
+      resultDiv.style.border = '1px solid var(--accent-red)';
+      resultDiv.innerHTML = `
+        <strong style="color: var(--accent-red);">❌ Request Failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
+          ${error.message}
+        </p>
+      `;
+      statusText.textContent = 'Error: ' + error.message;
+      
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      
+      // Hide progress after a delay
+      setTimeout(() => {
+        progressContainer.style.display = 'none';
+      }, 3000);
+    }
+  }
+  
 </script>
 
 <!-- Chart.js Library -->

@@ -9,4 +9,6 @@ Flask-HTTPAuth>=4.8.0
 Flask-Limiter>=3.5.0
 Flask-CORS>=4.0.0
 bcrypt>=4.1.0
+requests>=2.31.0
+ollama>=0.1.0
 

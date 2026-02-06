@@ -239,6 +239,48 @@ class StrategyPreset(Base):
         return f"<StrategyPreset(name={self.name}, category={self.category})>"
 
 
+class LLMAnalysis(Base):
+    """LLM pattern analysis results with caching"""
+
+    __tablename__ = "llm_analysis"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    analysis_period_days = Column(Integer)  # Lookback period analyzed
+    num_trades_analyzed = Column(Integer)
+    
+    # LLM output
+    direction = Column(String(20))  # bullish, bearish, neutral
+    confidence = Column(Float)  # 0.0 to 1.0
+    reasoning = Column(String(5000))  # LLM's explanation
+    patterns_found = Column(String(2000))  # JSON list of patterns
+    
+    # Risk parameters suggested by LLM
+    suggested_stop_loss = Column(Float)
+    suggested_take_profit = Column(Float)
+    suggested_position_size = Column(Float)
+    
+    # Market context at time of analysis
+    current_price = Column(Float)
+    recent_win_rate = Column(Float)
+    recent_pnl = Column(Float)
+    
+    # LLM metadata
+    model_used = Column(String(50))
+    analysis_duration_ms = Column(Integer)
+    cache_valid_until = Column(DateTime, index=True)
+    
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_cache_valid_until", "cache_valid_until"),
+    )
+
+    def __repr__(self):
+        return f"<LLMAnalysis(id={self.id}, direction={self.direction}, confidence={self.confidence:.2f}, timestamp={self.timestamp})>"
+
+
 class DatabaseManager:
     """Database connection and session management"""
 
@@ -708,6 +750,104 @@ class DatabaseManager:
             session.delete(preset)
             self.logger.info(f"Deleted preset: {name}")
             return True
+    
+    # =====================================================================
+    # LLM ANALYSIS METHODS
+    # =====================================================================
+    
+    def add_llm_analysis(self, analysis_data: Dict) -> LLMAnalysis:
+        """
+        Add an LLM analysis record to the database.
+        
+        Args:
+            analysis_data: Dictionary with LLM analysis information
+            
+        Returns:
+            LLMAnalysis object
+        """
+        with self.get_session() as session:
+            analysis = LLMAnalysis(**analysis_data)
+            session.add(analysis)
+            session.flush()
+            session.refresh(analysis)
+            return analysis
+    
+    def get_latest_llm_analysis(self) -> Optional[LLMAnalysis]:
+        """
+        Get the most recent LLM analysis from the database.
+        
+        Returns:
+            Latest LLMAnalysis object or None if no analysis exists
+        """
+        with self.get_session() as session:
+            analysis = (
+                session.query(LLMAnalysis)
+                .order_by(desc(LLMAnalysis.timestamp))
+                .first()
+            )
+            if analysis:
+                # Force load all attributes
+                _ = (analysis.id, analysis.timestamp, analysis.direction, 
+                     analysis.confidence, analysis.reasoning, analysis.patterns_found,
+                     analysis.suggested_stop_loss, analysis.suggested_take_profit,
+                     analysis.suggested_position_size, analysis.current_price,
+                     analysis.recent_win_rate, analysis.recent_pnl,
+                     analysis.model_used, analysis.analysis_duration_ms,
+                     analysis.cache_valid_until, analysis.num_trades_analyzed,
+                     analysis.analysis_period_days)
+                session.expunge(analysis)
+            return analysis
+    
+    def get_llm_analysis_history(self, limit: int = 20) -> List[LLMAnalysis]:
+        """
+        Get historical LLM analyses.
+        
+        Args:
+            limit: Maximum number of analyses to return
+            
+        Returns:
+            List of LLMAnalysis objects
+        """
+        with self.get_session() as session:
+            analyses = (
+                session.query(LLMAnalysis)
+                .order_by(desc(LLMAnalysis.timestamp))
+                .limit(limit)
+                .all()
+            )
+            
+            # Force load all attributes
+            for a in analyses:
+                _ = (a.id, a.timestamp, a.direction, a.confidence,
+                     a.patterns_found, a.current_price)
+            
+            session.expunge_all()
+            return analyses
+    
+    def get_valid_cached_analysis(self) -> Optional[LLMAnalysis]:
+        """
+        Get a valid (non-expired) cached LLM analysis.
+        
+        Returns:
+            LLMAnalysis object if valid cache exists, None otherwise
+        """
+        with self.get_session() as session:
+            now = datetime.utcnow()
+            analysis = (
+                session.query(LLMAnalysis)
+                .filter(LLMAnalysis.cache_valid_until > now)
+                .order_by(desc(LLMAnalysis.timestamp))
+                .first()
+            )
+            if analysis:
+                # Force load all attributes
+                _ = (analysis.id, analysis.timestamp, analysis.direction,
+                     analysis.confidence, analysis.reasoning, analysis.patterns_found,
+                     analysis.suggested_stop_loss, analysis.suggested_take_profit,
+                     analysis.suggested_position_size, analysis.current_price,
+                     analysis.model_used, analysis.cache_valid_until)
+                session.expunge(analysis)
+            return analysis
     
     def initialize_builtin_presets(self):
         """Initialize built-in strategy presets if they don't exist"""

@@ -188,6 +188,33 @@ def main():
         status = "✓ Enabled" if macd_strategy.is_enabled() else "✗ Disabled"
         logging.info(f"{status}: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
         
+        # LLM Pattern Strategy - always create, set enabled state from config
+        llm_scheduler = None
+        try:
+            from strategies.llm_pattern_strategy import LLMPatternStrategy
+            from llm_scheduler import LLMScheduler
+            
+            llm_strategy = LLMPatternStrategy(strategy_configs["llm_pattern"], db_manager=db_manager)
+            llm_strategy.set_enabled(strategy_configs["llm_pattern"]["enabled"])
+            strategies.append(llm_strategy)
+            status = "✓ Enabled" if llm_strategy.is_enabled() else "✗ Disabled"
+            logging.info(f"{status}: {llm_strategy.name} (weight: {llm_strategy.get_weight()})")
+            
+            # Start background scheduler for LLM analysis
+            if llm_strategy.is_enabled():
+                llm_scheduler = LLMScheduler(
+                    llm_strategy=llm_strategy,
+                    exchange=exchange,
+                    symbol=config.symbol,
+                    interval_minutes=config.llm_cache_minutes
+                )
+                llm_scheduler.start()
+                logging.info("LLM pattern analysis scheduler started")
+        except ImportError as e:
+            logging.warning(f"LLM strategy not available: {e}")
+        except Exception as e:
+            logging.error(f"Failed to initialize LLM strategy: {e}", exc_info=True)
+        
         # Create strategy manager with all strategies
         aggregation_mode_map = {
             "voting": SignalAggregationMode.VOTING,
@@ -513,6 +540,12 @@ def main():
     finally:
         logging.info("Shutting down websocket stream.")
         twm.stop()
+        
+        # Stop LLM scheduler if running
+        if 'llm_scheduler' in locals() and llm_scheduler:
+            logging.info("Stopping LLM scheduler...")
+            llm_scheduler.stop()
+        
         logging.info("Trading loop terminated.")
 
 

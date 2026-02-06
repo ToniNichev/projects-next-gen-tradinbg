@@ -476,6 +476,27 @@
       <span style="font-weight: 600; color: var(--accent-blue);">Backtest Progress</span>
       <span id="progress-time" style="color: var(--text-secondary);">Estimating...</span>
     </div>
+    
+    <!-- Backtest Info Summary -->
+    <div id="progress-info" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 0.5rem; font-size: 0.8rem;">
+      <div>
+        <span style="color: var(--text-secondary);">Symbol:</span>
+        <strong id="progress-symbol" style="color: var(--accent-blue); margin-left: 0.25rem;">-</strong>
+      </div>
+      <div>
+        <span style="color: var(--text-secondary);">Timeframe:</span>
+        <strong id="progress-timeframe" style="color: var(--accent-blue); margin-left: 0.25rem;">-</strong>
+      </div>
+      <div>
+        <span style="color: var(--text-secondary);">Period:</span>
+        <strong id="progress-period" style="color: var(--accent-blue); margin-left: 0.25rem;">-</strong>
+      </div>
+      <div>
+        <span style="color: var(--text-secondary);">Strategies:</span>
+        <strong id="progress-strategies" style="color: var(--accent-green); margin-left: 0.25rem;">-</strong>
+      </div>
+    </div>
+    
     <div style="background: var(--bg-tertiary); border-radius: 0.5rem; height: 24px; overflow: hidden; position: relative;">
       <div id="progress-bar" style="background: linear-gradient(90deg, var(--accent-blue), var(--accent-green)); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 0.5rem;">
         <span id="progress-percent" style="color: white; font-size: 0.75rem; font-weight: 700;"></span>
@@ -703,6 +724,50 @@
   // Load strategy config on page load
   window.addEventListener('DOMContentLoaded', loadCurrentStrategyConfig);
   
+  // Populate the progress info panel with current config
+  async function populateProgressInfo(daysBack) {
+    try {
+      // Get config info
+      const configResponse = await fetch('/api/config/debug');
+      const configData = await configResponse.json();
+      
+      // Get strategy info
+      const stratResponse = await fetch('/api/strategies');
+      const stratData = await stratResponse.json();
+      
+      // Update progress info
+      if (configData.success) {
+        const config = configData.config_summary;
+        document.getElementById('progress-symbol').textContent = config.symbol || 'BTC/USDT';
+        document.getElementById('progress-timeframe').textContent = config.timeframe || '1h';
+      }
+      
+      document.getElementById('progress-period').textContent = `${daysBack} days`;
+      
+      // Count enabled strategies
+      if (stratData.strategies) {
+        const enabled = stratData.strategies.filter(s => s.enabled);
+        const names = enabled.map(s => {
+          if (s.name.includes('EMA')) return 'EMA';
+          if (s.name.includes('RSI')) return 'RSI+BB';
+          if (s.name.includes('MACD')) return 'MACD';
+          if (s.name.includes('LLM')) return 'LLM';
+          return s.name;
+        });
+        document.getElementById('progress-strategies').textContent = 
+          enabled.length > 0 ? names.join(', ') : 'None';
+        document.getElementById('progress-strategies').style.color = 
+          enabled.length > 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+      }
+    } catch (error) {
+      console.error('Error populating progress info:', error);
+      // Set fallback values
+      document.getElementById('progress-symbol').textContent = 'BTC/USDT';
+      document.getElementById('progress-timeframe').textContent = '1h';
+      document.getElementById('progress-period').textContent = `${daysBack} days`;
+      document.getElementById('progress-strategies').textContent = 'Loading...';
+    }
+  }
   
   async function runQuickBacktest() {
     const btn = document.getElementById('run-current-btn');
@@ -725,6 +790,9 @@
     text.textContent = '⏳ Running...';
     progressDiv.style.display = 'block';
     status.innerHTML = '';
+    
+    // Populate progress info panel
+    await populateProgressInfo(daysBack);
     
     // Reset progress bar
     progressBar.style.width = '0%';

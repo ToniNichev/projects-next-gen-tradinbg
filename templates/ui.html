@@ -365,6 +365,46 @@
     }
   }
   
+  /* LLM Analysis Progress Bar */
+  .llm-progress-container {
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    display: none;
+  }
+  
+  .llm-progress-container.active {
+    display: block;
+  }
+  
+  .llm-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-blue), #9b59b6);
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 2px;
+  }
+  
+  .llm-progress-text {
+    font-size: 0.75rem;
+    color: var(--accent-blue);
+    margin-bottom: 0.5rem;
+    display: none;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  
+  .llm-progress-text.active {
+    display: block;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+  
   /* Confirmation Modal */
   .modal-overlay {
     position: fixed;
@@ -597,6 +637,70 @@
       • Press 0 to reset view
     </span>
   </span>
+</div>
+
+<!-- LLM Pattern Analysis Panel -->
+<div class="card llm-analysis-panel" style="margin-top: 2rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h2 style="margin: 0;">🤖 LLM Pattern Analysis</h2>
+    <button id="refresh-llm" class="btn" style="padding: 0.5rem 1rem; font-size: 0.875rem;">Refresh Now</button>
+  </div>
+  
+  <!-- Progress indicator -->
+  <div id="llm-progress-text" class="llm-progress-text">🔄 Analyzing trade patterns... this may take 10-30 seconds</div>
+  <div id="llm-progress-container" class="llm-progress-container">
+    <div id="llm-progress-bar" class="llm-progress-bar"></div>
+  </div>
+  
+  <div id="llm-content">
+    <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+      <div id="llm-direction" style="flex: 1; min-width: 150px; padding: 1rem; background: var(--bg-primary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">SIGNAL</div>
+        <div class="llm-signal-value" style="font-size: 1.5rem; font-weight: 600;">Loading...</div>
+      </div>
+      <div id="llm-confidence" style="flex: 1; min-width: 150px; padding: 1rem; background: var(--bg-primary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">CONFIDENCE</div>
+        <div class="llm-confidence-value" style="font-size: 1.5rem; font-weight: 600;">--</div>
+      </div>
+    </div>
+    
+    <div style="margin-bottom: 1.5rem;">
+      <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">ANALYSIS REASONING</h4>
+      <p id="llm-reasoning-text" style="color: var(--text-primary); line-height: 1.6; margin: 0;">Waiting for analysis...</p>
+    </div>
+    
+    <div style="margin-bottom: 1.5rem;">
+      <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">PATTERNS IDENTIFIED</h4>
+      <ul id="llm-patterns-list" style="margin: 0; padding-left: 1.5rem; color: var(--text-primary);"></ul>
+    </div>
+    
+    <div style="margin-bottom: 1.5rem;">
+      <h4 style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">RISK SUGGESTIONS</h4>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+        <div style="padding: 0.75rem; background: var(--bg-primary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">Stop Loss:</div>
+          <div id="llm-stop-loss" style="font-size: 1.1rem; font-weight: 600; color: #ff5e57;">--</div>
+        </div>
+        <div style="padding: 0.75rem; background: var(--bg-primary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">Take Profit:</div>
+          <div id="llm-take-profit" style="font-size: 1.1rem; font-weight: 600; color: #58D68D;">--</div>
+        </div>
+        <div style="padding: 0.75rem; background: var(--bg-primary); border-radius: 0.5rem; border: 1px solid var(--border-color);">
+          <div style="font-size: 0.75rem; color: var(--text-secondary);">Position Size:</div>
+          <div id="llm-position-size" style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">--</div>
+        </div>
+      </div>
+    </div>
+    
+    <div style="padding-top: 1rem; border-top: 1px solid var(--border-color);">
+      <small style="color: var(--text-secondary);">
+        Last updated: <span id="llm-timestamp">--</span> | 
+        Model: <span id="llm-model">--</span> | 
+        Duration: <span id="llm-duration">--</span>ms | 
+        Valid until: <span id="llm-valid-until">--</span>
+      </small>
+    </div>
+  </div>
 </div>
 
 <div class="chart-container">
@@ -1533,6 +1637,166 @@
       
       // Auto-refresh manual trading status
       setInterval(updateManualTradingStatus, 5000); // Every 5 seconds
+      
+      // =====================================================================
+      // LLM PATTERN ANALYSIS
+      // =====================================================================
+      
+      async function updateLLMAnalysis() {
+        try {
+          const response = await fetch('/api/llm/latest');
+          
+          if (!response.ok) {
+            // No analysis available yet
+            document.querySelector('#llm-reasoning-text').textContent = 
+              'No analysis available yet. Analysis runs every 15 minutes. Make sure Ollama is running with the configured model.';
+            document.querySelector('.llm-signal-value').textContent = 'NEUTRAL';
+            document.querySelector('.llm-signal-value').style.color = 'var(--text-secondary)';
+            document.querySelector('.llm-confidence-value').textContent = '--';
+            return;
+          }
+          
+          const data = await response.json();
+          
+          // Update direction badge with color
+          const directionEl = document.querySelector('.llm-signal-value');
+          directionEl.textContent = data.direction.toUpperCase();
+          if (data.direction === 'bullish') {
+            directionEl.style.color = '#58D68D';
+          } else if (data.direction === 'bearish') {
+            directionEl.style.color = '#ff5e57';
+          } else {
+            directionEl.style.color = 'var(--text-secondary)';
+          }
+          
+          // Update confidence
+          const confidenceEl = document.querySelector('.llm-confidence-value');
+          confidenceEl.textContent = (data.confidence * 100).toFixed(1) + '%';
+          if (data.confidence >= 0.7) {
+            confidenceEl.style.color = '#58D68D';
+          } else if (data.confidence >= 0.4) {
+            confidenceEl.style.color = '#FFA500';
+          } else {
+            confidenceEl.style.color = '#ff5e57';
+          }
+          
+          // Update reasoning
+          document.getElementById('llm-reasoning-text').textContent = data.reasoning;
+          
+          // Update patterns
+          const patternsList = document.getElementById('llm-patterns-list');
+          if (data.patterns_found && data.patterns_found.length > 0) {
+            patternsList.innerHTML = data.patterns_found.map(p => 
+              `<li style="margin-bottom: 0.5rem;">${p}</li>`
+            ).join('');
+          } else {
+            patternsList.innerHTML = '<li style="color: var(--text-secondary);">No specific patterns identified</li>';
+          }
+          
+          // Update suggestions
+          // Calculate percentages from absolute prices
+          const stopLossPct = ((data.suggested_stop_loss - data.current_price) / data.current_price * 100);
+          const takeProfitPct = ((data.suggested_take_profit - data.current_price) / data.current_price * 100);
+          
+          document.getElementById('llm-stop-loss').textContent = 
+            `${stopLossPct.toFixed(2)}% ($${data.suggested_stop_loss.toFixed(2)})`;
+          document.getElementById('llm-take-profit').textContent = 
+            `${takeProfitPct.toFixed(2)}% ($${data.suggested_take_profit.toFixed(2)})`;
+          document.getElementById('llm-position-size').textContent = 
+            (data.suggested_position_size * 100).toFixed(1) + '%';
+          
+          // Update metadata
+          const timestamp = new Date(data.timestamp);
+          document.getElementById('llm-timestamp').textContent = timestamp.toLocaleString();
+          document.getElementById('llm-model').textContent = data.model_used;
+          document.getElementById('llm-duration').textContent = data.analysis_duration_ms;
+          
+          const validUntil = new Date(data.cache_valid_until);
+          document.getElementById('llm-valid-until').textContent = validUntil.toLocaleString();
+          
+        } catch (error) {
+          console.error('Failed to fetch LLM analysis:', error);
+          document.querySelector('#llm-reasoning-text').textContent = 
+            'Failed to load LLM analysis. Check console for details.';
+        }
+      }
+      
+      // Manual refresh button
+      document.getElementById('refresh-llm').addEventListener('click', async () => {
+        const btn = document.getElementById('refresh-llm');
+        const originalText = btn.textContent;
+        const progressContainer = document.getElementById('llm-progress-container');
+        const progressBar = document.getElementById('llm-progress-bar');
+        const progressText = document.getElementById('llm-progress-text');
+        
+        btn.disabled = true;
+        btn.textContent = 'Analyzing...';
+        btn.style.opacity = '0.6';
+        
+        // Show progress bar
+        progressContainer.classList.add('active');
+        progressText.classList.add('active');
+        progressBar.style.width = '0%';
+        
+        // Animate progress bar over 30 seconds
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+          progress += 1;
+          progressBar.style.width = `${Math.min(progress, 95)}%`; // Stop at 95% until real results
+          if (progress >= 100) {
+            clearInterval(progressInterval);
+          }
+        }, 300); // Update every 300ms for smooth animation (100 steps = 30 seconds)
+        
+        try {
+          const response = await fetch('/api/llm/trigger', { method: 'POST' });
+          const data = await response.json();
+          
+          if (response.ok) {
+            showNotification('✅ LLM analysis triggered. Results will appear in 10-30 seconds.', 'success');
+            
+            // Poll for updated results
+            setTimeout(async () => {
+              await updateLLMAnalysis();
+              
+              // Complete progress and hide
+              clearInterval(progressInterval);
+              progressBar.style.width = '100%';
+              setTimeout(() => {
+                progressContainer.classList.remove('active');
+                progressText.classList.remove('active');
+                progressBar.style.width = '0%';
+              }, 500);
+              
+              btn.disabled = false;
+              btn.textContent = originalText;
+              btn.style.opacity = '1';
+            }, 12000);  // Wait 12 seconds before refreshing
+          } else {
+            showNotification(`❌ ${data.error || 'Failed to trigger analysis'}`, 'error');
+            clearInterval(progressInterval);
+            progressContainer.classList.remove('active');
+            progressText.classList.remove('active');
+            btn.disabled = false;
+            btn.textContent = originalText;
+            btn.style.opacity = '1';
+          }
+        } catch (error) {
+          showNotification(`❌ Error: ${error.message}`, 'error');
+          clearInterval(progressInterval);
+          progressContainer.classList.remove('active');
+          progressText.classList.remove('active');
+          btn.disabled = false;
+          btn.textContent = originalText;
+          btn.style.opacity = '1';
+        }
+      });
+      
+      // Initial load
+      updateLLMAnalysis();
+      
+      // Auto-refresh every 30 seconds
+      setInterval(updateLLMAnalysis, 30000);
       
     </script>
 {% endblock %}

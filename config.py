@@ -92,6 +92,16 @@ class BotConfig:
     strategy_macd_stop_loss_pct: float = 0.025
     strategy_macd_take_profit_pct: float = 0.05
     
+    # Strategy: LLM Pattern Analysis (Ollama)
+    strategy_llm_enabled: bool = True
+    strategy_llm_weight: float = 1.0
+    llm_ollama_url: str = "http://localhost:11434"
+    llm_ollama_model: str = "mistral"  # or llama2, codellama, phi, etc.
+    llm_lookback_days: int = 7
+    llm_cache_minutes: int = 15  # How often to refresh analysis
+    llm_timeout_seconds: int = 60
+    llm_require_patterns: bool = False  # Require at least one pattern found
+    
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
     dashboard_username: str = "admin"  # Username for dashboard access
@@ -219,6 +229,15 @@ class BotConfig:
             strategy_macd_require_zero_cross=get_val("strategy_macd_require_zero_cross", "BOT_STRATEGY_MACD_REQUIRE_ZERO_CROSS", False, bool),
             strategy_macd_stop_loss_pct=get_val("strategy_macd_stop_loss_pct", "BOT_STRATEGY_MACD_STOP_LOSS_PCT", 0.025, float),
             strategy_macd_take_profit_pct=get_val("strategy_macd_take_profit_pct", "BOT_STRATEGY_MACD_TAKE_PROFIT_PCT", 0.05, float),
+            # LLM Pattern Strategy (can be overridden by database)
+            strategy_llm_enabled=get_val("strategy_llm_enabled", "BOT_STRATEGY_LLM_ENABLED", True, bool),
+            strategy_llm_weight=get_val("strategy_llm_weight", "BOT_STRATEGY_LLM_WEIGHT", 1.0, float),
+            llm_ollama_url=get_val("llm_ollama_url", "BOT_LLM_OLLAMA_URL", "http://localhost:11434", str),
+            llm_ollama_model=get_val("llm_ollama_model", "BOT_LLM_OLLAMA_MODEL", "mistral", str),
+            llm_lookback_days=get_val("llm_lookback_days", "BOT_LLM_LOOKBACK_DAYS", 7, int),
+            llm_cache_minutes=get_val("llm_cache_minutes", "BOT_LLM_CACHE_MINUTES", 15, int),
+            llm_timeout_seconds=get_val("llm_timeout_seconds", "BOT_LLM_TIMEOUT_SECONDS", 60, int),
+            llm_require_patterns=get_val("llm_require_patterns", "BOT_LLM_REQUIRE_PATTERNS", False, bool),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),
@@ -300,6 +319,21 @@ class BotConfig:
                 "max_position_size": self.max_position_size,
                 "use_volume_filter": self.require_volume_confirmation,
                 "volume_threshold": self.volume_threshold,
+            },
+            "llm_pattern": {
+                "enabled": self.strategy_llm_enabled,
+                "weight": self.strategy_llm_weight,
+                "llm_ollama_url": self.llm_ollama_url,
+                "llm_ollama_model": self.llm_ollama_model,
+                "llm_lookback_days": self.llm_lookback_days,
+                "llm_cache_minutes": self.llm_cache_minutes,
+                "llm_timeout_seconds": self.llm_timeout_seconds,
+                "llm_require_patterns": self.llm_require_patterns,
+                # Include other risk management params for fallback
+                "stop_loss_pct": self.stop_loss_pct,
+                "take_profit_pct": self.take_profit_pct,
+                "min_position_size": self.min_position_size,
+                "max_position_size": self.max_position_size,
             }
         }
 

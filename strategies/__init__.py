@@ -11,6 +11,14 @@ from .macd_volume_strategy import MACDVolumeStrategy
 from .strategy_manager import StrategyManager, SignalAggregationMode
 from .constants import StrategyNames
 
+# LLM strategy is optional (requires database and Ollama)
+try:
+    from .llm_pattern_strategy import LLMPatternStrategy
+    LLM_AVAILABLE = True
+except ImportError:
+    LLMPatternStrategy = None
+    LLM_AVAILABLE = False
+
 __all__ = [
     'BaseStrategy',
     'StrategySignal',
@@ -20,4 +28,6 @@ __all__ = [
     'StrategyManager',
     'SignalAggregationMode',
     'StrategyNames',
+    'LLMPatternStrategy',
+    'LLM_AVAILABLE',
 ]

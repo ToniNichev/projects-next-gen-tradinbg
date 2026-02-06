@@ -29,12 +29,14 @@ class StrategyNames:
     EMA_CROSSOVER = "EMA_Crossover"
     RSI_BB_MEAN_REVERSION = "RSI_BB_MeanReversion"
     MACD_VOLUME_MOMENTUM = "MACD_Volume_Momentum"
+    LLM_PATTERN = "llm_pattern"
     
     # Display names for UI (user-friendly)
     DISPLAY_NAMES = {
         EMA_CROSSOVER: "EMA Crossover",
         RSI_BB_MEAN_REVERSION: "RSI + Bollinger Bands",
         MACD_VOLUME_MOMENTUM: "MACD + Volume Momentum",
+        LLM_PATTERN: "LLM Pattern Analysis",
     }
     
     # Config keys for database persistence
@@ -42,6 +44,7 @@ class StrategyNames:
         EMA_CROSSOVER: "strategy_ema_enabled",
         RSI_BB_MEAN_REVERSION: "strategy_rsi_bb_enabled",
         MACD_VOLUME_MOMENTUM: "strategy_macd_enabled",
+        LLM_PATTERN: "strategy_llm_enabled",
     }
     
     # Strategy configuration section names
@@ -49,6 +52,7 @@ class StrategyNames:
         EMA_CROSSOVER: "ema_crossover",
         RSI_BB_MEAN_REVERSION: "rsi_bb",
         MACD_VOLUME_MOMENTUM: "macd_volume",
+        LLM_PATTERN: "llm_pattern",
     }
     
     # Strategy types/categories
@@ -56,6 +60,7 @@ class StrategyNames:
         EMA_CROSSOVER: "Trend Following",
         RSI_BB_MEAN_REVERSION: "Mean Reversion",
         MACD_VOLUME_MOMENTUM: "Momentum Breakout",
+        LLM_PATTERN: "AI Pattern Recognition",
     }
     
     # Strategy icons (for UI)
@@ -63,6 +68,7 @@ class StrategyNames:
         EMA_CROSSOVER: "📈",
         RSI_BB_MEAN_REVERSION: "🌊",
         MACD_VOLUME_MOMENTUM: "📊",
+        LLM_PATTERN: "🤖",
     }
     
     @classmethod
@@ -77,6 +83,7 @@ class StrategyNames:
             cls.EMA_CROSSOVER,
             cls.RSI_BB_MEAN_REVERSION,
             cls.MACD_VOLUME_MOMENTUM,
+            cls.LLM_PATTERN,
         ]
     
     @classmethod
@@ -184,3 +191,4 @@ class StrategyNames:
 STRATEGY_EMA = StrategyNames.EMA_CROSSOVER
 STRATEGY_RSI_BB = StrategyNames.RSI_BB_MEAN_REVERSION
 STRATEGY_MACD = StrategyNames.MACD_VOLUME_MOMENTUM
+STRATEGY_LLM = StrategyNames.LLM_PATTERN

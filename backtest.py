@@ -10,12 +10,15 @@ try:
         EMACrossoverStrategy,
         RSIBollingerBandsStrategy,
         MACDVolumeStrategy,
+        LLMPatternStrategy,
         StrategyManager,
         SignalAggregationMode,
+        LLM_AVAILABLE,
     )
     MULTI_STRATEGY_AVAILABLE = True
 except ImportError:
     MULTI_STRATEGY_AVAILABLE = False
+    LLM_AVAILABLE = False
     from strategy import compute_signal
     logging.warning("Multi-strategy system not available. Using legacy single strategy for backtest.")
 
@@ -90,6 +93,16 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     # Build exchange (read-only, no API keys needed for historical data)
     exchange = ccxt.binanceus({"enableRateLimit": True})
     
+    # Get trading database manager for LLM strategy (reads trade history for pattern analysis)
+    # This is separate from the backtest database (which stores backtest results)
+    trading_db_manager = None
+    if DATABASE_AVAILABLE:
+        try:
+            from database import get_database
+            trading_db_manager = get_database()
+        except Exception as e:
+            logging.warning(f"Could not get trading database manager: {e}")
+    
     # Initialize strategy system
     strategy_manager = None
     if config.use_multi_strategy and MULTI_STRATEGY_AVAILABLE:
@@ -122,6 +135,21 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         strategies.append(macd_strategy)
         status = "✓ Enabled" if macd_strategy.is_enabled() else "✗ Disabled"
         logging.info(f"{status}: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
+        
+        # LLM Pattern Analysis Strategy (optional - requires Ollama and database)
+        if LLM_AVAILABLE:
+            try:
+                llm_config = strategy_configs.get("llm_pattern", {})
+                # Pass trading database manager to LLM strategy for trade history analysis
+                llm_strategy = LLMPatternStrategy(llm_config, db_manager=trading_db_manager)
+                llm_strategy.set_enabled(llm_config.get("enabled", False))
+                strategies.append(llm_strategy)
+                status = "✓ Enabled" if llm_strategy.is_enabled() else "✗ Disabled"
+                logging.info(f"{status}: {llm_strategy.name} (weight: {llm_strategy.get_weight()})")
+            except Exception as e:
+                logging.warning(f"✗ LLM strategy unavailable: {e}")
+        else:
+            logging.info("✗ Disabled: LLM Pattern Analysis (not available)")
         
         # Check if at least one strategy is enabled
         enabled_strategies = [s for s in strategies if s.is_enabled()]

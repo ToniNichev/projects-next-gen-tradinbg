@@ -1280,6 +1280,140 @@ def get_timing_history():
     })
 
 
+# =============================================================================
+# LLM VALIDATION API - Quick direction prediction testing
+# =============================================================================
+
+# Store validation results
+_validation_results = []
+_validation_running = False
+
+@app.route("/api/llm/validate", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")
+def run_llm_validation():
+    """
+    Run LLM direction validation tests.
+    
+    This is a quick test that validates if the LLM can predict market direction
+    without the overhead of full per-candle backtesting.
+    
+    Request body:
+        num_tests: Number of validation periods to test (default: 5)
+        model: Ollama model to use (default: from config)
+        quick: If true, run single quick test (default: false)
+    """
+    global _validation_running, _validation_results
+    
+    if _validation_running:
+        return jsonify({"error": "Validation already running"}), 409
+    
+    try:
+        data = request.get_json() or {}
+        num_tests = data.get("num_tests", 5)
+        quick_mode = data.get("quick", False)
+        
+        # Get model from config or request
+        from config import BotConfig
+        config = BotConfig.load()
+        model = data.get("model", config.llm_ollama_model)
+        
+        # Import validator
+        try:
+            from llm_validator import LLMValidator
+        except ImportError:
+            return jsonify({"error": "LLM validator not available"}), 500
+        
+        _validation_running = True
+        
+        # Run validation
+        validator = LLMValidator(
+            ollama_url=config.llm_ollama_url,
+            model=model,
+            symbol=config.symbol,
+        )
+        
+        if quick_mode:
+            results = validator.quick_test()
+        else:
+            results = validator.run_validation(num_tests=num_tests)
+        
+        # Store results
+        results["id"] = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        results["timestamp"] = datetime.now(timezone.utc).isoformat()
+        _validation_results.insert(0, results)
+        
+        # Keep only last 20 results
+        if len(_validation_results) > 20:
+            _validation_results = _validation_results[:20]
+        
+        _validation_running = False
+        
+        return jsonify(results), 200
+        
+    except Exception as e:
+        _validation_running = False
+        logging.error(f"LLM validation failed: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/llm/validate/quick", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def run_quick_validation():
+    """Run a single quick validation test (~15 seconds)."""
+    global _validation_running
+    
+    if _validation_running:
+        return jsonify({"error": "Validation already running"}), 409
+    
+    try:
+        from config import BotConfig
+        from llm_validator import LLMValidator
+        
+        config = BotConfig.load()
+        _validation_running = True
+        
+        validator = LLMValidator(
+            ollama_url=config.llm_ollama_url,
+            model=config.llm_ollama_model,
+            symbol=config.symbol,
+        )
+        
+        results = validator.quick_test()
+        results["timestamp"] = datetime.now(timezone.utc).isoformat()
+        
+        _validation_running = False
+        return jsonify(results), 200
+        
+    except Exception as e:
+        _validation_running = False
+        logging.error(f"Quick validation failed: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/llm/validate/results")
+@require_auth
+@limiter.limit("30 per minute")
+def get_validation_results():
+    """Get all validation results."""
+    return jsonify({
+        "results": _validation_results,
+        "running": _validation_running,
+    })
+
+
+@app.route("/api/llm/validate/status")
+@require_auth
+@limiter.limit("30 per minute")
+def get_validation_status():
+    """Get current validation status."""
+    return jsonify({
+        "running": _validation_running,
+        "last_result": _validation_results[0] if _validation_results else None,
+    })
+
+
 @app.route("/api/manual/status")
 @require_auth
 @limiter.limit("30 per minute")
@@ -1660,6 +1794,158 @@ def clear_all_trades():
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# =====================================================================
+# LLM PATTERN ANALYSIS ENDPOINTS
+# =====================================================================
+
+@app.route("/api/llm/latest")
+@require_auth
+@limiter.limit("30 per minute")
+def get_latest_llm_analysis():
+    """Get most recent LLM pattern analysis"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        db = get_database()
+        analysis = db.get_latest_llm_analysis()
+        
+        if not analysis:
+            return jsonify({"error": "No LLM analysis available yet"}), 404
+        
+        return jsonify({
+            "timestamp": analysis.timestamp.isoformat(),
+            "direction": analysis.direction,
+            "confidence": analysis.confidence,
+            "reasoning": analysis.reasoning,
+            "patterns_found": json.loads(analysis.patterns_found),
+            "suggested_stop_loss": analysis.suggested_stop_loss,
+            "suggested_take_profit": analysis.suggested_take_profit,
+            "suggested_position_size": analysis.suggested_position_size,
+            "current_price": analysis.current_price,
+            "recent_win_rate": analysis.recent_win_rate,
+            "recent_pnl": analysis.recent_pnl,
+            "cache_valid_until": analysis.cache_valid_until.isoformat(),
+            "model_used": analysis.model_used,
+            "analysis_duration_ms": analysis.analysis_duration_ms,
+            "num_trades_analyzed": analysis.num_trades_analyzed,
+            "analysis_period_days": analysis.analysis_period_days,
+        })
+    except Exception as e:
+        logging.error(f"Error fetching LLM analysis: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/llm/history")
+@require_auth
+@limiter.limit("30 per minute")
+def get_llm_analysis_history():
+    """Get historical LLM analyses"""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    
+    try:
+        limit = min(int(request.args.get("limit", 20)), 100)
+        db = get_database()
+        analyses = db.get_llm_analysis_history(limit=limit)
+        
+        return jsonify({
+            "analyses": [{
+                "timestamp": a.timestamp.isoformat(),
+                "direction": a.direction,
+                "confidence": a.confidence,
+                "patterns_found": json.loads(a.patterns_found),
+                "current_price": a.current_price,
+                "reasoning": a.reasoning[:100] + "..." if len(a.reasoning) > 100 else a.reasoning,
+            } for a in analyses],
+            "count": len(analyses)
+        })
+    except Exception as e:
+        logging.error(f"Error fetching LLM history: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/llm/trigger", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")  # Lower limit for manual triggers
+def trigger_llm_analysis():
+    """Manually trigger LLM analysis (bypass cache)"""
+    try:
+        # Check if strategy manager is available
+        if not _strategy_manager:
+            return jsonify({"error": "Strategy manager not available"}), 503
+        
+        # Find LLM strategy in the manager
+        from strategies.constants import StrategyNames
+        llm_strategy = None
+        for strategy in _strategy_manager.strategies:
+            if strategy.name == StrategyNames.LLM_PATTERN:
+                llm_strategy = strategy
+                break
+        
+        if not llm_strategy:
+            return jsonify({"error": "LLM strategy not configured"}), 503
+        
+        # Trigger analysis in background thread
+        def run_analysis():
+            try:
+                # Temporarily set cache to 0 to force new analysis
+                original_cache = llm_strategy.cache_minutes
+                llm_strategy.cache_minutes = 0
+                
+                signal = llm_strategy.compute_signal(
+                    exchange=_exchange_instance,
+                    symbol="BTC/USDT",  # TODO: Get from config
+                    timeframe="1h",
+                    candle_data=None
+                )
+                
+                llm_strategy.cache_minutes = original_cache
+                logging.info(f"Manual LLM analysis completed: {signal.direction} (confidence: {signal.confidence:.2f})")
+            except Exception as e:
+                logging.error(f"Manual LLM analysis failed: {e}", exc_info=True)
+        
+        threading.Thread(target=run_analysis, daemon=True, name="ManualLLMAnalysis").start()
+        
+        return jsonify({
+            "status": "triggered",
+            "message": "LLM analysis started. Results will be available in 10-30 seconds."
+        })
+        
+    except Exception as e:
+        logging.error(f"Error triggering LLM analysis: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/llm/clear-cache", methods=["POST"])
+@require_auth
+@limiter.limit("10 per minute")
+def clear_llm_cache():
+    """Clear all cached LLM analyses"""
+    try:
+        if not DATABASE_AVAILABLE:
+            return jsonify({"error": "Database not available"}), 503
+        
+        from database import LLMAnalysis
+        db = get_database()
+        
+        # Clear all LLM analyses from cache using proper session query
+        with db.get_session() as session:
+            count = session.query(LLMAnalysis).delete()
+        
+        logging.info(f"Cleared {count} LLM analysis cache entries")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Cleared {count} cached analysis entries",
+            "count": count
+        })
+        
+    except Exception as e:
+        logging.error(f"Error clearing LLM cache: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
