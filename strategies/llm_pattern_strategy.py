@@ -40,6 +40,14 @@ class LLMPatternStrategy(BaseStrategy):
         self.timeout_seconds = config.get("llm_timeout_seconds", 60)
         self.require_patterns = config.get("llm_require_patterns", False)
         
+        # Backtest sampling - only analyze every Nth candle to speed up backtests
+        # Default: 12 candles (= 1 hour on 5m timeframe, 5 hours on 1h timeframe)
+        self.backtest_sample_interval = config.get("llm_backtest_sample_interval", 12)
+        
+        # Backtest state tracking
+        self._backtest_candle_count = 0
+        self._last_backtest_analysis = None
+        
         # Database manager for trade history and caching
         self.db_manager = db_manager
         
@@ -90,6 +98,23 @@ class LLMPatternStrategy(BaseStrategy):
             current_price = self._get_current_price(exchange, symbol)
             is_backtest_mode = False
         
+        # BACKTEST SAMPLING: Only analyze every Nth candle to speed up backtests
+        if is_backtest_mode:
+            self._backtest_candle_count += 1
+            should_analyze = (self._backtest_candle_count % self.backtest_sample_interval == 0)
+            
+            if not should_analyze and self._last_backtest_analysis:
+                # Reuse last analysis for this candle
+                logger.debug(f"{self.name}: Skipping candle {self._backtest_candle_count} (sampling every {self.backtest_sample_interval})")
+                return self._signal_from_analysis(self._last_backtest_analysis, exchange, symbol, current_price)
+            elif not should_analyze:
+                # No previous analysis yet, return neutral
+                logger.debug(f"{self.name}: No previous analysis yet, returning neutral")
+                return self._neutral_signal(exchange, symbol, current_price)
+            else:
+                # Time to analyze this candle!
+                logger.info(f"{self.name}: Analyzing candle {self._backtest_candle_count} (every {self.backtest_sample_interval} candles)")
+        
         # Check for cached analysis (skip in backtest mode to ensure fresh analysis per candle)
         if self.db_manager and not is_backtest_mode and self.cache_minutes > 0:
             cached = self._get_cached_analysis()
@@ -121,12 +146,22 @@ class LLMPatternStrategy(BaseStrategy):
             # Perform LLM analysis with market data
             analysis = self._analyze_with_llm(market_data, trade_context, current_price, symbol)
             
+            # Save analysis for backtest sampling (reuse for next N-1 candles)
+            if is_backtest_mode and analysis:
+                self._last_backtest_analysis = analysis
+            
             # Cache the analysis (only in live mode, not during backtesting)
             if analysis and self.db_manager and not is_backtest_mode and self.cache_minutes > 0:
                 self._cache_analysis(analysis)
             
             return self._signal_from_analysis(analysis, exchange, symbol, current_price)
             
+        except ConnectionError as e:
+            logger.error(f"{self.name}: Cannot connect to Ollama - returning neutral signal")
+            return self._neutral_signal(exchange, symbol, current_price)
+        except TimeoutError as e:
+            logger.error(f"{self.name}: Ollama request timed out - returning neutral signal")
+            return self._neutral_signal(exchange, symbol, current_price)
         except Exception as e:
             logger.error(f"{self.name}: LLM analysis failed: {e}", exc_info=True)
             return self._neutral_signal(exchange, symbol, current_price)
@@ -197,8 +232,8 @@ class LLMPatternStrategy(BaseStrategy):
         # Calculate MACD
         macd_line, signal_line, macd_histogram = self._calculate_macd(closes)
         
-        # Calculate volume analysis
-        avg_volume = np.mean(volumes[-20:])
+        # Calculate volume analysis (use longer period for more stable baseline)
+        avg_volume = np.mean(volumes[-50:]) if len(volumes) >= 50 else np.mean(volumes)
         current_volume = volumes[-1]
         volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
         
@@ -225,9 +260,17 @@ class LLMPatternStrategy(BaseStrategy):
                 "change_pct": ((c[4] - c[1]) / c[1] * 100) if c[1] > 0 else 0
             })
         
-        # Price change statistics
-        price_change_24h = ((current_price - closes[-24]) / closes[-24] * 100) if len(closes) >= 24 else 0
-        price_change_7d = ((current_price - closes[-min(168, len(closes))]) / closes[-min(168, len(closes))] * 100) if len(closes) > 1 else 0
+        # Price change statistics (account for different timeframes)
+        # Convert timeframe to hours for accurate 24h/7d calculations
+        timeframe_hours_map = {'5m': 1/12, '15m': 1/4, '30m': 0.5, '1h': 1, '2h': 2, '4h': 4, '6h': 6, '12h': 12, '1d': 24}
+        hours_per_candle = timeframe_hours_map.get(timeframe, 1)
+        
+        # Calculate candles needed for 24h and 7d
+        candles_24h = max(1, int(24 / hours_per_candle))
+        candles_7d = max(1, int(168 / hours_per_candle))  # 168 hours = 7 days
+        
+        price_change_24h = ((current_price - closes[-min(candles_24h, len(closes))]) / closes[-min(candles_24h, len(closes))] * 100) if len(closes) >= 2 else 0
+        price_change_7d = ((current_price - closes[-min(candles_7d, len(closes))]) / closes[-min(candles_7d, len(closes))] * 100) if len(closes) >= 2 else 0
         
         return {
             "symbol": symbol,
@@ -269,12 +312,28 @@ class LLMPatternStrategy(BaseStrategy):
         """Calculate MACD indicator"""
         import numpy as np
         
-        # Calculate EMAs
-        ema_fast = self._calculate_ema(closes, fast)
-        ema_slow = self._calculate_ema(closes, slow)
+        # Need enough data for MACD calculation
+        if len(closes) < slow + signal:
+            # Not enough data, return zeros
+            return 0.0, 0.0, 0.0
         
-        macd_line = ema_fast - ema_slow
-        signal_line = self._calculate_ema(np.append(closes[-signal:], macd_line), signal)
+        # Calculate MACD line for all periods (need historical values for signal line EMA)
+        macd_values = []
+        for i in range(slow, len(closes) + 1):
+            ema_f = self._calculate_ema(closes[:i], fast)
+            ema_s = self._calculate_ema(closes[:i], slow)
+            macd_values.append(ema_f - ema_s)
+        
+        # Convert to numpy array
+        macd_array = np.array(macd_values)
+        
+        # Current MACD line (most recent value)
+        macd_line = macd_array[-1]
+        
+        # Signal line is EMA of MACD values
+        signal_line = self._calculate_ema(macd_array, signal)
+        
+        # MACD histogram
         macd_histogram = macd_line - signal_line
         
         return float(macd_line), float(signal_line), float(macd_histogram)
@@ -297,7 +356,7 @@ class LLMPatternStrategy(BaseStrategy):
         
         # Filter to levels below current price and cluster nearby levels
         supports = [s for s in support_candidates if s < current_price * 0.98]
-        supports = sorted(set([round(s, -2) for s in supports]))  # Round and deduplicate
+        supports = sorted(set([self._round_price_level(s) for s in supports]))  # Round and deduplicate
         
         return supports[-num_levels:] if len(supports) > num_levels else supports
     
@@ -311,9 +370,22 @@ class LLMPatternStrategy(BaseStrategy):
         
         # Filter to levels above current price and cluster nearby levels
         resistances = [r for r in resistance_candidates if r > current_price * 1.02]
-        resistances = sorted(set([round(r, -2) for r in resistances]))  # Round and deduplicate
+        resistances = sorted(set([self._round_price_level(r) for r in resistances]))  # Round and deduplicate
         
         return resistances[:num_levels] if len(resistances) > num_levels else resistances
+    
+    def _round_price_level(self, price: float) -> float:
+        """Round price to appropriate precision based on magnitude"""
+        if price >= 10000:
+            return round(price, -2)  # Nearest 100 (e.g., BTC)
+        elif price >= 1000:
+            return round(price, -1)  # Nearest 10 (e.g., ETH)
+        elif price >= 100:
+            return round(price, 0)   # Nearest 1
+        elif price >= 1:
+            return round(price, 1)   # 1 decimal
+        else:
+            return round(price, 4)   # 4 decimals for small prices
     
     def _prepare_trade_context(self, trades: list) -> Dict:
         """Prepare trade history as optional context for LLM"""
@@ -345,7 +417,7 @@ class LLMPatternStrategy(BaseStrategy):
         logger.info(f"{self.name}: Sending market analysis request to Ollama ({self.model})...")
         
         try:
-            # Call Ollama API
+            # Call Ollama API with timeout
             response = self.ollama_client.generate(
                 model=self.model,
                 prompt=prompt,
@@ -353,6 +425,7 @@ class LLMPatternStrategy(BaseStrategy):
                 options={
                     "temperature": 0.3,  # Lower temperature for more consistent analysis
                     "num_predict": 1000,  # Max tokens
+                    "timeout": self.timeout_seconds,  # Add timeout
                 }
             )
             
@@ -385,6 +458,12 @@ class LLMPatternStrategy(BaseStrategy):
             
             return analysis
             
+        except ConnectionError as e:
+            logger.error(f"{self.name}: Cannot connect to Ollama at {self.ollama_url}. Is Ollama running?")
+            raise ConnectionError(f"Ollama connection failed: {e}")
+        except TimeoutError as e:
+            logger.error(f"{self.name}: Ollama request timed out after {self.timeout_seconds}s")
+            raise TimeoutError(f"Ollama timeout: {e}")
         except Exception as e:
             logger.error(f"{self.name}: Ollama API call failed: {e}")
             raise
@@ -481,15 +560,22 @@ Response:"""
         
         Handles both JSON and natural language responses.
         """
-        # Try to find JSON in the response
+        # Try to find JSON in the response (support nested JSON)
         import re
         
-        json_match = re.search(r'\{[^{}]*"direction"[^{}]*\}', llm_output, re.DOTALL)
+        # Find all potential JSON blocks (including nested braces)
+        json_pattern = r'\{(?:[^{}]|(?:\{[^{}]*\}))*\}'
+        json_matches = re.findall(json_pattern, llm_output, re.DOTALL)
+        
+        json_match = None
+        for match in json_matches:
+            if '"direction"' in match:
+                json_match = match
+                break
         
         if json_match:
             try:
-                json_str = json_match.group(0)
-                data = json.loads(json_str)
+                data = json.loads(json_match)
                 
                 # Validate and normalize
                 direction = data.get("direction", "neutral").lower()
@@ -518,11 +604,11 @@ Response:"""
                     stop_loss = 0.0
                     take_profit = 0.0
                 
-                # If require_patterns is True and no patterns found, return neutral
+                # If require_patterns is True and no patterns found, log warning and reduce confidence
                 if self.require_patterns and not patterns_found:
-                    logger.info(f"{self.name}: require_patterns=True but no patterns found, forcing neutral")
-                    direction = "neutral"
-                    confidence = 0.0
+                    logger.warning(f"{self.name}: require_patterns=True but no patterns found. LLM provided {direction} signal with {confidence:.1%} confidence but no specific patterns. Consider disabling require_patterns or using a more detailed prompt.")
+                    # Reduce confidence but don't force neutral (LLM analysis may still be valid)
+                    confidence = confidence * 0.5
                 
                 return {
                     "direction": direction,
@@ -555,11 +641,11 @@ Response:"""
             direction = "bearish"
             confidence = 0.5
         
-        # If require_patterns is True, force neutral for unparseable responses
+        # If require_patterns is True, warn about lack of structured patterns
         if self.require_patterns:
-            logger.info(f"{self.name}: require_patterns=True but no structured patterns, forcing neutral")
-            direction = "neutral"
-            confidence = 0.0
+            logger.warning(f"{self.name}: require_patterns=True but LLM response was not parseable JSON. Falling back to natural language parsing. Consider improving the LLM prompt or disabling require_patterns.")
+            # Reduce confidence since we couldn't get structured output
+            confidence = confidence * 0.3
         
         return {
             "direction": direction,
@@ -748,6 +834,7 @@ Response:"""
             "cache_minutes": self.cache_minutes,
             "timeout_seconds": self.timeout_seconds,
             "require_patterns": self.require_patterns,
+            "backtest_sample_interval": self.backtest_sample_interval,
             "stop_loss_pct": self.stop_loss_pct,
             "take_profit_pct": self.take_profit_pct,
             "min_position_size": self.min_position_size,

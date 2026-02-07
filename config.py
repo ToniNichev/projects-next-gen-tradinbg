@@ -101,6 +101,7 @@ class BotConfig:
     llm_cache_minutes: int = 15  # How often to refresh analysis
     llm_timeout_seconds: int = 60
     llm_require_patterns: bool = False  # Require at least one pattern found
+    llm_backtest_sample_interval: int = 12  # Analyze every Nth candle in backtests (12 = once per hour on 5m)
     
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
@@ -238,6 +239,7 @@ class BotConfig:
             llm_cache_minutes=get_val("llm_cache_minutes", "BOT_LLM_CACHE_MINUTES", 15, int),
             llm_timeout_seconds=get_val("llm_timeout_seconds", "BOT_LLM_TIMEOUT_SECONDS", 60, int),
             llm_require_patterns=get_val("llm_require_patterns", "BOT_LLM_REQUIRE_PATTERNS", False, bool),
+            llm_backtest_sample_interval=get_val("llm_backtest_sample_interval", "BOT_LLM_BACKTEST_SAMPLE_INTERVAL", 12, int),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),
@@ -329,6 +331,7 @@ class BotConfig:
                 "llm_cache_minutes": self.llm_cache_minutes,
                 "llm_timeout_seconds": self.llm_timeout_seconds,
                 "llm_require_patterns": self.llm_require_patterns,
+                "llm_backtest_sample_interval": self.llm_backtest_sample_interval,
                 # Include other risk management params for fallback
                 "stop_loss_pct": self.stop_loss_pct,
                 "take_profit_pct": self.take_profit_pct,

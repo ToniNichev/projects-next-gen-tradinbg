@@ -505,6 +505,17 @@ def get_strategy_config():
                 "strategy_macd_require_zero_cross": config.strategy_macd_require_zero_cross,
                 "strategy_macd_stop_loss_pct": config.strategy_macd_stop_loss_pct,
                 "strategy_macd_take_profit_pct": config.strategy_macd_take_profit_pct,
+                
+                # LLM Pattern Strategy
+                "strategy_llm_enabled": config.strategy_llm_enabled,
+                "strategy_llm_weight": config.strategy_llm_weight,
+                "llm_ollama_model": config.llm_ollama_model,
+                "llm_ollama_url": config.llm_ollama_url,
+                "llm_lookback_days": config.llm_lookback_days,
+                "llm_cache_minutes": config.llm_cache_minutes,
+                "llm_timeout_seconds": config.llm_timeout_seconds,
+                "llm_require_patterns": config.llm_require_patterns,
+                "llm_backtest_sample_interval": config.llm_backtest_sample_interval,
             }
         
         return jsonify({
@@ -596,6 +607,17 @@ def update_strategy_config():
             "strategy_macd_require_zero_cross": {"type": "bool", "category": "macd"},
             "strategy_macd_stop_loss_pct": {"type": "float", "category": "macd"},
             "strategy_macd_take_profit_pct": {"type": "float", "category": "macd"},
+            
+            # LLM Pattern Strategy
+            "strategy_llm_enabled": {"type": "bool", "category": "llm"},
+            "strategy_llm_weight": {"type": "float", "category": "llm"},
+            "llm_ollama_model": {"type": "str", "category": "llm"},
+            "llm_ollama_url": {"type": "str", "category": "llm"},
+            "llm_lookback_days": {"type": "int", "category": "llm"},
+            "llm_cache_minutes": {"type": "int", "category": "llm"},
+            "llm_timeout_seconds": {"type": "int", "category": "llm"},
+            "llm_require_patterns": {"type": "bool", "category": "llm"},
+            "llm_backtest_sample_interval": {"type": "int", "category": "llm"},
         }
         
         # Prepare configs for batch update
@@ -819,6 +841,17 @@ def apply_preset_api(preset_name):
             "strategy_macd_require_zero_cross": {"type": "bool", "category": "macd"},
             "strategy_macd_stop_loss_pct": {"type": "float", "category": "macd"},
             "strategy_macd_take_profit_pct": {"type": "float", "category": "macd"},
+            
+            # LLM Pattern Strategy
+            "strategy_llm_enabled": {"type": "bool", "category": "llm"},
+            "strategy_llm_weight": {"type": "float", "category": "llm"},
+            "llm_ollama_model": {"type": "str", "category": "llm"},
+            "llm_ollama_url": {"type": "str", "category": "llm"},
+            "llm_lookback_days": {"type": "int", "category": "llm"},
+            "llm_cache_minutes": {"type": "int", "category": "llm"},
+            "llm_timeout_seconds": {"type": "int", "category": "llm"},
+            "llm_require_patterns": {"type": "bool", "category": "llm"},
+            "llm_backtest_sample_interval": {"type": "int", "category": "llm"},
         }
         
         # Prepare configs for batch update
@@ -1858,6 +1891,7 @@ def get_llm_analysis_history():
                 "direction": a.direction,
                 "confidence": a.confidence,
                 "patterns_found": json.loads(a.patterns_found),
+                "patterns_count": len(json.loads(a.patterns_found)) if a.patterns_found else 0,
                 "current_price": a.current_price,
                 "reasoning": a.reasoning[:100] + "..." if len(a.reasoning) > 100 else a.reasoning,
             } for a in analyses],
@@ -1892,9 +1926,17 @@ def trigger_llm_analysis():
         # Trigger analysis in background thread
         def run_analysis():
             try:
-                # Temporarily set cache to 0 to force new analysis
-                original_cache = llm_strategy.cache_minutes
-                llm_strategy.cache_minutes = 0
+                # Clear cached analysis to force new analysis (but keep cache_minutes > 0 so results get saved)
+                if llm_strategy.db_manager:
+                    try:
+                        from database import LLMAnalysis
+                        with llm_strategy.db_manager.get_session() as session:
+                            # Delete old cache entries to force fresh analysis
+                            session.query(LLMAnalysis).delete()
+                            session.commit()
+                        logging.info("Cleared LLM analysis cache to force fresh analysis")
+                    except Exception as e:
+                        logging.warning(f"Could not clear cache, proceeding anyway: {e}")
                 
                 signal = llm_strategy.compute_signal(
                     exchange=_exchange_instance,
@@ -1903,7 +1945,6 @@ def trigger_llm_analysis():
                     candle_data=None
                 )
                 
-                llm_strategy.cache_minutes = original_cache
                 logging.info(f"Manual LLM analysis completed: {signal.direction} (confidence: {signal.confidence:.2f})")
             except Exception as e:
                 logging.error(f"Manual LLM analysis failed: {e}", exc_info=True)
