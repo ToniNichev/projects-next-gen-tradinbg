@@ -1,4 +1,12 @@
 #!/bin/bash
+
+echo "Restarting trading bot service..."
+
+# Stop the service
 ./stop.sh
-sleep 2
+
+# Wait a moment
+sleep 3
+
+# Start the service
 ./start.sh
