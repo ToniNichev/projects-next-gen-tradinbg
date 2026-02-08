@@ -3364,29 +3364,39 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     resultDiv.style.display = 'block';
     resultDiv.style.background = 'rgba(88, 166, 255, 0.1)';
     resultDiv.style.border = '1px solid var(--accent-blue)';
-    resultDiv.innerHTML = '<span style="color: var(--accent-blue);">Connecting to Ollama...</span>';
+    resultDiv.innerHTML = '<span style="color: var(--accent-blue);">Testing Ollama connection on server...</span>';
     
     try {
       const url = document.getElementById('llmOllamaUrl').value;
       const model = document.getElementById('llmModel').value;
       
-      // Test basic connection
-      const response = await fetch(`${url}/api/version`, {
-        method: 'GET',
-      }).catch(() => null);
+      // Call backend API to test connection server-side
+      const response = await fetch('/api/llm/test-connection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: url,
+          model: model
+        })
+      });
       
-      if (!response || !response.ok) {
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        // Connection failed
         resultDiv.style.background = 'rgba(231, 76, 60, 0.1)';
         resultDiv.style.border = '1px solid var(--accent-red)';
         resultDiv.innerHTML = `
           <strong style="color: var(--accent-red);">❌ Connection Failed</strong>
           <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
-            Cannot connect to Ollama at <code>${url}</code>
+            ${data.error || 'Cannot connect to Ollama'}
             <br><br>
             <strong>Fix:</strong>
-            <br>1. Install Ollama: <code>curl -fsSL https://ollama.ai/install.sh | sh</code>
-            <br>2. Start service: <code>ollama serve</code>
-            <br>3. Check URL is correct in config above
+            <br>1. Check Ollama is running on server: <code>ollama serve</code>
+            <br>2. Verify URL: <code>${url}</code>
+            ${data.suggestion ? `<br>3. ${data.suggestion}` : ''}
           </p>
         `;
         btn.disabled = false;
@@ -3394,23 +3404,17 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         return;
       }
       
-      // Connection successful
-      const versionData = await response.json();
-      
-      // Check if model is available
-      const modelsResponse = await fetch(`${url}/api/tags`);
-      const modelsData = await modelsResponse.json();
-      const modelExists = modelsData.models?.some(m => m.name.startsWith(model));
-      
-      if (modelExists) {
+      // Connection successful - check if model exists
+      if (data.model_exists) {
         resultDiv.style.background = 'rgba(88, 214, 141, 0.1)';
         resultDiv.style.border = '1px solid var(--accent-green)';
         resultDiv.innerHTML = `
           <strong style="color: var(--accent-green);">✅ Connection Successful</strong>
           <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
-            Ollama version: <code>${versionData.version || 'unknown'}</code>
+            Ollama version: <code>${data.version || 'unknown'}</code>
             <br>Model <code>${model}</code> is installed and ready
-            <br>Available models: ${modelsData.models?.length || 0}
+            <br>Available models: ${data.available_models?.length || 0}
+            ${data.available_models?.length > 0 ? `<br><small>(${data.available_models.slice(0, 5).join(', ')}${data.available_models.length > 5 ? ', ...' : ''})</small>` : ''}
           </p>
         `;
       } else {
@@ -3421,9 +3425,9 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
           <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
             Ollama is running but model <code>${model}</code> is not installed
             <br><br>
-            <strong>Fix:</strong> <code>ollama pull ${model}</code>
+            <strong>Fix:</strong> Run on server: <code>ollama pull ${model}</code>
             <br><br>
-            Installed models: ${modelsData.models?.map(m => m.name).join(', ') || 'none'}
+            ${data.available_models?.length > 0 ? `Installed models: ${data.available_models.join(', ')}` : 'No models installed yet'}
           </p>
         `;
       }
@@ -3434,7 +3438,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       resultDiv.innerHTML = `
         <strong style="color: var(--accent-red);">❌ Test Failed</strong>
         <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
-          ${error.message}
+          ${error.message || 'Unknown error occurred'}
         </p>
       `;
     } finally {

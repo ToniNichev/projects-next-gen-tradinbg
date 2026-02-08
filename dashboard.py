@@ -1990,6 +1990,114 @@ def clear_llm_cache():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/llm/test-connection", methods=["POST"])
+@require_auth
+@limiter.limit("20 per minute")
+def test_llm_connection():
+    """
+    Test Ollama connection server-side.
+    
+    This endpoint tests the Ollama connection from the server, which works for
+    remote deployments where the browser cannot directly access localhost:11434.
+    
+    Request body (optional):
+        {
+            "url": "http://localhost:11434",
+            "model": "phi3"
+        }
+    
+    Returns:
+        {
+            "success": true/false,
+            "version": "0.1.x",
+            "model_exists": true/false,
+            "available_models": ["model1", "model2", ...],
+            "url": "http://localhost:11434",
+            "model": "phi3",
+            "error": "error message if failed"
+        }
+    """
+    try:
+        # Get configuration
+        config = BotConfig.load()
+        data = request.get_json() or {}
+        
+        # Use provided URL/model or fall back to config
+        ollama_url = data.get('url', config.llm_ollama_url)
+        model_name = data.get('model', config.llm_ollama_model)
+        
+        logging.info(f"Testing Ollama connection: url={ollama_url}, model={model_name}")
+        
+        # Test 1: Check if Ollama service is running
+        try:
+            version_response = requests.get(
+                f"{ollama_url}/api/version",
+                timeout=5
+            )
+            version_response.raise_for_status()
+            version_data = version_response.json()
+            ollama_version = version_data.get('version', 'unknown')
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                "success": False,
+                "error": f"Cannot connect to Ollama at {ollama_url}. Is Ollama running?",
+                "url": ollama_url,
+                "model": model_name,
+                "suggestion": "Run 'ollama serve' on the server"
+            }), 503
+        except requests.exceptions.Timeout:
+            return jsonify({
+                "success": False,
+                "error": f"Connection to Ollama at {ollama_url} timed out",
+                "url": ollama_url,
+                "model": model_name
+            }), 504
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to check Ollama version: {str(e)}",
+                "url": ollama_url,
+                "model": model_name
+            }), 500
+        
+        # Test 2: Get list of available models
+        try:
+            models_response = requests.get(
+                f"{ollama_url}/api/tags",
+                timeout=5
+            )
+            models_response.raise_for_status()
+            models_data = models_response.json()
+            available_models = [m['name'] for m in models_data.get('models', [])]
+            
+            # Check if requested model exists (match by prefix)
+            model_exists = any(m.startswith(model_name) for m in available_models)
+            
+        except Exception as e:
+            logging.warning(f"Failed to get Ollama models list: {e}")
+            available_models = []
+            model_exists = False
+        
+        # Success response
+        return jsonify({
+            "success": True,
+            "version": ollama_version,
+            "model_exists": model_exists,
+            "available_models": available_models,
+            "url": ollama_url,
+            "model": model_name
+        })
+        
+    except Exception as e:
+        logging.error(f"Error testing Ollama connection: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "url": ollama_url if 'ollama_url' in locals() else "unknown",
+            "model": model_name if 'model_name' in locals() else "unknown"
+        }), 500
+
+
 # Settings page removed - merged into /strategy-config
 # Old route kept for backwards compatibility, redirects to new page
 @app.route("/settings")
