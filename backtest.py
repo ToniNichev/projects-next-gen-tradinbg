@@ -29,7 +29,7 @@ except ImportError:
     DATABASE_AVAILABLE = False
 
 
-def run_backtest(days_back: int = 30, use_database: bool = False, config_overrides: dict = None):
+def run_backtest(days_back: int = 30, use_database: bool = False, config_overrides: dict = None, progress_callback=None):
     """
     Run accelerated backtest on historical data with multi-strategy support.
     
@@ -37,6 +37,7 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         days_back: Number of days of historical data to backtest
         use_database: Whether to store results in database
         config_overrides: Optional dict of config parameters to override (for presets/testing)
+        progress_callback: Optional callback function for progress updates (for UI)
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     
@@ -141,7 +142,8 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
             try:
                 llm_config = strategy_configs.get("llm_pattern", {})
                 # Pass trading database manager to LLM strategy for trade history analysis
-                llm_strategy = LLMPatternStrategy(llm_config, db_manager=trading_db_manager)
+                # Also pass progress_callback for UI updates during backtesting
+                llm_strategy = LLMPatternStrategy(llm_config, db_manager=trading_db_manager, progress_callback=progress_callback)
                 llm_strategy.set_enabled(llm_config.get("enabled", False))
                 strategies.append(llm_strategy)
                 status = "✓ Enabled" if llm_strategy.is_enabled() else "✗ Disabled"

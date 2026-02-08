@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class LLMPatternStrategy(BaseStrategy):
     """LLM-powered pattern analysis strategy using Ollama"""
     
-    def __init__(self, config: dict, db_manager=None):
+    def __init__(self, config: dict, db_manager=None, progress_callback=None):
         super().__init__(StrategyNames.LLM_PATTERN, config)
         
         # LLM configuration
@@ -66,6 +66,14 @@ class LLMPatternStrategy(BaseStrategy):
         # Backtest state tracking
         self._backtest_candle_count = 0
         self._last_backtest_analysis = None
+        
+        # Backtest progress tracking
+        self._backtest_total_candles = 0
+        self._backtest_total_analyses = 0
+        self._backtest_current_analysis = 0
+        self._backtest_analysis_times = []  # Track timing for averaging
+        self._backtest_started = False
+        self._progress_callback = progress_callback  # Optional callback for UI progress updates
         
         # Database manager for trade history and caching
         self.db_manager = db_manager
@@ -119,6 +127,25 @@ class LLMPatternStrategy(BaseStrategy):
         
         # BACKTEST SAMPLING: Only analyze every Nth candle to speed up backtests
         if is_backtest_mode:
+            # Initialize backtest tracking on first candle
+            if not self._backtest_started:
+                self._backtest_started = True
+                self._backtest_total_candles = len(candle_data) if candle_data else 0
+                self._backtest_total_analyses = max(1, self._backtest_total_candles // self.backtest_sample_interval)
+                self._backtest_current_analysis = 0
+                self._backtest_analysis_times = []
+                
+                logger.info(f"{self.name}: 📊 Starting backtest - {self._backtest_total_candles} candles, analyzing every {self.backtest_sample_interval} = {self._backtest_total_analyses} analyses")
+                
+                # Notify UI of total analyses
+                if self._progress_callback:
+                    self._progress_callback(
+                        total_analyses=self._backtest_total_analyses,
+                        total_candles=self._backtest_total_candles,
+                        completed_analyses=0,
+                        current_candle=0
+                    )
+            
             self._backtest_candle_count += 1
             should_analyze = (self._backtest_candle_count % self.backtest_sample_interval == 0)
             
@@ -132,7 +159,19 @@ class LLMPatternStrategy(BaseStrategy):
                 return self._neutral_signal(exchange, symbol, current_price)
             else:
                 # Time to analyze this candle!
-                logger.info(f"{self.name}: Analyzing candle {self._backtest_candle_count} (every {self.backtest_sample_interval} candles)")
+                self._backtest_current_analysis += 1
+                progress_pct = (self._backtest_current_analysis / self._backtest_total_analyses * 100) if self._backtest_total_analyses > 0 else 0
+                
+                # Calculate ETA based on average analysis time
+                eta_str = ""
+                if len(self._backtest_analysis_times) > 0:
+                    avg_time = sum(self._backtest_analysis_times) / len(self._backtest_analysis_times)
+                    remaining_analyses = self._backtest_total_analyses - self._backtest_current_analysis
+                    eta_seconds = remaining_analyses * avg_time
+                    eta_minutes = eta_seconds / 60
+                    eta_str = f" - Est. {eta_minutes:.0f} min remaining (avg: {avg_time:.1f}s/analysis)"
+                
+                logger.info(f"{self.name}: 🔍 Analysis {self._backtest_current_analysis}/{self._backtest_total_analyses} ({progress_pct:.0f}%) - Candle {self._backtest_candle_count}{eta_str}")
         
         # Check for cached analysis (skip in backtest mode to ensure fresh analysis per candle)
         if self.db_manager and not is_backtest_mode and self.cache_minutes > 0:
@@ -164,6 +203,34 @@ class LLMPatternStrategy(BaseStrategy):
             
             # Perform LLM analysis with market data
             analysis = self._analyze_with_llm(market_data, trade_context, current_price, symbol)
+            
+            # Track analysis timing for backtest progress estimation
+            if is_backtest_mode and analysis and "analysis_duration_ms" in analysis:
+                analysis_time_seconds = analysis["analysis_duration_ms"] / 1000
+                self._backtest_analysis_times.append(analysis_time_seconds)
+                # Keep only last 10 analyses for moving average
+                if len(self._backtest_analysis_times) > 10:
+                    self._backtest_analysis_times.pop(0)
+                
+                # Calculate ETA
+                avg_time = sum(self._backtest_analysis_times) / len(self._backtest_analysis_times)
+                remaining_analyses = self._backtest_total_analyses - self._backtest_current_analysis
+                eta_seconds = remaining_analyses * avg_time
+                
+                # Notify UI of progress update
+                if self._progress_callback:
+                    self._progress_callback(
+                        completed_analyses=self._backtest_current_analysis,
+                        current_candle=self._backtest_candle_count,
+                        eta_seconds=int(eta_seconds),
+                        avg_time_per_analysis=avg_time
+                    )
+                
+                # Log completion if this was the last analysis
+                if self._backtest_current_analysis >= self._backtest_total_analyses:
+                    avg_time = sum(self._backtest_analysis_times) / len(self._backtest_analysis_times)
+                    total_time = sum(self._backtest_analysis_times)
+                    logger.info(f"{self.name}: ✅ All {self._backtest_total_analyses} analyses complete! Total LLM time: {total_time/60:.1f} min (avg: {avg_time:.1f}s/analysis)")
             
             # Save analysis for backtest sampling (reuse for next N-1 candles)
             if is_backtest_mode and analysis:
@@ -234,8 +301,9 @@ class LLMPatternStrategy(BaseStrategy):
         else:
             candles = candle_data[-100:]  # Use last 100 candles
         
-        if len(candles) < 30:
-            raise ValueError(f"Not enough candles for analysis (need 30+, got {len(candles)})")
+        # Need at least 50 candles for all indicators (MACD needs 26+9=35, plus buffer for support/resistance)
+        if len(candles) < 50:
+            raise ValueError(f"Not enough candles for analysis (need 50+, got {len(candles)}). For backtesting, use '--days 3' or more for 1h timeframe.")
         
         # Extract OHLCV data
         closes = np.array([c[4] for c in candles])
@@ -359,6 +427,11 @@ class LLMPatternStrategy(BaseStrategy):
     
     def _calculate_ema(self, data: np.ndarray, period: int) -> float:
         """Calculate EMA (Exponential Moving Average)"""
+        if len(data) == 0:
+            return 0.0
+        if len(data) == 1:
+            return float(data[0])
+        
         multiplier = 2 / (period + 1)
         ema = data[0]
         for price in data[1:]:

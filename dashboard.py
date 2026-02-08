@@ -61,6 +61,32 @@ _max_backtest_results = 50
 # Backtest running state
 _backtest_running = False
 _current_backtest_id = None
+_backtest_progress = {
+    "total_analyses": 0,
+    "completed_analyses": 0,
+    "current_candle": 0,
+    "total_candles": 0,
+    "eta_seconds": 0,
+    "avg_time_per_analysis": 0,
+}
+
+def update_backtest_progress(total_analyses=None, completed_analyses=None, 
+                            current_candle=None, total_candles=None,
+                            eta_seconds=None, avg_time_per_analysis=None):
+    """Update backtest progress info (called from backtest thread)"""
+    global _backtest_progress
+    if total_analyses is not None:
+        _backtest_progress["total_analyses"] = total_analyses
+    if completed_analyses is not None:
+        _backtest_progress["completed_analyses"] = completed_analyses
+    if current_candle is not None:
+        _backtest_progress["current_candle"] = current_candle
+    if total_candles is not None:
+        _backtest_progress["total_candles"] = total_candles
+    if eta_seconds is not None:
+        _backtest_progress["eta_seconds"] = eta_seconds
+    if avg_time_per_analysis is not None:
+        _backtest_progress["avg_time_per_analysis"] = avg_time_per_analysis
 
 # Manual trading - trader instance reference
 _trader_instance = None
@@ -1181,6 +1207,17 @@ def run_backtest_api():
         _current_backtest_id = backtest_id
         _backtest_running = True
         
+        # Reset progress tracking
+        global _backtest_progress
+        _backtest_progress = {
+            "total_analyses": 0,
+            "completed_analyses": 0,
+            "current_candle": 0,
+            "total_candles": 0,
+            "eta_seconds": 0,
+            "avg_time_per_analysis": 0,
+        }
+        
         def run_backtest_thread():
             global _backtest_running, _backtest_results
             import time
@@ -1190,11 +1227,12 @@ def run_backtest_api():
                 import logging
                 from backtest import run_backtest
                 
-                # Run backtest with config overrides passed directly
+                # Run backtest with config overrides and progress callback
                 result = run_backtest(
                     days_back=days_back,
                     use_database=False,
-                    config_overrides=config_overrides  # Pass overrides directly!
+                    config_overrides=config_overrides,
+                    progress_callback=update_backtest_progress  # Pass progress callback for UI updates
                 )
                 
                 # Calculate duration
@@ -1248,18 +1286,19 @@ def run_backtest_api():
 
 @app.route("/api/backtest/status")
 @require_auth
-@limiter.limit("30 per minute")
+@limiter.limit("120 per minute")  # High limit for polling during backtest
 def get_backtest_status():
-    """Get current backtest status"""
+    """Get current backtest status with progress info"""
     return jsonify({
         "running": _backtest_running,
-        "current_id": _current_backtest_id
+        "current_id": _current_backtest_id,
+        "progress": _backtest_progress.copy() if _backtest_running else None
     })
 
 
 @app.route("/api/backtest/results")
 @require_auth
-@limiter.limit("30 per minute")
+@limiter.limit("120 per minute")  # High limit for polling during backtest (1 req/sec for 2 min)
 def get_backtest_results():
     """Get all backtest results"""
     return jsonify({
@@ -1270,7 +1309,7 @@ def get_backtest_results():
 
 @app.route("/api/backtest/results/<backtest_id>")
 @require_auth
-@limiter.limit("30 per minute")
+@limiter.limit("120 per minute")  # High limit for polling during backtest
 def get_backtest_result(backtest_id):
     """Get specific backtest result"""
     result = next((r for r in _backtest_results if r["id"] == backtest_id), None)

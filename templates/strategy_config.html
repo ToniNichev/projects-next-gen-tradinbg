@@ -1823,6 +1823,28 @@
       
       <div class="form-group">
         <label class="form-label">
+          Backtest Sample Interval
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              <strong>Backtest Performance Optimization</strong><br>
+              Analyze every Nth candle during backtests to speed up testing. Lower = more accurate but slower.
+              <hr>
+              <strong>For 7-day backtest (~187 candles):</strong><br>
+              <span class="risk-indicator risk-low">12 candles</span> 15 analyses (~57 min, high accuracy)<br>
+              <span class="risk-indicator risk-medium">24 candles</span> 7 analyses (~27 min, good accuracy)<br>
+              <span class="risk-indicator risk-high">36 candles</span> 5 analyses (~19 min, fair accuracy)<br>
+              <br>
+              <strong>Note:</strong> Live trading always analyzes every candle (with caching).
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-input" id="llmBacktestSampleInterval" name="llm_backtest_sample_interval" 
+               min="1" max="100" step="1" value="12">
+        <span class="form-text">Analyze every Nth candle (backtest only)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
           Ollama URL
           <span class="info-icon" style="position: relative;">i
             <span class="info-tooltip">
@@ -2129,6 +2151,7 @@
       document.getElementById('llmTimeout').value = config.llm_timeout_seconds || 60;
       document.getElementById('llmTemperature').value = config.llm_temperature || 0.3;
       document.getElementById('llmNumPredict').value = config.llm_num_predict || 1000;
+      document.getElementById('llmBacktestSampleInterval').value = config.llm_backtest_sample_interval || 12;
       document.getElementById('llmOllamaUrl').value = config.llm_ollama_url || 'http://localhost:11434';
       document.getElementById('llmRequirePatterns').checked = config.llm_require_patterns || false;
       
@@ -2232,6 +2255,7 @@
         llm_timeout_seconds: parseInt(document.getElementById('llmTimeout').value),
         llm_temperature: parseFloat(document.getElementById('llmTemperature').value),
         llm_num_predict: parseInt(document.getElementById('llmNumPredict').value),
+        llm_backtest_sample_interval: parseInt(document.getElementById('llmBacktestSampleInterval').value),
         llm_ollama_url: document.getElementById('llmOllamaUrl').value,
         llm_require_patterns: document.getElementById('llmRequirePatterns').checked,
       };
@@ -2377,6 +2401,7 @@ BOT_LLM_CACHE_MINUTES=${document.getElementById('llmCacheMinutes').value}
 BOT_LLM_TIMEOUT_SECONDS=${document.getElementById('llmTimeout').value}
 BOT_LLM_TEMPERATURE=${document.getElementById('llmTemperature').value}
 BOT_LLM_NUM_PREDICT=${document.getElementById('llmNumPredict').value}
+BOT_LLM_BACKTEST_SAMPLE_INTERVAL=${document.getElementById('llmBacktestSampleInterval').value}
 BOT_LLM_OLLAMA_URL=${document.getElementById('llmOllamaUrl').value}
 BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked}
 

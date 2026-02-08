@@ -395,6 +395,7 @@
           <span class="info-tooltip">
             Amount of historical data to test the strategy on. More days = more reliable results but longer processing time.
             <hr>
+            <strong>⚠️ LLM Strategy:</strong> Minimum 3 days (50+ candles needed)<br>
             <strong>Recommended ranges:</strong><br>
             <span class="risk-low">7-14 days</span> Quick test<br>
             <span class="risk-medium">30 days</span> Balanced validation<br>
@@ -403,8 +404,7 @@
         </span>
       </label>
       <select id="days_back">
-        <option value="1">1 day (Quick test)</option>
-        <option value="3">3 days</option>
+        <option value="3">3 days (Minimum for LLM)</option>
         <option value="7">7 days</option>
         <option value="14">14 days</option>
         <option value="30" selected>30 days</option>
@@ -938,9 +938,35 @@
       attempts++;
       
       try {
-        const response = await fetch('/api/backtest/results');
-        const data = await response.json();
-        const result = data.results.find(r => r.id === backtestId);
+        // Fetch both results and status (with progress info)
+        const [resultsResponse, statusResponse] = await Promise.all([
+          fetch('/api/backtest/results'),
+          fetch('/api/backtest/status')
+        ]);
+        
+        const resultsData = await resultsResponse.json();
+        const statusData = await statusResponse.json();
+        const result = resultsData.results.find(r => r.id === backtestId);
+        
+        // Update progress bar based on actual LLM progress
+        if (statusData.running && statusData.progress) {
+          const progress = statusData.progress;
+          if (progress.total_analyses > 0) {
+            const progressPct = (progress.completed_analyses / progress.total_analyses) * 100;
+            progressBar.style.width = `${Math.min(progressPct, 95)}%`;
+            progressPercent.textContent = `${progressPct.toFixed(0)}%`;
+            
+            // Show analysis progress and ETA
+            if (progress.eta_seconds > 0) {
+              const etaMinutes = Math.ceil(progress.eta_seconds / 60);
+              progressTime.textContent = `Analysis ${progress.completed_analyses}/${progress.total_analyses} - ${etaMinutes} min remaining`;
+            } else {
+              progressTime.textContent = `Analysis ${progress.completed_analyses}/${progress.total_analyses}`;
+            }
+            
+            progressStatus.textContent = `Processing candle ${progress.current_candle}/${progress.total_candles}...`;
+          }
+        }
         
         if (result && result.status === 'completed') {
           clearInterval(interval);
