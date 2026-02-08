@@ -100,6 +100,8 @@ class BotConfig:
     llm_lookback_days: int = 7
     llm_cache_minutes: int = 15  # How often to refresh analysis
     llm_timeout_seconds: int = 60
+    llm_temperature: float = 0.3  # LLM temperature for response consistency (0.0-1.0)
+    llm_num_predict: int = 1000  # Max tokens to generate (affects speed and detail)
     llm_require_patterns: bool = False  # Require at least one pattern found
     llm_backtest_sample_interval: int = 12  # Analyze every Nth candle in backtests (12 = once per hour on 5m)
     
@@ -238,6 +240,8 @@ class BotConfig:
             llm_lookback_days=get_val("llm_lookback_days", "BOT_LLM_LOOKBACK_DAYS", 7, int),
             llm_cache_minutes=get_val("llm_cache_minutes", "BOT_LLM_CACHE_MINUTES", 15, int),
             llm_timeout_seconds=get_val("llm_timeout_seconds", "BOT_LLM_TIMEOUT_SECONDS", 60, int),
+            llm_temperature=get_val("llm_temperature", "BOT_LLM_TEMPERATURE", 0.3, float),
+            llm_num_predict=get_val("llm_num_predict", "BOT_LLM_NUM_PREDICT", 1000, int),
             llm_require_patterns=get_val("llm_require_patterns", "BOT_LLM_REQUIRE_PATTERNS", False, bool),
             llm_backtest_sample_interval=get_val("llm_backtest_sample_interval", "BOT_LLM_BACKTEST_SAMPLE_INTERVAL", 12, int),
             # Dashboard Security
@@ -330,6 +334,8 @@ class BotConfig:
                 "llm_lookback_days": self.llm_lookback_days,
                 "llm_cache_minutes": self.llm_cache_minutes,
                 "llm_timeout_seconds": self.llm_timeout_seconds,
+                "llm_temperature": self.llm_temperature,
+                "llm_num_predict": self.llm_num_predict,
                 "llm_require_patterns": self.llm_require_patterns,
                 "llm_backtest_sample_interval": self.llm_backtest_sample_interval,
                 # Include other risk management params for fallback

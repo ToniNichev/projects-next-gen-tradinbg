@@ -1712,18 +1712,23 @@
               Which LLM model to use for analysis. Run "ollama pull MODEL_NAME" to install.
               <hr>
               <span class="risk-indicator risk-low">mistral</span> Best balance (recommended)
-              <span class="risk-indicator risk-medium">llama2</span> Reliable alternative
-              <span class="risk-indicator risk-high">phi</span> Fastest, lower quality
+              <span class="risk-indicator risk-medium">phi3</span> Fast and efficient
+              <span class="risk-indicator risk-high">llama2:13b</span> Best quality, slower
             </span>
           </span>
         </label>
         <select class="form-select" id="llmModel" name="llm_model">
           <option value="mistral">Mistral (Recommended)</option>
+          <option value="phi3">Phi3 (Fast)</option>
           <option value="llama2">Llama2</option>
           <option value="llama2:13b">Llama2 13B (Best Quality)</option>
-          <option value="phi">Phi (Fastest)</option>
           <option value="codellama">CodeLlama (Technical)</option>
         </select>
+        <button type="button" class="btn" onclick="refreshOllamaModels()" 
+                style="margin-top: 0.5rem; padding: 0.4rem 0.8rem; font-size: 0.8rem; background: var(--accent-purple);">
+          🔄 Refresh Models List
+        </button>
+        <div id="ollama-models-status" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);"></div>
       </div>
       
       <div class="form-group">
@@ -1778,6 +1783,42 @@
         <input type="number" class="form-input" id="llmTimeout" name="llm_timeout" 
                min="30" max="300" step="10" value="60">
         <span class="form-text">Seconds before timeout</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Temperature
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Controls randomness in LLM responses. Lower = more consistent/focused, Higher = more creative/varied.
+              <hr>
+              <span class="risk-indicator risk-low">0.1-0.3</span> Consistent (recommended)
+              <span class="risk-indicator risk-medium">0.4-0.6</span> Balanced
+              <span class="risk-indicator risk-high">0.7-0.9</span> Creative (risky)
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-input" id="llmTemperature" name="llm_temperature" 
+               min="0" max="1" step="0.1" value="0.3">
+        <span class="form-text">0.0 (deterministic) to 1.0 (random)</span>
+      </div>
+      
+      <div class="form-group">
+        <label class="form-label">
+          Max Tokens
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Maximum tokens (words) to generate. Lower = faster but less detailed, Higher = slower but more thorough.
+              <hr>
+              <span class="risk-indicator risk-low">500-700</span> Fast (2-3 min)
+              <span class="risk-indicator risk-medium">800-1200</span> Balanced (4-6 min)
+              <span class="risk-indicator risk-high">1500-2000</span> Detailed (7+ min)
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-input" id="llmNumPredict" name="llm_num_predict" 
+               min="300" max="2000" step="100" value="1000">
+        <span class="form-text">Affects speed vs detail trade-off</span>
       </div>
       
       <div class="form-group">
@@ -2086,6 +2127,8 @@
       document.getElementById('llmLookbackDays').value = config.llm_lookback_days || 7;
       document.getElementById('llmCacheMinutes').value = config.llm_cache_minutes || 15;
       document.getElementById('llmTimeout').value = config.llm_timeout_seconds || 60;
+      document.getElementById('llmTemperature').value = config.llm_temperature || 0.3;
+      document.getElementById('llmNumPredict').value = config.llm_num_predict || 1000;
       document.getElementById('llmOllamaUrl').value = config.llm_ollama_url || 'http://localhost:11434';
       document.getElementById('llmRequirePatterns').checked = config.llm_require_patterns || false;
       
@@ -2187,6 +2230,8 @@
         llm_lookback_days: parseInt(document.getElementById('llmLookbackDays').value),
         llm_cache_minutes: parseInt(document.getElementById('llmCacheMinutes').value),
         llm_timeout_seconds: parseInt(document.getElementById('llmTimeout').value),
+        llm_temperature: parseFloat(document.getElementById('llmTemperature').value),
+        llm_num_predict: parseInt(document.getElementById('llmNumPredict').value),
         llm_ollama_url: document.getElementById('llmOllamaUrl').value,
         llm_require_patterns: document.getElementById('llmRequirePatterns').checked,
       };
@@ -2330,6 +2375,8 @@ BOT_LLM_OLLAMA_MODEL=${document.getElementById('llmModel').value}
 BOT_LLM_LOOKBACK_DAYS=${document.getElementById('llmLookbackDays').value}
 BOT_LLM_CACHE_MINUTES=${document.getElementById('llmCacheMinutes').value}
 BOT_LLM_TIMEOUT_SECONDS=${document.getElementById('llmTimeout').value}
+BOT_LLM_TEMPERATURE=${document.getElementById('llmTemperature').value}
+BOT_LLM_NUM_PREDICT=${document.getElementById('llmNumPredict').value}
 BOT_LLM_OLLAMA_URL=${document.getElementById('llmOllamaUrl').value}
 BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked}
 
@@ -3354,6 +3401,94 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     document.getElementById('llmWeightValue').textContent = parseFloat(e.target.value).toFixed(1);
   });
   
+  async function refreshOllamaModels() {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    const statusDiv = document.getElementById('ollama-models-status');
+    const dropdown = document.getElementById('llmModel');
+    const currentValue = dropdown.value;
+    
+    btn.disabled = true;
+    btn.textContent = '⏳ Loading...';
+    statusDiv.textContent = 'Fetching installed models from server...';
+    statusDiv.style.color = 'var(--accent-blue)';
+    
+    try {
+      const response = await fetch('/api/llm/models');
+      const data = await response.json();
+      
+      if (data.success && data.models && data.models.length > 0) {
+        // Clear current options except the first (keep defaults as fallback)
+        const defaultOptions = [
+          { value: 'mistral', label: 'Mistral (Recommended)' },
+          { value: 'phi3', label: 'Phi3 (Fast)' },
+          { value: 'llama2', label: 'Llama2' },
+          { value: 'llama2:13b', label: 'Llama2 13B (Best Quality)' },
+          { value: 'codellama', label: 'CodeLlama (Technical)' },
+        ];
+        
+        // Get unique model names (extract base name without :tag)
+        const installedModels = data.models.map(m => {
+          const name = m.name.split(':')[0]; // "phi3:latest" → "phi3"
+          return {
+            name: name,
+            fullName: m.name,
+            size: m.size
+          };
+        });
+        
+        // Rebuild dropdown with installed models
+        dropdown.innerHTML = '';
+        
+        // Add a header optgroup for installed models
+        const installedGroup = document.createElement('optgroup');
+        installedGroup.label = `✓ Installed on Server (${data.models.length})`;
+        
+        installedModels.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model.name;
+          const sizeGB = (model.size / (1024 * 1024 * 1024)).toFixed(1);
+          option.textContent = `${model.name} (${sizeGB} GB)`;
+          installedGroup.appendChild(option);
+        });
+        dropdown.appendChild(installedGroup);
+        
+        // Add common options as fallback
+        const commonGroup = document.createElement('optgroup');
+        commonGroup.label = 'Common Models (pull if needed)';
+        defaultOptions.forEach(opt => {
+          const option = document.createElement('option');
+          option.value = opt.value;
+          option.textContent = opt.label;
+          commonGroup.appendChild(option);
+        });
+        dropdown.appendChild(commonGroup);
+        
+        // Restore selected value if it exists
+        if (currentValue) {
+          dropdown.value = currentValue;
+        }
+        
+        statusDiv.textContent = `✓ Found ${data.models.length} installed model(s)`;
+        statusDiv.style.color = 'var(--accent-green)';
+      } else {
+        statusDiv.textContent = data.error || 'No models found. Make sure Ollama is running.';
+        statusDiv.style.color = 'var(--accent-red)';
+      }
+    } catch (error) {
+      statusDiv.textContent = `Error: ${error.message}`;
+      statusDiv.style.color = 'var(--accent-red)';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      
+      // Clear status after 5 seconds
+      setTimeout(() => {
+        statusDiv.textContent = '';
+      }, 5000);
+    }
+  }
+  
   async function testLLMConnection() {
     const btn = event.target;
     const originalText = btn.textContent;
@@ -3459,7 +3594,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     resultDiv.style.display = 'block';
     resultDiv.style.background = 'rgba(88, 166, 255, 0.1)';
     resultDiv.style.border = '1px solid var(--accent-blue)';
-    resultDiv.innerHTML = '<span style="color: var(--accent-blue);">🔄 Running LLM pattern analysis (this may take 10-30 seconds)...</span>';
+    resultDiv.innerHTML = '<span style="color: var(--accent-blue);">🔄 Running LLM pattern analysis (this may take 3-6 minutes)...</span>';
     
     // Show and animate progress bar
     progressContainer.classList.add('active');
@@ -3472,7 +3607,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       if (progress >= 100) {
         clearInterval(progressInterval);
       }
-    }, 300); // Update every 300ms (100 steps = 30 seconds)
+    }, 3600); // Update every 3.6s (100 steps = 360 seconds = 6 minutes)
     
     try {
       const response = await fetch('/api/llm/trigger', {
@@ -3491,9 +3626,9 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
           </p>
         `;
         
-        // Poll for completion
+        // Poll for completion - check every 3 seconds for up to 6 minutes
         let pollAttempts = 0;
-        const maxPollAttempts = 12; // 12 attempts x 3 seconds = 36 seconds max
+        const maxPollAttempts = 120; // 120 attempts x 3 seconds = 360 seconds (6 minutes)
         const pollInterval = setInterval(async () => {
           pollAttempts++;
           
@@ -3544,7 +3679,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
             console.error('Error polling for analysis completion:', e);
           }
           
-          // Stop polling after max attempts
+          // Stop polling after max attempts (6 minutes)
           if (pollAttempts >= maxPollAttempts) {
             clearInterval(pollInterval);
             clearInterval(progressInterval);
@@ -3557,9 +3692,11 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
             resultDiv.style.background = 'rgba(255, 193, 7, 0.1)';
             resultDiv.style.border = '1px solid #f39c12';
             resultDiv.innerHTML = `
-              <strong style="color: #f39c12;">⚠️ Analysis May Still Be Running</strong>
+              <strong style="color: #f39c12;">⚠️ Analysis Taking Longer Than Expected</strong>
               <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
-                Check the main dashboard for results, or try again.
+                Analysis is still running after 6 minutes. Check the main dashboard or logs for results.
+                <br><br>
+                <em>Tip: Try switching to a faster model like 'mistral' in settings.</em>
               </p>
             `;
             
@@ -3818,6 +3955,80 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       }, 3000);
     }
   }
+  
+  // Auto-load Ollama models on page load for LLM strategy
+  document.addEventListener('DOMContentLoaded', function() {
+    // Check if we're on LLM strategy page by looking for the dropdown
+    const dropdown = document.getElementById('llmModel');
+    const statusDiv = document.getElementById('ollama-models-status');
+    
+    if (dropdown && statusDiv) {
+      // We're on LLM strategy page - load models
+      statusDiv.textContent = 'Loading available models...';
+        statusDiv.style.color = 'var(--text-secondary)';
+        
+        fetch('/api/llm/models')
+          .then(response => response.json())
+          .then(data => {
+            if (data.success && data.models && data.models.length > 0) {
+              const currentValue = dropdown.value;
+              
+              // Get installed models
+              const installedModels = data.models.map(m => ({
+                name: m.name.split(':')[0],
+                fullName: m.name,
+                size: m.size
+              }));
+              
+              // Rebuild dropdown
+              dropdown.innerHTML = '';
+              
+              const installedGroup = document.createElement('optgroup');
+              installedGroup.label = `✓ Installed on Server (${data.models.length})`;
+              
+              installedModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                const sizeGB = (model.size / (1024 * 1024 * 1024)).toFixed(1);
+                option.textContent = `${model.name} (${sizeGB} GB)`;
+                installedGroup.appendChild(option);
+              });
+              dropdown.appendChild(installedGroup);
+              
+              // Add common fallbacks
+              const commonGroup = document.createElement('optgroup');
+              commonGroup.label = 'Common Models (pull if needed)';
+              const defaults = [
+                { value: 'mistral', label: 'Mistral (Recommended)' },
+                { value: 'phi3', label: 'Phi3 (Fast)' },
+                { value: 'llama2', label: 'Llama2' },
+                { value: 'llama2:13b', label: 'Llama2 13B (Best Quality)' },
+                { value: 'codellama', label: 'CodeLlama (Technical)' },
+              ];
+              defaults.forEach(opt => {
+                const option = document.createElement('option');
+                option.value = opt.value;
+                option.textContent = opt.label;
+                commonGroup.appendChild(option);
+              });
+              dropdown.appendChild(commonGroup);
+              
+              // Restore value
+              if (currentValue) {
+                dropdown.value = currentValue;
+              }
+              
+              statusDiv.textContent = '';
+            } else {
+              statusDiv.textContent = '';
+            }
+          })
+          .catch(error => {
+            // Silently fail - keep default options
+            statusDiv.textContent = '';
+          });
+    }
+  });
   
 </script>
 

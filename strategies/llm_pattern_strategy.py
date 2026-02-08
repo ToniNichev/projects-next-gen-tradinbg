@@ -38,7 +38,26 @@ class LLMPatternStrategy(BaseStrategy):
         self.lookback_days = config.get("llm_lookback_days", 7)
         self.cache_minutes = config.get("llm_cache_minutes", 15)
         self.timeout_seconds = config.get("llm_timeout_seconds", 60)
+        self.temperature = config.get("llm_temperature", 0.3)
+        self.num_predict = config.get("llm_num_predict", 1000)
         self.require_patterns = config.get("llm_require_patterns", False)
+        
+        # Validate temperature (0.0 - 1.0)
+        if not 0.0 <= self.temperature <= 1.0:
+            logger.warning(f"{self.name}: Invalid temperature {self.temperature}, using default 0.3")
+            self.temperature = 0.3
+        
+        # Validate num_predict (minimum 300, maximum 2000)
+        if self.num_predict < 300:
+            logger.warning(f"{self.name}: num_predict {self.num_predict} too low, using 500")
+            self.num_predict = 500
+        elif self.num_predict > 2000:
+            logger.warning(f"{self.name}: num_predict {self.num_predict} too high, using 2000")
+            self.num_predict = 2000
+        
+        # Warn if temperature is high (might cause inconsistent results)
+        if self.temperature > 0.5:
+            logger.warning(f"{self.name}: High temperature ({self.temperature}) may cause inconsistent analysis")
         
         # Backtest sampling - only analyze every Nth candle to speed up backtests
         # Default: 12 candles (= 1 hour on 5m timeframe, 5 hours on 1h timeframe)
@@ -423,9 +442,9 @@ class LLMPatternStrategy(BaseStrategy):
                 prompt=prompt,
                 stream=False,
                 options={
-                    "temperature": 0.3,  # Lower temperature for more consistent analysis
-                    "num_predict": 1000,  # Max tokens
-                    "timeout": self.timeout_seconds,  # Add timeout
+                    "temperature": self.temperature,  # Configurable (0.0-1.0, default 0.3)
+                    "num_predict": self.num_predict,  # Configurable max tokens (default 1000)
+                    "timeout": self.timeout_seconds,  # Request timeout
                 }
             )
             
@@ -833,6 +852,8 @@ Response:"""
             "lookback_days": self.lookback_days,
             "cache_minutes": self.cache_minutes,
             "timeout_seconds": self.timeout_seconds,
+            "temperature": self.temperature,
+            "num_predict": self.num_predict,
             "require_patterns": self.require_patterns,
             "backtest_sample_interval": self.backtest_sample_interval,
             "stop_loss_pct": self.stop_loss_pct,

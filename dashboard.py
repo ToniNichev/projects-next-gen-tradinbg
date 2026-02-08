@@ -514,6 +514,8 @@ def get_strategy_config():
                 "llm_lookback_days": config.llm_lookback_days,
                 "llm_cache_minutes": config.llm_cache_minutes,
                 "llm_timeout_seconds": config.llm_timeout_seconds,
+                "llm_temperature": config.llm_temperature,
+                "llm_num_predict": config.llm_num_predict,
                 "llm_require_patterns": config.llm_require_patterns,
                 "llm_backtest_sample_interval": config.llm_backtest_sample_interval,
             }
@@ -616,6 +618,8 @@ def update_strategy_config():
             "llm_lookback_days": {"type": "int", "category": "llm"},
             "llm_cache_minutes": {"type": "int", "category": "llm"},
             "llm_timeout_seconds": {"type": "int", "category": "llm"},
+            "llm_temperature": {"type": "float", "category": "llm"},
+            "llm_num_predict": {"type": "int", "category": "llm"},
             "llm_require_patterns": {"type": "bool", "category": "llm"},
             "llm_backtest_sample_interval": {"type": "int", "category": "llm"},
         }
@@ -850,6 +854,8 @@ def apply_preset_api(preset_name):
             "llm_lookback_days": {"type": "int", "category": "llm"},
             "llm_cache_minutes": {"type": "int", "category": "llm"},
             "llm_timeout_seconds": {"type": "int", "category": "llm"},
+            "llm_temperature": {"type": "float", "category": "llm"},
+            "llm_num_predict": {"type": "int", "category": "llm"},
             "llm_require_patterns": {"type": "bool", "category": "llm"},
             "llm_backtest_sample_interval": {"type": "int", "category": "llm"},
         }
@@ -1990,6 +1996,73 @@ def clear_llm_cache():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/llm/models", methods=["GET"])
+@require_auth
+@limiter.limit("30 per minute")
+def get_ollama_models():
+    """
+    Get list of available Ollama models from the server.
+    
+    Returns:
+        {
+            "success": true/false,
+            "models": [
+                {"name": "phi3:latest", "size": "2.2 GB", ...},
+                ...
+            ],
+            "error": "error message if failed"
+        }
+    """
+    try:
+        from config import BotConfig
+        import requests
+        
+        config = BotConfig.load()
+        ollama_url = config.llm_ollama_url
+        
+        # Get list of models from Ollama
+        try:
+            response = requests.get(f"{ollama_url}/api/tags", timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract model names and info
+            models = []
+            for model in data.get('models', []):
+                models.append({
+                    'name': model.get('name', ''),
+                    'size': model.get('size', 0),
+                    'modified': model.get('modified_at', ''),
+                })
+            
+            return jsonify({
+                "success": True,
+                "models": models,
+                "count": len(models)
+            })
+            
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                "success": False,
+                "error": f"Cannot connect to Ollama at {ollama_url}",
+                "models": []
+            }), 503
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": str(e),
+                "models": []
+            }), 500
+            
+    except Exception as e:
+        logging.error(f"Error fetching Ollama models: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "models": []
+        }), 500
+
+
 @app.route("/api/llm/test-connection", methods=["POST"])
 @require_auth
 @limiter.limit("20 per minute")
@@ -2019,6 +2092,9 @@ def test_llm_connection():
     """
     try:
         # Get configuration
+        from config import BotConfig
+        import requests
+        
         config = BotConfig.load()
         data = request.get_json() or {}
         

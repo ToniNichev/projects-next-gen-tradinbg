@@ -647,7 +647,7 @@
   </div>
   
   <!-- Progress indicator -->
-  <div id="llm-progress-text" class="llm-progress-text">🔄 Analyzing trade patterns... this may take 10-30 seconds</div>
+  <div id="llm-progress-text" class="llm-progress-text">🔄 Analyzing trade patterns... this may take 3-6 minutes</div>
   <div id="llm-progress-container" class="llm-progress-container">
     <div id="llm-progress-bar" class="llm-progress-bar"></div>
   </div>
@@ -1649,7 +1649,7 @@
           if (!response.ok) {
             // No analysis available yet
             document.querySelector('#llm-reasoning-text').textContent = 
-              'No analysis available yet. Analysis runs every 15 minutes. Make sure Ollama is running with the configured model.';
+              'No analysis available yet. Analysis takes 3-6 minutes. Make sure Ollama is running with the configured model.';
             document.querySelector('.llm-signal-value').textContent = 'NEUTRAL';
             document.querySelector('.llm-signal-value').style.color = 'var(--text-secondary)';
             document.querySelector('.llm-confidence-value').textContent = '--';
@@ -1738,7 +1738,7 @@
         progressText.classList.add('active');
         progressBar.style.width = '0%';
         
-        // Animate progress bar over 30 seconds
+        // Animate progress bar over 6 minutes to match analysis time
         let progress = 0;
         const progressInterval = setInterval(() => {
           progress += 1;
@@ -1746,32 +1746,73 @@
           if (progress >= 100) {
             clearInterval(progressInterval);
           }
-        }, 300); // Update every 300ms for smooth animation (100 steps = 30 seconds)
+        }, 3600); // Update every 3.6s for smooth animation (100 steps = 360 seconds = 6 minutes)
         
         try {
           const response = await fetch('/api/llm/trigger', { method: 'POST' });
           const data = await response.json();
           
           if (response.ok) {
-            showNotification('✅ LLM analysis triggered. Results will appear in 10-30 seconds.', 'success');
+            showNotification('✅ LLM analysis triggered. Results will appear in 3-6 minutes.', 'success');
             
-            // Poll for updated results
-            setTimeout(async () => {
-              await updateLLMAnalysis();
+            // Poll periodically for updated results
+            let pollAttempts = 0;
+            const maxPolls = 120; // 120 attempts x 3 seconds = 360 seconds (6 minutes)
+            const pollIntervalId = setInterval(async () => {
+              pollAttempts++;
               
-              // Complete progress and hide
-              clearInterval(progressInterval);
-              progressBar.style.width = '100%';
-              setTimeout(() => {
+              try {
+                // Check if new analysis is available
+                const historyResponse = await fetch('/api/llm/history?limit=1');
+                if (historyResponse.ok) {
+                  const historyData = await historyResponse.json();
+                  if (historyData.analyses && historyData.analyses.length > 0) {
+                    const latest = historyData.analyses[0];
+                    const analysisTime = new Date(latest.timestamp);
+                    const now = new Date();
+                    const ageSeconds = (now - analysisTime) / 1000;
+                    
+                    // If we have a very recent analysis (less than 10 seconds old), it's complete
+                    if (ageSeconds < 10) {
+                      clearInterval(pollIntervalId);
+                      await updateLLMAnalysis();
+                      
+                      // Complete progress and hide
+                      clearInterval(progressInterval);
+                      progressBar.style.width = '100%';
+                      setTimeout(() => {
+                        progressContainer.classList.remove('active');
+                        progressText.classList.remove('active');
+                        progressBar.style.width = '0%';
+                      }, 500);
+                      
+                      btn.disabled = false;
+                      btn.textContent = originalText;
+                      btn.style.opacity = '1';
+                      
+                      showNotification('✅ LLM analysis complete!', 'success');
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Polling error:', e);
+              }
+              
+              // Stop after max attempts
+              if (pollAttempts >= maxPolls) {
+                clearInterval(pollIntervalId);
+                clearInterval(progressInterval);
                 progressContainer.classList.remove('active');
                 progressText.classList.remove('active');
                 progressBar.style.width = '0%';
-              }, 500);
-              
-              btn.disabled = false;
-              btn.textContent = originalText;
-              btn.style.opacity = '1';
-            }, 12000);  // Wait 12 seconds before refreshing
+                
+                btn.disabled = false;
+                btn.textContent = originalText;
+                btn.style.opacity = '1';
+                
+                showNotification('⚠️ Analysis taking longer than expected. Check back soon.', 'warning');
+              }
+            }, 3000);  // Poll every 3 seconds
           } else {
             showNotification(`❌ ${data.error || 'Failed to trigger analysis'}`, 'error');
             clearInterval(progressInterval);
