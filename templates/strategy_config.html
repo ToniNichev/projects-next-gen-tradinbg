@@ -85,6 +85,33 @@
   
   .strategy-overview-card.disabled {
     border-left: 4px solid var(--accent-red);
+    opacity: 0.6;
+    filter: grayscale(50%);
+    position: relative;
+  }
+  
+  .strategy-overview-card.disabled::before {
+    content: "DISABLED";
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: var(--accent-red);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    z-index: 1;
+    pointer-events: none;
+  }
+  
+  .strategy-overview-card.disabled:hover {
+    transform: none;
+    border-color: var(--accent-red);
+  }
+  
+  .strategy-overview-card.disabled .strategy-overview-title h3 {
+    text-decoration: line-through;
     opacity: 0.7;
   }
   
@@ -95,6 +122,8 @@
     margin-bottom: 1rem;
     flex-wrap: wrap;
     gap: 0.75rem;
+    position: relative;
+    z-index: 5;
   }
   
   .strategy-overview-title {
@@ -150,6 +179,8 @@
     transition: all 0.2s;
     white-space: nowrap;
     flex-shrink: 0;
+    position: relative;
+    z-index: 10;
   }
   
   .toggle-btn.enable {
@@ -271,6 +302,34 @@
   
   .strategy-section h3 {
     color: var(--accent-blue);
+  }
+  
+  .strategy-section.disabled {
+    opacity: 0.5;
+    filter: grayscale(60%);
+    position: relative;
+    pointer-events: none;
+  }
+  
+  .strategy-section.disabled::after {
+    content: "⚠️ STRATEGY DISABLED - Enable in Strategy Overview above to configure";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(231, 76, 60, 0.95);
+    color: white;
+    padding: 1rem 2rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    text-align: center;
+    z-index: 10;
+    max-width: 80%;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  
+  .strategy-section.disabled h3 {
+    text-decoration: line-through;
   }
   
   .config-section h3 {
@@ -1307,7 +1366,7 @@
   </div>
   
   <!-- EMA Crossover Strategy -->
-  <div class="strategy-section" id="strategy-ema">
+  <div class="strategy-section" id="strategy-ema" data-strategy-name="EMA_Crossover">
     <h3>📈 EMA Crossover Strategy (Trend Following)</h3>
     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
       💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
@@ -1378,7 +1437,7 @@
   </div>
 
   <!-- RSI + Bollinger Bands Strategy -->
-  <div class="strategy-section" id="strategy-rsi-bb">
+  <div class="strategy-section" id="strategy-rsi-bb" data-strategy-name="RSI_BB_MeanReversion">
     <h3>🌊 RSI + Bollinger Bands Strategy (Mean Reversion)</h3>
     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
       💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
@@ -1504,7 +1563,7 @@
   </div>
 
   <!-- MACD + Volume Strategy -->
-  <div class="strategy-section" id="strategy-macd" style="border-left-color: #f39c12;">
+  <div class="strategy-section" id="strategy-macd" data-strategy-name="MACD_Volume_Momentum" style="border-left-color: #f39c12;">
     <h3 style="color: #f39c12;">📊 MACD + Volume Strategy (Momentum Breakout)</h3>
     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
       💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
@@ -1675,7 +1734,7 @@
   </div>
 
   <!-- LLM Pattern Analysis Strategy -->
-  <div class="strategy-section" id="strategy-llm" style="border-left-color: #9b59b6;">
+  <div class="strategy-section" id="strategy-llm" data-strategy-name="llm_pattern" style="border-left-color: #9b59b6;">
     <h3 style="color: #9b59b6;">🤖 LLM Pattern Analysis Strategy (AI-Powered)</h3>
     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
       💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
@@ -2604,6 +2663,11 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         `;
       }).join('');
 
+      // Update parameter section states based on strategy enabled/disabled status
+      data.strategies.forEach(strategy => {
+        syncConfigCheckbox(strategy.name, strategy.enabled);
+      });
+
       // Load stats after rendering cards
       loadStats();
       
@@ -2850,8 +2914,29 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
   // Note: Strategy enable/disable is now ONLY handled via the Overview toggle buttons
   // The Configuration section no longer has enable/disable checkboxes (removed for cleaner UX)
   function syncConfigCheckbox(strategyName, enabled) {
-    // This function is kept for backwards compatibility but does nothing
-    // since we removed the configuration checkboxes
+    // Map strategy names to their parameter section IDs
+    // Strategy names from API: EMA_Crossover, RSI_BB_MeanReversion, MACD_Volume_Momentum, llm_pattern
+    const strategyMapping = {
+      'EMA_Crossover': 'strategy-ema',
+      'RSI_BB_MeanReversion': 'strategy-rsi-bb',
+      'MACD_Volume_Momentum': 'strategy-macd',
+      'llm_pattern': 'strategy-llm'
+    };
+    
+    // Find the matching section ID
+    const sectionId = strategyMapping[strategyName];
+    if (sectionId) {
+      const section = document.getElementById(sectionId);
+      if (section) {
+        if (enabled) {
+          section.classList.remove('disabled');
+        } else {
+          section.classList.add('disabled');
+        }
+      }
+    } else {
+      console.warn('Unknown strategy name:', strategyName, 'Available mappings:', Object.keys(strategyMapping));
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════

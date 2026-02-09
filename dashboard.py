@@ -146,6 +146,9 @@ def get_candles(timeframe):
         # Get limit from query params (default 100, max 500)
         limit = min(int(request.args.get("limit", 100)), 500)
         
+        # Get optional 'since' parameter for fetching historical data (timestamp in milliseconds)
+        since = request.args.get("since")
+        
         # Build exchange connection
         exchange = ccxt.binanceus({
             "apiKey": config.binance_api_key,
@@ -153,8 +156,13 @@ def get_candles(timeframe):
             "enableRateLimit": True,
         })
         
-        # Fetch OHLCV data
-        ohlcv = exchange.fetch_ohlcv(config.symbol, timeframe, limit=limit)
+        # Fetch OHLCV data with optional since parameter
+        if since:
+            # Fetch candles starting from the specified timestamp
+            ohlcv = exchange.fetch_ohlcv(config.symbol, timeframe, since=int(since), limit=limit)
+        else:
+            # Fetch most recent candles
+            ohlcv = exchange.fetch_ohlcv(config.symbol, timeframe, limit=limit)
         
         # Convert to format expected by frontend
         candles = [
@@ -173,7 +181,9 @@ def get_candles(timeframe):
             "timeframe": timeframe,
             "symbol": config.symbol,
             "candles": candles,
-            "count": len(candles)
+            "count": len(candles),
+            "oldest_timestamp": candles[0]["timestamp"] if candles else None,
+            "newest_timestamp": candles[-1]["timestamp"] if candles else None,
         })
         
     except Exception as e:

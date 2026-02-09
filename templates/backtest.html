@@ -724,7 +724,46 @@
   }
   
   // Load strategy config on page load
-  window.addEventListener('DOMContentLoaded', loadCurrentStrategyConfig);
+  window.addEventListener('DOMContentLoaded', () => {
+    loadCurrentStrategyConfig();
+    restoreDaysBackSelection();
+  });
+  
+  // Preserve days_back selection in localStorage
+  const DAYS_BACK_KEY = 'backtest_days_back_selection';
+  
+  function saveDaysBackSelection() {
+    const daysBack = document.getElementById('days_back').value;
+    try {
+      localStorage.setItem(DAYS_BACK_KEY, daysBack);
+    } catch (e) {
+      console.error('Error saving days_back selection:', e);
+    }
+  }
+  
+  function restoreDaysBackSelection() {
+    try {
+      const saved = localStorage.getItem(DAYS_BACK_KEY);
+      if (saved) {
+        const dropdown = document.getElementById('days_back');
+        // Check if the saved value exists as an option
+        const option = dropdown.querySelector(`option[value="${saved}"]`);
+        if (option) {
+          dropdown.value = saved;
+        }
+      }
+    } catch (e) {
+      console.error('Error restoring days_back selection:', e);
+    }
+  }
+  
+  // Add event listener to save selection when changed
+  document.addEventListener('DOMContentLoaded', () => {
+    const daysBackDropdown = document.getElementById('days_back');
+    if (daysBackDropdown) {
+      daysBackDropdown.addEventListener('change', saveDaysBackSelection);
+    }
+  });
   
   // Populate the progress info panel with current config
   async function populateProgressInfo(daysBack) {
