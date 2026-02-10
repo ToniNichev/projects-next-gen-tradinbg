@@ -220,6 +220,23 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     )
     
     logging.info(f"Loaded {len(all_candles)} candles. Starting backtest...")
+    
+    # Validate we have enough candles for the strategy
+    min_required_candles = max(config.long_window + 1, 50)  # Need at least long_window + buffer, or 50 for indicators
+    if len(all_candles) < min_required_candles:
+        error_msg = (
+            f"Not enough candles for backtest! Got {len(all_candles)}, need at least {min_required_candles}.\n"
+            f"  - Long window requires: {config.long_window} candles\n"
+            f"  - Technical indicators require: 50 candles\n"
+            f"  - Current timeframe: {config.timeframe}\n"
+            f"\nSolutions:\n"
+            f"  1. Increase days: For {config.timeframe} timeframe, try --days 10 or more\n"
+            f"  2. Use shorter timeframe: Try 1h instead of 4h\n"
+            f"  3. Reduce long_window: Change from {config.long_window} to a smaller value"
+        )
+        logging.error(error_msg)
+        raise ValueError(error_msg)
+    
     logging.info(f"Strategy: EMA {config.short_window}/{config.long_window} on {config.timeframe} timeframe")
     logging.info(f"Order size: {config.order_pct * 100}% per trade")
     logging.info("-" * 80)
@@ -253,7 +270,7 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         exit_trade = trader.update_position(current_price)
         if exit_trade:
             trade_count += 1
-            # Record exit trade marker
+            # Record exit trade marker (inherit strategy from entry)
             chart_data["trades"].append({
                 "timestamp": candle_timestamp.isoformat() + "Z",
                 "side": exit_trade.side,
@@ -261,6 +278,8 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
                 "amount": exit_trade.amount,
                 "reason": exit_trade.exit_reason,
                 "pnl": exit_trade.pnl,
+                "strategy_name": None,  # Exit trades don't have direct strategy attribution
+                "confidence": None,
             })
         
         # Get window of candles for signal computation
@@ -311,7 +330,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
             current_price = all_candles[i][4]
             portfolio_value = trader.usdt_balance + (trader.base_balance * current_price)
             
-            # Record entry trade marker
+            # Extract strategy info from signal
+            strategy_name = trade.signal.get("strategy_name", "Unknown")
+            confidence = trade.signal.get("confidence", 0.0)
+            
+            # Record entry trade marker with strategy attribution
             chart_data["trades"].append({
                 "timestamp": candle_time.isoformat() + "Z",
                 "side": trade.side,
@@ -319,6 +342,8 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
                 "amount": trade.amount,
                 "reason": "signal",
                 "pnl": None,
+                "strategy_name": strategy_name,
+                "confidence": confidence,
             })
             
             logging.info(
@@ -355,8 +380,10 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     pnl = total_value - config.initial_usdt
     pnl_pct = (pnl / config.initial_usdt) * 100
     
-    # Calculate buy & hold comparison
-    buy_hold_btc = config.initial_usdt / all_candles[config.long_window][4]
+    # Calculate buy & hold comparison (use first tradeable candle, not arbitrary index)
+    # Start from config.long_window or first available candle, whichever is smaller
+    buy_hold_start_idx = min(config.long_window, len(all_candles) - 1)
+    buy_hold_btc = config.initial_usdt / all_candles[buy_hold_start_idx][4]
     buy_hold_value = buy_hold_btc * final_price
     buy_hold_pnl = buy_hold_value - config.initial_usdt
     buy_hold_pct = (buy_hold_pnl / config.initial_usdt) * 100

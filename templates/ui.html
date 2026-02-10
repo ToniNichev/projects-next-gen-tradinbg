@@ -144,6 +144,79 @@
     font-weight: 600;
   }
   
+  /* Trade marker toggle button */
+  .toggle-trades-btn {
+    background: rgba(255, 215, 0, 0.2);
+    border: 1px solid rgba(255, 215, 0, 0.4);
+    color: #FFD700;
+  }
+  
+  .toggle-trades-btn:hover {
+    background: rgba(255, 215, 0, 0.3);
+    border-color: rgba(255, 215, 0, 0.6);
+  }
+  
+  .toggle-trades-btn.active {
+    background: rgba(255, 215, 0, 0.5);
+    border-color: rgba(255, 215, 0, 0.8);
+    font-weight: 600;
+  }
+  
+  /* Fullscreen button */
+  #fullscreen-btn {
+    background: rgba(138, 43, 226, 0.2);
+    border: 1px solid rgba(138, 43, 226, 0.4);
+    color: #BA55D3;
+  }
+  
+  #fullscreen-btn:hover {
+    background: rgba(138, 43, 226, 0.3);
+    border-color: rgba(138, 43, 226, 0.6);
+  }
+  
+  #fullscreen-btn.active {
+    background: rgba(138, 43, 226, 0.5);
+    border-color: rgba(138, 43, 226, 0.8);
+    font-weight: 600;
+  }
+  
+  /* Fullscreen mode styles */
+  .chart-container:fullscreen {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .chart-container:fullscreen .chart-controls {
+    margin-bottom: 1.5rem;
+  }
+  
+  .chart-container:fullscreen canvas {
+    flex: 1;
+    height: 100% !important;
+  }
+  
+  /* Firefox fullscreen support */
+  .chart-container:-moz-full-screen {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* WebKit fullscreen support */
+  .chart-container:-webkit-full-screen {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* MS fullscreen support */
+  .chart-container:-ms-fullscreen {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+  }
+  
   /* Manual Trading Panel */
   .manual-trading-panel {
     background: var(--bg-secondary);
@@ -646,12 +719,13 @@
       • Historical data for other timeframes<br>
       <hr>
       <strong>Smooth Navigation:</strong><br>
-      • Click & drag to scroll smoothly<br>
+      • Click & drag with momentum (kinetic scrolling)<br>
       • Shift + mouse wheel to scroll left/right<br>
       • Mouse wheel (no shift) to zoom<br>
       • Hold arrow keys for smooth scrolling<br>
       • +/- keys to zoom in/out<br>
-      • Press 0 to reset view
+      • Press 0 to reset view<br>
+      • Press F for fullscreen (ESC to exit)
     </span>
   </span>
 </div>
@@ -738,7 +812,7 @@
     <div class="nav-group">
       <button onclick="panLeft()" title="Pan left (← arrow key or Shift+Wheel)">◀ Left</button>
       <button onclick="panRight()" title="Pan right (→ arrow key or Shift+Wheel)">Right ▶</button>
-      <span class="kbd-hint">💡 Drag to scroll | Shift+Wheel to scroll | Wheel to zoom</span>
+      <span class="kbd-hint">💡 Drag with momentum | Shift+Wheel to scroll | Wheel to zoom | F for fullscreen</span>
     </div>
     <div style="display: flex; gap: 1rem; align-items: center;">
       <div class="chart-info" id="chart-info">
@@ -749,6 +823,14 @@
         <button onclick="resetZoom()">Reset</button>
         <button onclick="zoomIn()" title="Zoom in (or press +)">+ Zoom</button>
         <button onclick="zoomOut()" title="Zoom out (or press -)">- Zoom</button>
+      </div>
+      <div class="nav-group">
+        <button onclick="toggleTradeMarkers()" id="toggle-trades-btn" class="toggle-trades-btn active" title="Show/hide executed trades on chart">
+          📊 Trades
+        </button>
+        <button onclick="toggleFullscreen()" id="fullscreen-btn" title="Toggle fullscreen chart view (F for fullscreen, ESC to exit)">
+          ⛶ Fullscreen
+        </button>
       </div>
     </div>
   </div>
@@ -767,6 +849,34 @@
       let isLoadingTimeframe = false;
       let isLoadingHistorical = false;  // Prevent duplicate historical data fetches
       let hasMoreHistoricalData = true;  // Track if more data is available
+      let showTradeMarkers = true;  // Toggle for showing/hiding trade markers
+      let cachedTrades = [];  // Cache trades to avoid repeated fetches
+      
+      // Strategy color mapping (same as backtest charts)
+      const STRATEGY_COLORS = {
+        'EMA_Crossover': '#00D9FF',        // Bright cyan
+        'RSI_BB_MeanReversion': '#FF6B9D', // Pink
+        'MACD_Volume_Momentum': '#FFD700', // Gold
+        'llm_pattern': '#9D4EDD',          // Purple
+        'LLM_Pattern': '#9D4EDD',          // Purple (alternative name)
+        'Aggregated': '#FFFFFF',           // White (multi-strategy)
+        'Unknown': '#808080',              // Gray (fallback)
+      };
+      
+      function getStrategyColor(strategyName) {
+        if (!strategyName) return STRATEGY_COLORS['Unknown'];
+        return STRATEGY_COLORS[strategyName] || STRATEGY_COLORS['Unknown'];
+      }
+      
+      function getStrategyDisplayName(strategyName) {
+        if (!strategyName) return 'Unknown';
+        if (strategyName === 'Aggregated') return 'Multi-Strategy';
+        if (strategyName.includes('llm') || strategyName.includes('LLM')) return 'LLM Pattern';
+        if (strategyName === 'EMA_Crossover') return 'EMA Crossover';
+        if (strategyName === 'RSI_BB_MeanReversion') return 'RSI+BB';
+        if (strategyName === 'MACD_Volume_Momentum') return 'MACD+Vol';
+        return strategyName;
+      }
       
       chart = new Chart(ctx, {
         type: "candlestick",
@@ -882,6 +992,25 @@
                   if (context.dataset.label === "Signals") {
                     return `Price: $${context.parsed.y.toFixed(2)}`;
                   }
+                  // For trade markers (Buy/Sell)
+                  if (context.dataset.label && (context.dataset.label.includes('Buy') || context.dataset.label.includes('Sell'))) {
+                    const trade = context.raw;
+                    const lines = [];
+                    lines.push(`${context.dataset.label}: $${trade.y.toFixed(2)}`);
+                    
+                    if (trade.amount) {
+                      lines.push(`Amount: ${trade.amount.toFixed(6)} BTC`);
+                    }
+                    if (trade.pnl !== null && trade.pnl !== undefined) {
+                      const pnlStr = trade.pnl >= 0 ? `+$${trade.pnl.toFixed(2)}` : `$${trade.pnl.toFixed(2)}`;
+                      lines.push(`P&L: ${pnlStr}`);
+                    }
+                    if (trade.exit_reason) {
+                      lines.push(`Reason: ${trade.exit_reason.replace(/_/g, ' ')}`);
+                    }
+                    
+                    return lines;
+                  }
                   return context.formattedValue;
                 }
               }
@@ -890,6 +1019,16 @@
               pan: {
                 enabled: false,  // Disabled - using custom drag handler instead
                 mode: 'x',
+                onPanComplete: function() {
+                  // Fit Y-axis to visible candles after pan
+                  fitYAxisToVisibleCandles();
+                  chart.update('none');
+                  
+                  // Update trade markers after panning
+                  if (showTradeMarkers) {
+                    updateTradeMarkers();
+                  }
+                }
               },
               zoom: {
                 wheel: {
@@ -903,6 +1042,16 @@
                 drag: {
                   enabled: false,
                 },
+                onZoomComplete: function() {
+                  // Fit Y-axis to visible candles after zoom
+                  fitYAxisToVisibleCandles();
+                  chart.update('none');
+                  
+                  // Update trade markers after zooming
+                  if (showTradeMarkers) {
+                    updateTradeMarkers();
+                  }
+                }
               },
               limits: {
                 x: {
@@ -913,6 +1062,222 @@
           },
         },
       });
+
+      // Fetch executed trades from database
+      async function fetchTrades(limit = 200) {
+        try {
+          const response = await fetch(`/api/trades?limit=${limit}`);
+          const data = await response.json();
+          
+          if (data.trades) {
+            cachedTrades = data.trades;
+            return data.trades;
+          }
+          return [];
+        } catch (error) {
+          console.error('Error fetching trades:', error);
+          return [];
+        }
+      }
+      
+      // Filter trades by visible timeframe
+      function filterTradesByTimeframe(trades, minTime, maxTime) {
+        return trades.filter(trade => {
+          const tradeTime = new Date(trade.timestamp).getTime();
+          return tradeTime >= minTime && tradeTime <= maxTime;
+        });
+      }
+      
+      // Add trade marker datasets to chart
+      async function updateTradeMarkers() {
+        if (!showTradeMarkers) {
+          // Remove trade datasets (keep only candles at index 0 and signals at index 1)
+          while (chart.data.datasets.length > 2) {
+            chart.data.datasets.pop();
+          }
+          chart.update('none');
+          return;
+        }
+        
+        // Fetch trades if not cached
+        if (cachedTrades.length === 0) {
+          await fetchTrades();
+        }
+        
+        // Get visible time range
+        const xScale = chart.scales.x;
+        const minTime = xScale.min || chart.data.datasets[0].data[0]?.x || Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const maxTime = xScale.max || Date.now();
+        
+        // Filter trades to visible range
+        const visibleTrades = filterTradesByTimeframe(cachedTrades, minTime, maxTime);
+        
+        // Group trades by strategy and side
+        const tradesByStrategy = {};
+        
+        visibleTrades.forEach(trade => {
+          const strategyName = trade.signal_direction || 'Unknown';
+          if (!tradesByStrategy[strategyName]) {
+            tradesByStrategy[strategyName] = { buy: [], sell: [] };
+          }
+          
+          const tradeData = {
+            x: new Date(trade.timestamp).getTime(),
+            y: trade.price,
+            side: trade.side,
+            amount: trade.amount,
+            pnl: trade.pnl,
+            exit_reason: trade.exit_reason,
+            signal_direction: trade.signal_direction,
+          };
+          
+          if (trade.side === 'buy') {
+            tradesByStrategy[strategyName].buy.push(tradeData);
+          } else {
+            tradesByStrategy[strategyName].sell.push(tradeData);
+          }
+        });
+        
+        // Remove existing trade datasets (keep candles at 0, signals at 1)
+        while (chart.data.datasets.length > 2) {
+          chart.data.datasets.pop();
+        }
+        
+        // Add trade marker datasets for each strategy
+        Object.keys(tradesByStrategy).forEach(strategyName => {
+          const trades = tradesByStrategy[strategyName];
+          const strategyColor = getStrategyColor(strategyName);
+          const displayName = getStrategyDisplayName(strategyName);
+          
+          // Buy trades
+          if (trades.buy.length > 0) {
+            chart.data.datasets.push({
+              label: `${displayName} Buy`,
+              type: 'scatter',
+              data: trades.buy,
+              yAxisID: 'y',
+              pointStyle: 'triangle',
+              pointRadius: 12,
+              pointRotation: 0,
+              backgroundColor: strategyColor,
+              borderColor: '#ffffff',
+              borderWidth: 3,
+              pointHoverRadius: 16,
+              pointHoverBorderWidth: 4,
+              showLine: false,
+              order: 10,
+            });
+          }
+          
+          // Sell trades
+          if (trades.sell.length > 0) {
+            chart.data.datasets.push({
+              label: `${displayName} Sell`,
+              type: 'scatter',
+              data: trades.sell,
+              yAxisID: 'y',
+              pointStyle: 'triangle',
+              pointRadius: 12,
+              pointRotation: 180,
+              backgroundColor: strategyColor,
+              borderColor: '#ffffff',
+              borderWidth: 3,
+              pointHoverRadius: 16,
+              pointHoverBorderWidth: 4,
+              showLine: false,
+              order: 10,
+            });
+          }
+        });
+        
+        chart.update('none');
+      }
+      
+      // Toggle trade markers visibility
+      function toggleTradeMarkers() {
+        showTradeMarkers = !showTradeMarkers;
+        const btn = document.getElementById('toggle-trades-btn');
+        
+        if (showTradeMarkers) {
+          btn.classList.add('active');
+          btn.textContent = '📊 Trades';
+        } else {
+          btn.classList.remove('active');
+          btn.textContent = '📊 Trades (Hidden)';
+        }
+        
+        updateTradeMarkers();
+      }
+      
+      // Toggle fullscreen mode
+      function toggleFullscreen() {
+        const container = document.querySelector('.chart-container');
+        const btn = document.getElementById('fullscreen-btn');
+        
+        if (!document.fullscreenElement && 
+            !document.webkitFullscreenElement && 
+            !document.mozFullScreenElement && 
+            !document.msFullscreenElement) {
+          // Enter fullscreen
+          if (container.requestFullscreen) {
+            container.requestFullscreen();
+          } else if (container.webkitRequestFullscreen) {
+            container.webkitRequestFullscreen(); // Safari
+          } else if (container.mozRequestFullScreen) {
+            container.mozRequestFullScreen(); // Firefox
+          } else if (container.msRequestFullscreen) {
+            container.msRequestFullscreen(); // IE/Edge
+          }
+        } else {
+          // Exit fullscreen
+          if (document.exitFullscreen) {
+            document.exitFullscreen();
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          } else if (document.mozCancelFullScreen) {
+            document.mozCancelFullScreen();
+          } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+          }
+        }
+      }
+      
+      // Handle fullscreen change events
+      function handleFullscreenChange() {
+        const btn = document.getElementById('fullscreen-btn');
+        const isFullscreen = !!(document.fullscreenElement || 
+                                document.webkitFullscreenElement || 
+                                document.mozFullScreenElement || 
+                                document.msFullscreenElement);
+        
+        if (isFullscreen) {
+          btn.classList.add('active');
+          btn.textContent = '⛶ Exit Fullscreen';
+          console.log('Entered fullscreen mode');
+        } else {
+          btn.classList.remove('active');
+          btn.textContent = '⛶ Fullscreen';
+          console.log('Exited fullscreen mode');
+        }
+        
+        // Resize chart to fit new container size
+        setTimeout(() => {
+          chart.resize();
+          fitYAxisToVisibleCandles();
+          chart.update('none');
+          
+          // Update trade markers in new size
+          if (showTradeMarkers) {
+            updateTradeMarkers();
+          }
+        }, 100);
+      }
+      
+      // Listen for fullscreen changes (all browser variants)
+      document.addEventListener('fullscreenchange', handleFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.addEventListener('MSFullscreenChange', handleFullscreenChange);
 
       async function changeTimeframe(timeframe) {
         if (isLoadingTimeframe) return;
@@ -937,6 +1302,10 @@
         
         currentTimeframe = timeframe;
         await refresh();
+        
+        // Ensure Y-axis fits after timeframe change
+        fitYAxisToVisibleCandles();
+        chart.update('none');
         
         // Hide loading indicator
         document.getElementById('chart-loading').classList.remove('show');
@@ -1018,21 +1387,6 @@
           chart.data.datasets[0].data = candleData;
           chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe})`;
           
-          // Calculate Y scale range from data
-          let minPrice = Infinity;
-          let maxPrice = -Infinity;
-          candleData.forEach(candle => {
-            minPrice = Math.min(minPrice, candle.l);
-            maxPrice = Math.max(maxPrice, candle.h);
-          });
-          
-          if (minPrice !== Infinity && maxPrice !== -Infinity) {
-            const padding = (maxPrice - minPrice) * 0.1 || maxPrice * 0.01;
-            chart.options.scales.y.min = minPrice - padding;
-            chart.options.scales.y.max = maxPrice + padding;
-            console.log("Setting Y scale:", chart.options.scales.y.min, "to", chart.options.scales.y.max);
-          }
-          
           // Set up pan limits - extend range beyond visible data for panning
           if (candleData.length > 0) {
             const timestamps = candleData.map(d => d.x);
@@ -1092,6 +1446,14 @@
           // Only animate zoom/pan interactions, not data refreshes
           chart.update('none');
           console.log("Chart updated successfully");
+          
+          // Fit Y-axis to visible candles
+          fitYAxisToVisibleCandles();
+          chart.update('none');
+          
+          // Update trade markers after chart data is refreshed
+          await updateTradeMarkers();
+          
           // Update time unit based on timeframe
           const timeUnitMap = {
             '1m': 'minute',
@@ -1161,18 +1523,54 @@
       }
 
       function resetZoom() {
+        // Cancel momentum
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+          velocityX = 0;
+        }
         // Reset to show all data
         chart.options.scales.x.min = undefined;
         chart.options.scales.x.max = undefined;
         chart.update('default');
+        
+        // Fit Y-axis after reset
+        setTimeout(() => {
+          fitYAxisToVisibleCandles();
+          chart.update('none');
+        }, 100);
       }
       
       function zoomIn() {
+        // Cancel momentum
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+          velocityX = 0;
+        }
         chart.zoom(1.2);
+        
+        // Fit Y-axis after zoom
+        setTimeout(() => {
+          fitYAxisToVisibleCandles();
+          chart.update('none');
+        }, 10);
       }
       
       function zoomOut() {
+        // Cancel momentum
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+          velocityX = 0;
+        }
         chart.zoom(0.8);
+        
+        // Fit Y-axis after zoom
+        setTimeout(() => {
+          fitYAxisToVisibleCandles();
+          chart.update('none');
+        }, 10);
       }
       
       // Convert timeframe string to milliseconds
@@ -1288,6 +1686,9 @@
           chart.options.scales.x.min = currentMin;
           chart.options.scales.x.max = currentMax;
           
+          // Fit Y-axis to visible candles after loading historical data
+          fitYAxisToVisibleCandles();
+          
           // Update chart without animation to avoid jank
           chart.update('none');
           
@@ -1360,6 +1761,13 @@
       }
       
       function panLeft() {
+        // Cancel momentum
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+          velocityX = 0;
+        }
+        
         // Pan left by 15% of visible range with smooth animation
         const xScale = chart.scales.x;
         const range = xScale.max - xScale.min;
@@ -1373,11 +1781,22 @@
           max: currentMax - panAmount
         }, 'default');
         
-        // Check if we need to load more historical data
-        setTimeout(() => checkAndLoadHistoricalData(), 100);
+        // Fit Y-axis after pan
+        setTimeout(() => {
+          fitYAxisToVisibleCandles();
+          chart.update('none');
+          checkAndLoadHistoricalData();
+        }, 100);
       }
       
       function panRight() {
+        // Cancel momentum
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+          velocityX = 0;
+        }
+        
         // Pan right by 15% of visible range with smooth animation
         const xScale = chart.scales.x;
         const range = xScale.max - xScale.min;
@@ -1390,6 +1809,12 @@
           min: currentMin + panAmount,
           max: currentMax + panAmount
         }, 'default');
+        
+        // Fit Y-axis after pan
+        setTimeout(() => {
+          fitYAxisToVisibleCandles();
+          chart.update('none');
+        }, 100);
       }
       
       // Smooth keyboard navigation with repeat support
@@ -1401,8 +1826,20 @@
           return;
         }
         
+        // Cancel momentum animation when user uses keyboard
+        if (momentumAnimation && (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === '+' || e.key === '-' || e.key === '=' || e.key === '_' || e.key === '0')) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+          velocityX = 0;
+        }
+        
         const handleKey = () => {
           switch(e.key) {
+            case 'f':
+            case 'F':
+              e.preventDefault();
+              toggleFullscreen();
+              break;
             case 'ArrowLeft':
               e.preventDefault();
               // Smaller pan for smoother keyboard scrolling
@@ -1413,6 +1850,8 @@
                 min: xScale1.min - panAmount1,
                 max: xScale1.max - panAmount1
               }, 'none');  // No animation for smooth continuous scrolling
+              fitYAxisToVisibleCandles();
+              chart.update('none');
               break;
             case 'ArrowRight':
               e.preventDefault();
@@ -1423,6 +1862,8 @@
                 min: xScale2.min + panAmount2,
                 max: xScale2.max + panAmount2
               }, 'none');
+              fitYAxisToVisibleCandles();
+              chart.update('none');
               break;
             case '+':
             case '=':
@@ -1467,13 +1908,33 @@
       let dragStartMin = 0;
       let dragStartMax = 0;
       
+      // Kinetic scrolling variables
+      let velocityX = 0;
+      let lastDragTime = 0;
+      let lastDragPos = 0;
+      let momentumAnimation = null;
+      const velocityHistory = []; // Track last few velocities for smoothing
+      const VELOCITY_HISTORY_SIZE = 5;
+      
       canvas.addEventListener('mousedown', (e) => {
+        // Cancel any ongoing momentum animation
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+        }
+        
         isDragging = true;
         dragStartX = e.clientX;
         const xScale = chart.scales.x;
         dragStartMin = xScale.min;
         dragStartMax = xScale.max;
         canvas.style.cursor = 'grabbing';
+        
+        // Reset velocity tracking
+        velocityX = 0;
+        lastDragTime = Date.now();
+        lastDragPos = e.clientX;
+        velocityHistory.length = 0;
       });
       
       canvas.addEventListener('mousemove', (e) => {
@@ -1482,6 +1943,31 @@
         e.preventDefault();
         const xScale = chart.scales.x;
         const chartArea = chart.chartArea;
+        
+        // Track velocity for kinetic scrolling
+        const now = Date.now();
+        const currentX = e.clientX;
+        
+        if (lastDragTime > 0) {
+          const deltaTime = now - lastDragTime;
+          const deltaPos = currentX - lastDragPos;
+          
+          if (deltaTime > 0) {
+            const currentVelocity = deltaPos / deltaTime; // px/ms
+            
+            // Store velocity in history for smoothing
+            velocityHistory.push(currentVelocity);
+            if (velocityHistory.length > VELOCITY_HISTORY_SIZE) {
+              velocityHistory.shift();
+            }
+            
+            // Calculate average velocity for smoother momentum
+            velocityX = velocityHistory.reduce((sum, v) => sum + v, 0) / velocityHistory.length;
+          }
+        }
+        
+        lastDragTime = now;
+        lastDragPos = currentX;
         
         // Calculate how much we've dragged in pixels
         const deltaX = e.clientX - dragStartX;
@@ -1513,6 +1999,10 @@
         // Update the scale
         chart.options.scales.x.min = clampedMin;
         chart.options.scales.x.max = clampedMax;
+        
+        // Fit Y-axis to visible candles
+        fitYAxisToVisibleCandles();
+        
         chart.update('none');  // Update without animation for smooth dragging
       });
       
@@ -1520,10 +2010,118 @@
         if (isDragging) {
           isDragging = false;
           canvas.style.cursor = 'grab';
-          // Check if we need to load more historical data after dragging
-          setTimeout(() => checkAndLoadHistoricalData(), 100);
+          
+          // Apply kinetic momentum
+          applyMomentum();
         }
       };
+      
+      // Auto-fit Y-axis to visible candles
+      function fitYAxisToVisibleCandles() {
+        const candleData = chart.data.datasets[0].data;
+        if (candleData.length === 0) return;
+        
+        const xScale = chart.scales.x;
+        const visibleMin = xScale.min;
+        const visibleMax = xScale.max;
+        
+        // Filter candles to only those visible in current X range
+        const visibleCandles = candleData.filter(candle => 
+          candle.x >= visibleMin && candle.x <= visibleMax
+        );
+        
+        if (visibleCandles.length === 0) return;
+        
+        // Find min/max prices from visible candles
+        let minPrice = Infinity;
+        let maxPrice = -Infinity;
+        
+        visibleCandles.forEach(candle => {
+          minPrice = Math.min(minPrice, candle.l); // Low
+          maxPrice = Math.max(maxPrice, candle.h); // High
+        });
+        
+        if (minPrice !== Infinity && maxPrice !== -Infinity) {
+          // Add 5% padding above and below for breathing room
+          const range = maxPrice - minPrice;
+          const padding = range * 0.05 || maxPrice * 0.02; // Fallback for very small ranges
+          
+          chart.options.scales.y.min = minPrice - padding;
+          chart.options.scales.y.max = maxPrice + padding;
+        }
+      }
+      
+      // Kinetic momentum animation
+      function applyMomentum() {
+        // Cancel any existing momentum
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+        }
+        
+        // Only apply momentum if velocity is significant (at least 0.5 px/ms)
+        if (Math.abs(velocityX) < 0.5) {
+          velocityX = 0;
+          // Still check for historical data loading
+          setTimeout(() => checkAndLoadHistoricalData(), 100);
+          return;
+        }
+        
+        const deceleration = 0.95; // Friction factor (higher = longer glide)
+        const minVelocity = 0.1; // Stop when velocity becomes negligible
+        
+        const animate = () => {
+          // Stop animation when velocity is too low
+          if (Math.abs(velocityX) < minVelocity) {
+            velocityX = 0;
+            momentumAnimation = null;
+            // Check if we need to load more historical data after momentum stops
+            setTimeout(() => checkAndLoadHistoricalData(), 100);
+            return;
+          }
+          
+          const xScale = chart.scales.x;
+          const chartArea = chart.chartArea;
+          const chartWidth = chartArea.right - chartArea.left;
+          const timeRange = xScale.max - xScale.min;
+          const timePerPixel = timeRange / chartWidth;
+          
+          // Convert velocity to time delta (~16ms per frame at 60fps)
+          const timeDelta = velocityX * 16 * timePerPixel;
+          
+          // Apply pan
+          const newMin = xScale.min - timeDelta;
+          const newMax = xScale.max - timeDelta;
+          
+          // Check pan limits and stop at boundaries
+          const limits = chart.options.plugins.zoom.limits.x;
+          if ((limits.min !== undefined && newMin < limits.min) ||
+              (limits.max !== undefined && newMax > limits.max)) {
+            velocityX = 0; // Stop at boundary
+            momentumAnimation = null;
+            setTimeout(() => checkAndLoadHistoricalData(), 100);
+            return;
+          }
+          
+          // Update chart position
+          chart.options.scales.x.min = newMin;
+          chart.options.scales.x.max = newMax;
+          
+          // Fit Y-axis to visible candles
+          fitYAxisToVisibleCandles();
+          
+          chart.update('none'); // No animation for smooth 60fps momentum
+          
+          // Apply deceleration
+          velocityX *= deceleration;
+          
+          // Continue animation
+          momentumAnimation = requestAnimationFrame(animate);
+        };
+        
+        // Start momentum animation
+        momentumAnimation = requestAnimationFrame(animate);
+      }
       
       canvas.addEventListener('mouseup', stopDragging);
       canvas.addEventListener('mouseleave', stopDragging);
@@ -1531,6 +2129,13 @@
       // Add horizontal mouse wheel scrolling support
       let wheelScrollTimeout = null;
       canvas.addEventListener('wheel', (e) => {
+        // Cancel any ongoing momentum animation when user scrolls
+        if (momentumAnimation) {
+          cancelAnimationFrame(momentumAnimation);
+          momentumAnimation = null;
+          velocityX = 0;
+        }
+        
         // Check if it's a horizontal scroll (shift + wheel or trackpad horizontal)
         if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
           e.preventDefault();
@@ -1547,6 +2152,10 @@
             min: xScale.min + scrollAmount,
             max: xScale.max + scrollAmount
           }, 'none');
+          
+          // Fit Y-axis to visible candles
+          fitYAxisToVisibleCandles();
+          chart.update('none');
           
           // Check for historical data loading after scroll ends (debounced)
           if (deltaX < 0 || e.deltaX < 0) {  // Scrolling left
@@ -1568,6 +2177,14 @@
           refresh();
         }
       }, 15000); // Poll every 15 seconds
+      
+      // Refresh trade cache periodically (every 30 seconds)
+      setInterval(async () => {
+        await fetchTrades();
+        if (showTradeMarkers) {
+          await updateTradeMarkers();
+        }
+      }, 30000);
       
       // Slower refresh for historical timeframes
       setInterval(() => {

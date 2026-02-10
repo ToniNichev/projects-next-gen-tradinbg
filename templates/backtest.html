@@ -376,6 +376,40 @@
     border-radius: 0.25rem;
     border-left: 3px solid #e74c3c;
   }
+  
+  /* Strategy legend */
+  .strategy-legend {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    align-items: center;
+  }
+  
+  .legend-title {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin-right: 0.5rem;
+  }
+  
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+  }
+  
+  .legend-marker {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+  }
 </style>
 {% endblock %}
 
@@ -530,6 +564,13 @@
         <button onclick="zoomOutChart()" title="Zoom out">- Zoom</button>
       </div>
     </div>
+    
+    <!-- Strategy Legend -->
+    <div id="strategy-legend" class="strategy-legend" style="display: none;">
+      <span class="legend-title">Strategies:</span>
+      <div id="legend-items" style="display: flex; gap: 1rem; flex-wrap: wrap;"></div>
+    </div>
+    
     <canvas id="backtestChart"></canvas>
   </div>
 </div>
@@ -1317,6 +1358,32 @@
     }
   }
   
+  // Strategy color mapping for trade markers
+  const STRATEGY_COLORS = {
+    'EMA_Crossover': '#00D9FF',        // Bright cyan
+    'RSI_BB_MeanReversion': '#FF6B9D', // Pink
+    'MACD_Volume_Momentum': '#FFD700', // Gold
+    'llm_pattern': '#9D4EDD',          // Purple
+    'LLM_Pattern': '#9D4EDD',          // Purple (alternative name)
+    'Aggregated': '#FFFFFF',           // White (multi-strategy)
+    'Unknown': '#808080',              // Gray (fallback)
+  };
+  
+  function getStrategyColor(strategyName) {
+    if (!strategyName) return STRATEGY_COLORS['Unknown'];
+    return STRATEGY_COLORS[strategyName] || STRATEGY_COLORS['Unknown'];
+  }
+  
+  function getStrategyDisplayName(strategyName) {
+    if (!strategyName) return 'Unknown';
+    if (strategyName === 'Aggregated') return 'Multi-Strategy';
+    if (strategyName.includes('llm') || strategyName.includes('LLM')) return 'LLM Pattern';
+    if (strategyName === 'EMA_Crossover') return 'EMA Crossover';
+    if (strategyName === 'RSI_BB_MeanReversion') return 'RSI+BB';
+    if (strategyName === 'MACD_Volume_Momentum') return 'MACD+Vol';
+    return strategyName;
+  }
+
   function renderPriceChart(chartData) {
     const ctx = document.getElementById('backtestChart').getContext('2d');
     
@@ -1340,109 +1407,131 @@
       y: pv.value,
     }));
     
-    // Prepare trade markers
-    const buyTrades = chartData.trades
-      .filter(t => t.side === 'buy')
-      .map(t => ({
+    // Group trades by strategy for color-coding
+    const tradesByStrategy = {};
+    
+    chartData.trades.forEach(t => {
+      const strategyName = t.strategy_name || 'Unknown';
+      if (!tradesByStrategy[strategyName]) {
+        tradesByStrategy[strategyName] = { buy: [], sell: [] };
+      }
+      
+      const tradeData = {
         x: new Date(t.timestamp).getTime(),
         y: t.price,
         reason: t.reason,
         pnl: t.pnl,
         side: t.side,
-        amount: t.amount
-      }));
-
-    const sellTrades = chartData.trades
-      .filter(t => t.side === 'sell')
-      .map(t => ({
-        x: new Date(t.timestamp).getTime(),
-        y: t.price,
-        reason: t.reason,
-        pnl: t.pnl,
-        side: t.side,
-        amount: t.amount
-      }));
+        amount: t.amount,
+        strategy_name: t.strategy_name,
+        confidence: t.confidence,
+      };
+      
+      if (t.side === 'buy') {
+        tradesByStrategy[strategyName].buy.push(tradeData);
+      } else {
+        tradesByStrategy[strategyName].sell.push(tradeData);
+      }
+    });
+    
+    // Create datasets - candlesticks and portfolio first, then trade markers grouped by strategy
+    const datasets = [
+      {
+        label: 'BTC/USDT',
+        data: candleData,
+        yAxisID: 'y',
+        color: {
+          up: '#58D68D',
+          down: '#ff5e57',
+          unchanged: '#999',
+        },
+        borderColor: {
+          up: '#58D68D',
+          down: '#ff5e57',
+          unchanged: '#999',
+        },
+        borderWidth: 1.5,
+        barPercentage: 0.7,
+        categoryPercentage: 0.8,
+      },
+      {
+        label: 'Portfolio Value',
+        type: 'line',
+        data: portfolioData,
+        yAxisID: 'y1',
+        borderColor: '#FFD700',
+        backgroundColor: 'rgba(255, 215, 0, 0.1)',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.1,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+      },
+    ];
+    
+    // Add trade marker datasets for each strategy
+    Object.keys(tradesByStrategy).forEach(strategyName => {
+      const trades = tradesByStrategy[strategyName];
+      const strategyColor = getStrategyColor(strategyName);
+      const displayName = getStrategyDisplayName(strategyName);
+      
+      // Buy trades for this strategy
+      if (trades.buy.length > 0) {
+        datasets.push({
+          label: `${displayName} Buy`,
+          type: 'scatter',
+          data: trades.buy,
+          yAxisID: 'y',
+          pointStyle: 'triangle',
+          pointRadius: 10,
+          pointRotation: 0,
+          backgroundColor: strategyColor,
+          borderColor: '#ffffff',
+          borderWidth: 2,
+          pointHoverRadius: 16,
+          pointHoverBorderWidth: 4,
+          shadowOffsetX: 1,
+          shadowOffsetY: 1,
+          shadowBlur: 4,
+          shadowColor: 'rgba(0, 0, 0, 0.6)',
+          hoverBorderColor: '#ffffff',
+          hoverBorderWidth: 3,
+          showLine: false,
+          order: 10,
+        });
+      }
+      
+      // Sell trades for this strategy
+      if (trades.sell.length > 0) {
+        datasets.push({
+          label: `${displayName} Sell`,
+          type: 'scatter',
+          data: trades.sell,
+          yAxisID: 'y',
+          pointStyle: 'triangle',
+          pointRadius: 10,
+          pointRotation: 180,
+          backgroundColor: strategyColor,
+          borderColor: '#ffffff',
+          borderWidth: 2,
+          pointHoverRadius: 16,
+          pointHoverBorderWidth: 4,
+          shadowOffsetX: 1,
+          shadowOffsetY: 1,
+          shadowBlur: 4,
+          shadowColor: 'rgba(0, 0, 0, 0.6)',
+          hoverBorderColor: '#ffffff',
+          hoverBorderWidth: 3,
+          showLine: false,
+          order: 10,
+        });
+      }
+    });
     
     backtestChart = new Chart(ctx, {
       type: 'candlestick',
       data: {
-        datasets: [
-          {
-            label: 'BTC/USDT',
-            data: candleData,
-            yAxisID: 'y',
-            color: {
-              up: '#58D68D',
-              down: '#ff5e57',
-              unchanged: '#999',
-            },
-            borderColor: {
-              up: '#58D68D',
-              down: '#ff5e57',
-              unchanged: '#999',
-            },
-            borderWidth: 1.5,
-            barPercentage: 0.7,
-            categoryPercentage: 0.8,
-          },
-          {
-            label: 'Portfolio Value',
-            type: 'line',
-            data: portfolioData,
-            yAxisID: 'y1',
-            borderColor: '#FFD700',
-            backgroundColor: 'rgba(255, 215, 0, 0.1)',
-            borderWidth: 2,
-            fill: false,
-            tension: 0.1,
-            pointRadius: 0,
-            pointHoverRadius: 4,
-          },
-          {
-            label: 'Buy',
-            type: 'scatter',
-            data: buyTrades,
-            yAxisID: 'y',
-            pointStyle: 'triangle',
-            pointRadius: 10,
-            pointRotation: 0,
-            backgroundColor: '#00ff00',
-            borderColor: '#ffffff',
-            borderWidth: 2,
-            pointHoverRadius: 16,
-            pointHoverBorderWidth: 4,
-            shadowOffsetX: 1,
-            shadowOffsetY: 1,
-            shadowBlur: 4,
-            shadowColor: 'rgba(0, 0, 0, 0.6)',
-            hoverBorderColor: '#ffffff',
-            hoverBorderWidth: 3,
-            showLine: false,
-            order: 10, // Ensure markers appear above other elements
-          },
-          {
-            label: 'Sell',
-            type: 'scatter',
-            data: sellTrades,
-            yAxisID: 'y',
-            pointStyle: 'triangle',
-            pointRadius: 10,
-            pointRotation: 180,
-            backgroundColor: '#ff4444',
-            borderColor: '#ffffff',
-            borderWidth: 2,
-            pointHoverRadius: 16,
-            pointHoverBorderWidth: 4,
-            shadowOffsetX: 1,
-            shadowOffsetY: 1,
-            shadowBlur: 4,
-            shadowColor: 'rgba(0, 0, 0, 0.6)',
-            hoverBorderColor: '#ffffff',
-            hoverBorderWidth: 3,
-            showLine: false,
-            order: 10, // Ensure markers appear above other elements
-          },
-        ],
+        datasets: datasets,
       },
       options: {
         responsive: true,
@@ -1487,9 +1576,6 @@
                 const price = trade.y ? trade.y.toFixed(2) : 'N/A';
                 let label = `${side} @ $${price}`;
 
-                // Debug: log the trade data
-                console.log('Tooltip trade data:', trade);
-
                 // Add trade reason if available
                 if (trade.reason) {
                   const reasonText = trade.reason.replace('_', ' ').toUpperCase();
@@ -1501,6 +1587,19 @@
               afterLabel: function(context) {
                 const trade = context.raw;
                 let lines = [];
+
+                // Add strategy info for entry trades
+                if (trade.strategy_name && trade.reason === 'signal') {
+                  const strategyDisplay = getStrategyDisplayName(trade.strategy_name);
+                  lines.push(`Strategy: ${strategyDisplay}`);
+                  
+                  // Add confidence if available
+                  if (trade.confidence !== null && trade.confidence !== undefined) {
+                    const confidencePct = (trade.confidence * 100).toFixed(0);
+                    lines.push(`Confidence: ${confidencePct}%`);
+                  }
+                  lines.push(''); // Add spacing
+                }
 
                 // Add P&L for exit trades
                 if (trade.pnl !== null && trade.pnl !== undefined && trade.pnl !== 'None') {
@@ -1518,11 +1617,7 @@
                   const amount = parseFloat(trade.amount);
                   if (!isNaN(amount)) {
                     const amountText = amount.toFixed(6);
-                    const sideColor = trade.side === 'buy' ? '#00ff00' : '#ff4444';
-                    lines.push({
-                      text: `Amount: ${amountText} BTC`,
-                      color: sideColor
-                    });
+                    lines.push(`Amount: ${amountText} BTC`);
                   }
                 }
 
@@ -1642,8 +1737,34 @@
       },
     });
     
+    // Update strategy legend
+    updateStrategyLegend(Object.keys(tradesByStrategy));
+    
     // Add drag-to-pan support
     setupDragPan(backtestChart, 'backtestChart');
+  }
+  
+  function updateStrategyLegend(strategies) {
+    const legendContainer = document.getElementById('strategy-legend');
+    const legendItems = document.getElementById('legend-items');
+    
+    if (strategies.length === 0) {
+      legendContainer.style.display = 'none';
+      return;
+    }
+    
+    legendContainer.style.display = 'flex';
+    legendItems.innerHTML = strategies.map(strategyName => {
+      const color = getStrategyColor(strategyName);
+      const displayName = getStrategyDisplayName(strategyName);
+      
+      return `
+        <div class="legend-item">
+          <div class="legend-marker" style="background-color: ${color};"></div>
+          <span>${displayName}</span>
+        </div>
+      `;
+    }).join('');
   }
   
   function setupDragPan(chart, canvasId) {

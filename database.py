@@ -398,6 +398,31 @@ class DatabaseManager:
             session.expunge_all()
             
             return trades
+    
+    def get_trade_by_id(self, trade_id: int) -> Optional[Trade]:
+        """
+        Get a single trade by ID.
+        
+        Args:
+            trade_id: The trade ID to retrieve
+            
+        Returns:
+            Trade object or None if not found
+        """
+        with self.get_session() as session:
+            trade = session.query(Trade).filter(Trade.id == trade_id).first()
+            
+            if trade:
+                # Force load all attributes
+                _ = (trade.id, trade.timestamp, trade.side, trade.price, trade.amount, 
+                     trade.notional, trade.fee, trade.pnl, trade.exit_reason, 
+                     trade.usdt_balance, trade.base_balance, trade.signal_direction,
+                     trade.rsi, trade.atr, trade.strategy_name, trade.signal_confidence)
+                
+                # Expunge to make independent of session
+                session.expunge(trade)
+            
+            return trade
 
     def get_trade_stats(self) -> Dict:
         """

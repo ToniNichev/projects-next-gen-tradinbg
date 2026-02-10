@@ -1935,6 +1935,31 @@
       </div>
     </div>
     
+    <!-- RAG Management -->
+    <div style="margin: 1.5rem 0 1rem 0; padding: 0.75rem 1rem; background: rgba(52, 152, 219, 0.1); border-left: 4px solid #3498db; border-radius: 0.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <strong style="color: #3498db; font-size: 0.875rem;">
+            🔍 RAG (Retrieval Augmented Generation)
+          </strong>
+          <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.8rem;">
+            Semantic search for relevant historical trades (faster + better context)
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn-secondary" onclick="checkRAGStatus()" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+            Check Status
+          </button>
+          <button type="button" class="btn-primary" onclick="indexRAGTrades()" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+            Index Trades
+          </button>
+        </div>
+      </div>
+      <div id="ragStatus" style="margin-top: 0.75rem; padding: 0.75rem; background: rgba(0,0,0,0.2); border-radius: 0.25rem; font-size: 0.8rem; display: none;">
+        <div id="ragStatusContent"></div>
+      </div>
+    </div>
+    
     <!-- LLM Status & Testing -->
     <div style="margin: 1.5rem 0 1rem 0; padding: 0.75rem 1rem; background: rgba(155, 89, 182, 0.1); border-left: 4px solid #9b59b6; border-radius: 0.5rem;">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
@@ -4139,6 +4164,123 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
           });
     }
   });
+  
+  // =====================================================================
+  // RAG Management Functions
+  // =====================================================================
+  
+  function checkRAGStatus() {
+    const statusDiv = document.getElementById('ragStatus');
+    const contentDiv = document.getElementById('ragStatusContent');
+    
+    statusDiv.style.display = 'block';
+    contentDiv.innerHTML = '<div style="color: #3498db;">⏳ Checking RAG status...</div>';
+    
+    fetch('/api/rag/status')
+      .then(response => response.json())
+      .then(data => {
+        let html = '';
+        
+        if (!data.available) {
+          html = `
+            <div style="color: #e74c3c;">
+              ❌ <strong>RAG Not Available</strong><br>
+              ${data.error || 'RAG dependencies not installed'}<br>
+              <span style="font-size: 0.75rem; opacity: 0.8;">Install with: pip install chromadb sentence-transformers</span>
+            </div>
+          `;
+        } else if (!data.enabled) {
+          html = `
+            <div style="color: #f39c12;">
+              ⚠️ <strong>RAG Available but Disabled</strong><br>
+              Enable in config: BOT_LLM_USE_RAG=true
+            </div>
+          `;
+        } else {
+          const readyIcon = data.ready ? '✅' : '⏳';
+          const readyText = data.ready ? 'Ready' : 'Waiting for trades';
+          const readyColor = data.ready ? '#27ae60' : '#f39c12';
+          
+          html = `
+            <div style="color: ${readyColor};">
+              ${readyIcon} <strong>RAG ${readyText}</strong><br>
+              📊 Trades Indexed: <strong>${data.trades_indexed}</strong> / ${data.min_trades_required} required<br>
+              🔢 Retrieves: ${data.num_results} similar trades per query<br>
+              💾 Storage: ${data.persist_directory}<br>
+              🤖 Model: ${data.embedding_model}
+            </div>
+          `;
+          
+          if (!data.ready && data.trades_indexed === 0) {
+            html += `
+              <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(241, 196, 15, 0.1); border-radius: 0.25rem; color: #f1c40f;">
+                💡 <strong>Tip:</strong> Once you have ${data.min_trades_required}+ trades, click "Index Trades" to activate RAG
+              </div>
+            `;
+          }
+        }
+        
+        contentDiv.innerHTML = html;
+      })
+      .catch(error => {
+        contentDiv.innerHTML = `
+          <div style="color: #e74c3c;">
+            ❌ Error checking RAG status: ${error.message}
+          </div>
+        `;
+      });
+  }
+  
+  function indexRAGTrades() {
+    const statusDiv = document.getElementById('ragStatus');
+    const contentDiv = document.getElementById('ragStatusContent');
+    
+    statusDiv.style.display = 'block';
+    contentDiv.innerHTML = '<div style="color: #3498db;">⏳ Indexing trades... This may take a minute...</div>';
+    
+    fetch('/api/rag/index', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        limit: 1000,
+        batch_size: 50
+      })
+    })
+      .then(response => response.json())
+      .then(data => {
+        if (data.error) {
+          contentDiv.innerHTML = `
+            <div style="color: #e74c3c;">
+              ❌ <strong>Indexing Failed</strong><br>
+              ${data.error}
+            </div>
+          `;
+        } else {
+          contentDiv.innerHTML = `
+            <div style="color: #27ae60;">
+              ✅ <strong>${data.message}</strong><br>
+              📊 Total Indexed: ${data.trades_indexed} trades<br>
+              ⏱️ Duration: ${data.duration_seconds}s<br>
+              💡 RAG is now ${data.trades_indexed >= 5 ? 'active and ready!' : 'waiting for more trades (need 5+)'}
+            </div>
+          `;
+          
+          // Auto-refresh status after indexing
+          setTimeout(() => {
+            checkRAGStatus();
+          }, 2000);
+        }
+      })
+      .catch(error => {
+        contentDiv.innerHTML = `
+          <div style="color: #e74c3c;">
+            ❌ Error indexing trades: ${error.message}
+          </div>
+        `;
+      });
+  }
   
 </script>
 

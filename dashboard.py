@@ -2223,6 +2223,161 @@ def test_llm_connection():
         }), 500
 
 
+# =====================================================================
+# RAG (RETRIEVAL AUGMENTED GENERATION) ENDPOINTS
+# =====================================================================
+
+@app.route("/api/rag/status", methods=["GET"])
+@require_auth
+@limiter.limit("30 per minute")
+def get_rag_status():
+    """Get RAG system status including indexed trades count"""
+    try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
+        # Check if RAG is available
+        try:
+            # Force reload of trade_rag module to avoid stale cache
+            import sys
+            if 'trade_rag' in sys.modules:
+                import importlib
+                importlib.reload(sys.modules['trade_rag'])
+            
+            from trade_rag import is_rag_available, TradeVectorDB
+            rag_available = is_rag_available()
+            if not rag_available:
+                logging.warning("RAG dependencies imported but is_rag_available() returned False")
+        except ImportError as e:
+            logging.error(f"Failed to import RAG module: {e}")
+            rag_available = False
+        except Exception as e:
+            logging.error(f"Unexpected error checking RAG availability: {e}", exc_info=True)
+            rag_available = False
+        
+        if not rag_available:
+            return jsonify({
+                "available": False,
+                "enabled": False,
+                "error": "RAG dependencies not installed. Run: pip install chromadb sentence-transformers"
+            })
+        
+        # Check configuration
+        rag_enabled = config.llm_use_rag
+        min_trades = config.llm_rag_min_trades
+        
+        # Get indexed trade count
+        trades_indexed = 0
+        try:
+            if DATABASE_AVAILABLE:
+                from database import get_database
+                db = get_database()
+                vector_db = TradeVectorDB(db, persist_directory=config.llm_rag_persist_dir)
+                stats = vector_db.get_stats()
+                trades_indexed = stats['total_trades_indexed']
+        except Exception as e:
+            logging.warning(f"Failed to get RAG stats: {e}")
+        
+        # Check if RAG is ready to use
+        ready = rag_available and rag_enabled and trades_indexed >= min_trades
+        
+        return jsonify({
+            "available": rag_available,
+            "enabled": rag_enabled,
+            "trades_indexed": trades_indexed,
+            "min_trades_required": min_trades,
+            "ready": ready,
+            "embedding_model": "all-MiniLM-L6-v2",
+            "persist_directory": config.llm_rag_persist_dir,
+            "num_results": config.llm_rag_num_results
+        })
+        
+    except Exception as e:
+        logging.error(f"Error getting RAG status: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/rag/index", methods=["POST"])
+@require_auth
+@limiter.limit("5 per minute")
+def trigger_rag_indexing():
+    """Trigger RAG indexing of historical trades"""
+    try:
+        # Check if RAG is available
+        try:
+            # Force reload of trade_rag module to avoid stale cache
+            import sys
+            if 'trade_rag' in sys.modules:
+                import importlib
+                importlib.reload(sys.modules['trade_rag'])
+            
+            from trade_rag import is_rag_available, TradeVectorDB
+            if not is_rag_available():
+                return jsonify({
+                    "error": "RAG dependencies not installed. Run: pip install chromadb sentence-transformers"
+                }), 400
+        except ImportError:
+            return jsonify({
+                "error": "RAG module not found. Make sure trade_rag.py exists."
+            }), 500
+        
+        if not DATABASE_AVAILABLE:
+            return jsonify({"error": "Database not available"}), 503
+        
+        # Get parameters
+        data = request.get_json() or {}
+        limit = data.get('limit', 1000)
+        batch_size = data.get('batch_size', 50)
+        clear = data.get('clear', False)
+        
+        # Validate parameters
+        if not isinstance(limit, int) or limit < 1 or limit > 10000:
+            return jsonify({"error": "limit must be between 1 and 10000"}), 400
+        
+        if not isinstance(batch_size, int) or batch_size < 1 or batch_size > 200:
+            return jsonify({"error": "batch_size must be between 1 and 200"}), 400
+        
+        # Initialize
+        from config import BotConfig
+        from database import get_database
+        import time
+        
+        config = BotConfig.load()
+        db = get_database()
+        vector_db = TradeVectorDB(db, persist_directory=config.llm_rag_persist_dir)
+        
+        # Clear if requested
+        if clear:
+            logging.info("Clearing RAG index as requested...")
+            vector_db.clear_index()
+        
+        # Index trades
+        logging.info(f"Starting RAG indexing: limit={limit}, batch_size={batch_size}")
+        start_time = time.time()
+        
+        vector_db.index_all_trades(limit=limit, batch_size=batch_size)
+        
+        duration = time.time() - start_time
+        
+        # Get final stats
+        stats = vector_db.get_stats()
+        trades_indexed = stats['total_trades_indexed']
+        
+        logging.info(f"RAG indexing complete: {trades_indexed} trades in {duration:.1f}s")
+        
+        return jsonify({
+            "success": True,
+            "trades_indexed": trades_indexed,
+            "duration_seconds": round(duration, 2),
+            "message": f"Successfully indexed {trades_indexed} trades",
+            "stats": stats
+        })
+        
+    except Exception as e:
+        logging.error(f"Error during RAG indexing: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 # Settings page removed - merged into /strategy-config
 # Old route kept for backwards compatibility, redirects to new page
 @app.route("/settings")

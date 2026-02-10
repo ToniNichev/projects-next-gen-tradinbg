@@ -63,6 +63,12 @@ class LLMPatternStrategy(BaseStrategy):
         # Default: 12 candles (= 1 hour on 5m timeframe, 5 hours on 1h timeframe)
         self.backtest_sample_interval = config.get("llm_backtest_sample_interval", 12)
         
+        # RAG (Retrieval Augmented Generation) configuration
+        self.use_rag = config.get("llm_use_rag", True)
+        self.rag_num_results = config.get("llm_rag_num_results", 10)
+        self.rag_min_trades = config.get("llm_rag_min_trades", 5)
+        self.rag_persist_dir = config.get("llm_rag_persist_dir", "./data/chroma_db")
+        
         # Backtest state tracking
         self._backtest_candle_count = 0
         self._last_backtest_analysis = None
@@ -77,6 +83,24 @@ class LLMPatternStrategy(BaseStrategy):
         
         # Database manager for trade history and caching
         self.db_manager = db_manager
+        
+        # Initialize RAG if enabled and available
+        self.rag_db = None
+        if self.use_rag and db_manager:
+            try:
+                from trade_rag import TradeVectorDB, is_rag_available
+                
+                if is_rag_available():
+                    logger.info(f"{self.name}: Initializing RAG (retrieving top {self.rag_num_results} similar trades)")
+                    self.rag_db = TradeVectorDB(db_manager, persist_directory=self.rag_persist_dir)
+                    logger.info(f"{self.name}: RAG enabled - {self.rag_db.collection.count()} trades indexed")
+                else:
+                    logger.warning(f"{self.name}: RAG enabled but dependencies not installed. Install with: pip install chromadb sentence-transformers")
+                    self.use_rag = False
+            except Exception as e:
+                logger.warning(f"{self.name}: Failed to initialize RAG: {e}. Falling back to non-RAG mode")
+                self.use_rag = False
+                self.rag_db = None
         
         # Import ollama library
         try:
@@ -188,16 +212,26 @@ class LLMPatternStrategy(BaseStrategy):
             trade_context = None
             if self.db_manager and not is_backtest_mode:
                 try:
-                    end_date = datetime.utcnow()
-                    start_date = end_date - timedelta(days=self.lookback_days)
-                    trades = self.db_manager.get_trades(
-                        limit=100,
-                        start_date=start_date,
-                        end_date=end_date
-                    )
-                    if len(trades) >= 3:
-                        trade_context = self._prepare_trade_context(trades)
-                        logger.info(f"{self.name}: Including {len(trades)} trades as context")
+                    # Use RAG if enabled, otherwise fall back to fetching all trades
+                    if self.use_rag and self.rag_db:
+                        trade_context = self._prepare_trade_context_with_rag(market_data)
+                        if trade_context:
+                            logger.info(
+                                f"{self.name}: RAG context - {trade_context['total_trades']} similar trades "
+                                f"({trade_context['win_rate']:.0f}% win rate)"
+                            )
+                    else:
+                        # Fallback: fetch all recent trades (original method)
+                        end_date = datetime.utcnow()
+                        start_date = end_date - timedelta(days=self.lookback_days)
+                        trades = self.db_manager.get_trades(
+                            limit=100,
+                            start_date=start_date,
+                            end_date=end_date
+                        )
+                        if len(trades) >= 3:
+                            trade_context = self._prepare_trade_context(trades)
+                            logger.info(f"{self.name}: Including {len(trades)} trades as context (RAG disabled)")
                 except Exception as e:
                     logger.debug(f"{self.name}: Could not fetch trade history for context: {e}")
             
@@ -480,7 +514,12 @@ class LLMPatternStrategy(BaseStrategy):
             return round(price, 4)   # 4 decimals for small prices
     
     def _prepare_trade_context(self, trades: list) -> Dict:
-        """Prepare trade history as optional context for LLM"""
+        """
+        Prepare trade history as optional context for LLM.
+        
+        This is the ORIGINAL method that uses ALL trades.
+        Use _prepare_trade_context_with_rag() for semantic search.
+        """
         winning_trades = [t for t in trades if t.pnl and t.pnl > 0]
         losing_trades = [t for t in trades if t.pnl and t.pnl < 0]
         
@@ -493,6 +532,87 @@ class LLMPatternStrategy(BaseStrategy):
             "win_rate": (len(winning_trades) / len(trades) * 100) if trades else 0.0,
             "total_pnl": total_pnl,
         }
+    
+    def _prepare_trade_context_with_rag(self, market_data: Dict) -> Optional[Dict]:
+        """
+        Use RAG to get only RELEVANT trades similar to current market conditions.
+        
+        This replaces the old approach of sending ALL trade history to LLM.
+        Benefits:
+        - Faster LLM inference (fewer tokens)
+        - Better signal quality (only relevant patterns)
+        - Works with smaller models
+        
+        Args:
+            market_data: Current market state for similarity search
+            
+        Returns:
+            Dict with relevant trade statistics, or None if not enough trades
+        """
+        if not self.use_rag or not self.rag_db:
+            logger.debug(f"{self.name}: RAG not available, skipping trade context")
+            return None
+        
+        try:
+            # Check if we have enough indexed trades
+            if self.rag_db.collection.count() < self.rag_min_trades:
+                logger.warning(
+                    f"{self.name}: Only {self.rag_db.collection.count()} trades indexed, "
+                    f"need at least {self.rag_min_trades}. Run: python3 index_trades_rag.py"
+                )
+                return None
+            
+            # Retrieve similar trades using semantic search
+            similar_trades = self.rag_db.retrieve_similar_trades(
+                market_data=market_data,
+                n_results=self.rag_num_results
+            )
+            
+            if len(similar_trades) < 3:
+                logger.warning(f"{self.name}: RAG returned only {len(similar_trades)} trades, need at least 3")
+                return None
+            
+            # Calculate statistics for similar trades
+            winning = [t for t in similar_trades if t.pnl and t.pnl > 0]
+            losing = [t for t in similar_trades if t.pnl and t.pnl <= 0]
+            
+            total_pnl = sum(t.pnl for t in similar_trades if t.pnl)
+            avg_winning_pnl = np.mean([t.pnl for t in winning]) if winning else 0.0
+            avg_losing_pnl = np.mean([t.pnl for t in losing]) if losing else 0.0
+            
+            # Build detailed context with examples
+            trade_details = []
+            for trade in similar_trades[:5]:  # Top 5 most similar
+                detail = {
+                    "side": trade.side,
+                    "entry_price": trade.price,
+                    "pnl": trade.pnl if trade.pnl else 0,
+                    "pnl_pct": (trade.pnl / trade.notional * 100) if (trade.pnl and trade.notional) else 0,
+                    "exit_reason": trade.exit_reason if hasattr(trade, 'exit_reason') else "unknown",
+                    "strategy": trade.strategy_name if hasattr(trade, 'strategy_name') else "unknown"
+                }
+                trade_details.append(detail)
+            
+            logger.info(
+                f"{self.name}: RAG retrieved {len(similar_trades)} similar trades "
+                f"({len(winning)} wins, {len(losing)} losses, {len(winning)/len(similar_trades)*100:.0f}% win rate)"
+            )
+            
+            return {
+                "total_trades": len(similar_trades),
+                "winning_trades": len(winning),
+                "losing_trades": len(losing),
+                "win_rate": (len(winning) / len(similar_trades) * 100) if similar_trades else 0.0,
+                "total_pnl": total_pnl,
+                "avg_winning_pnl": avg_winning_pnl,
+                "avg_losing_pnl": avg_losing_pnl,
+                "similar_trades_detail": trade_details,
+                "rag_enabled": True,  # Flag to indicate RAG was used
+            }
+            
+        except Exception as e:
+            logger.error(f"{self.name}: Error in RAG retrieval: {e}")
+            return None
     
     def _analyze_with_llm(self, market_data: Dict, trade_context: Optional[Dict], current_price: float, symbol: str) -> Dict:
         """
@@ -606,7 +726,26 @@ RECENT CANDLES (Last 5):
         
         # Optionally add trade context
         if trade_context and trade_context['total_trades'] > 0:
-            prompt += f"""
+            # Check if RAG was used (provides more detailed context)
+            if trade_context.get('rag_enabled', False):
+                prompt += f"""
+=== SIMILAR PAST TRADES (RAG-Retrieved) ===
+Found {trade_context['total_trades']} trades with similar market conditions:
+- Winners: {trade_context['winning_trades']} ({trade_context['win_rate']:.1f}% win rate)
+- Losers: {trade_context['losing_trades']}
+- Avg Win: ${trade_context['avg_winning_pnl']:.2f} | Avg Loss: ${trade_context['avg_losing_pnl']:.2f}
+- Net P&L from similar setups: ${trade_context['total_pnl']:.2f}
+
+Top 5 Most Similar Trades:
+"""
+                for i, trade in enumerate(trade_context.get('similar_trades_detail', []), 1):
+                    outcome = "WIN" if trade['pnl'] > 0 else "LOSS"
+                    prompt += f"  {i}. {trade['side'].upper()} @ ${trade['entry_price']:.2f} → {outcome} ({trade['pnl_pct']:+.2f}%) - Exit: {trade['exit_reason']}\n"
+                
+                prompt += "\nℹ️  These trades had similar RSI, MACD, and trend conditions to the current market.\n"
+            else:
+                # Standard trade context (non-RAG)
+                prompt += f"""
 === YOUR BOT'S RECENT PERFORMANCE (Context) ===
 - Recent Trades: {trade_context['total_trades']} ({trade_context['winning_trades']} wins, {trade_context['losing_trades']} losses)
 - Win Rate: {trade_context['win_rate']:.1f}%
@@ -916,7 +1055,8 @@ Response:"""
             return 0.0
     
     def get_description(self) -> str:
-        return f"LLM Market Analysis using {self.model} (analyzes technical indicators, patterns, cache: {self.cache_minutes}min)"
+        rag_status = f", RAG: {self.rag_db.collection.count()} trades" if self.use_rag and self.rag_db else ""
+        return f"LLM Market Analysis using {self.model} (cache: {self.cache_minutes}min{rag_status})"
     
     def get_parameters(self) -> Dict[str, object]:
         return {
@@ -929,6 +1069,10 @@ Response:"""
             "num_predict": self.num_predict,
             "require_patterns": self.require_patterns,
             "backtest_sample_interval": self.backtest_sample_interval,
+            "use_rag": self.use_rag,
+            "rag_num_results": self.rag_num_results,
+            "rag_min_trades": self.rag_min_trades,
+            "rag_persist_dir": self.rag_persist_dir,
             "stop_loss_pct": self.stop_loss_pct,
             "take_profit_pct": self.take_profit_pct,
             "min_position_size": self.min_position_size,

@@ -13,3 +13,8 @@ requests>=2.31.0
 ollama>=0.1.0
 urllib3>=1.26.0,<2.0.0
 
+# RAG (Retrieval Augmented Generation) dependencies
+chromadb>=0.4.22
+sentence-transformers>=2.2.0
+numpy>=1.24.0,<2.0.0  # sentence-transformers requires numpy 1.x
+

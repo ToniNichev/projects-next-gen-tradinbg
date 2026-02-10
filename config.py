@@ -105,6 +105,12 @@ class BotConfig:
     llm_require_patterns: bool = False  # Require at least one pattern found
     llm_backtest_sample_interval: int = 12  # Analyze every Nth candle in backtests (12 = once per hour on 5m)
     
+    # RAG (Retrieval Augmented Generation) for LLM
+    llm_use_rag: bool = True  # Use semantic search to retrieve relevant trades
+    llm_rag_num_results: int = 10  # Number of similar trades to retrieve
+    llm_rag_min_trades: int = 5  # Minimum trades needed to use RAG
+    llm_rag_persist_dir: str = "./data/chroma_db"  # Vector database storage location
+    
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
     dashboard_username: str = "admin"  # Username for dashboard access
@@ -244,6 +250,11 @@ class BotConfig:
             llm_num_predict=get_val("llm_num_predict", "BOT_LLM_NUM_PREDICT", 1000, int),
             llm_require_patterns=get_val("llm_require_patterns", "BOT_LLM_REQUIRE_PATTERNS", False, bool),
             llm_backtest_sample_interval=get_val("llm_backtest_sample_interval", "BOT_LLM_BACKTEST_SAMPLE_INTERVAL", 12, int),
+            # RAG Configuration
+            llm_use_rag=get_val("llm_use_rag", "BOT_LLM_USE_RAG", True, bool),
+            llm_rag_num_results=get_val("llm_rag_num_results", "BOT_LLM_RAG_NUM_RESULTS", 10, int),
+            llm_rag_min_trades=get_val("llm_rag_min_trades", "BOT_LLM_RAG_MIN_TRADES", 5, int),
+            llm_rag_persist_dir=get_val("llm_rag_persist_dir", "BOT_LLM_RAG_PERSIST_DIR", "./data/chroma_db", str),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),
@@ -338,6 +349,11 @@ class BotConfig:
                 "llm_num_predict": self.llm_num_predict,
                 "llm_require_patterns": self.llm_require_patterns,
                 "llm_backtest_sample_interval": self.llm_backtest_sample_interval,
+                # RAG Configuration
+                "llm_use_rag": self.llm_use_rag,
+                "llm_rag_num_results": self.llm_rag_num_results,
+                "llm_rag_min_trades": self.llm_rag_min_trades,
+                "llm_rag_persist_dir": self.llm_rag_persist_dir,
                 # Include other risk management params for fallback
                 "stop_loss_pct": self.stop_loss_pct,
                 "take_profit_pct": self.take_profit_pct,
