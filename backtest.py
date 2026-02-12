@@ -207,19 +207,74 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         enable_csv_logging=True,
     )
     
-    # Fetch historical data
+    # Fetch historical data with pagination to respect the full time period
     logging.info(f"Fetching {days_back} days of {config.timeframe} candles for {config.symbol}...")
     since = exchange.parse8601(
         (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
     )
-    all_candles = exchange.fetch_ohlcv(
-        config.symbol, 
-        config.timeframe, 
-        since=since,
-        limit=1000
-    )
     
-    logging.info(f"Loaded {len(all_candles)} candles. Starting backtest...")
+    # Fetch candles in batches (exchange limit is typically 1000-1500 per request)
+    all_candles = []
+    batch_size = 1000
+    current_since = since
+    target_end_time = exchange.milliseconds()
+    
+    logging.info(f"Fetching candles in batches of {batch_size}...")
+    batch_count = 0
+    
+    while current_since < target_end_time:
+        try:
+            batch = exchange.fetch_ohlcv(
+                config.symbol,
+                config.timeframe,
+                since=current_since,
+                limit=batch_size
+            )
+            
+            if not batch:
+                logging.info(f"No more candles available (reached current time)")
+                break
+            
+            # Add candles to collection (avoid duplicates)
+            if all_candles and batch[0][0] <= all_candles[-1][0]:
+                # Skip candles we already have
+                batch = [c for c in batch if c[0] > all_candles[-1][0]]
+            
+            all_candles.extend(batch)
+            batch_count += 1
+            
+            # Update since to the timestamp of the last candle + 1ms
+            current_since = batch[-1][0] + 1
+            
+            # Stop if we've reached the present or got fewer candles than requested
+            if len(batch) < batch_size:
+                logging.info(f"Received partial batch ({len(batch)} candles), reached end of data")
+                break
+            
+            # Rate limiting: small delay between requests
+            if batch_count % 5 == 0:
+                logging.info(f"Fetched {len(all_candles)} candles so far ({batch_count} batches)...")
+                import time
+                time.sleep(0.5)  # Be nice to the exchange API
+                
+        except Exception as e:
+            logging.warning(f"Error fetching batch: {e}")
+            if len(all_candles) < batch_size:
+                # If we don't even have one batch, this is a real error
+                raise
+            else:
+                # We have some data, continue with what we got
+                logging.info(f"Continuing with {len(all_candles)} candles fetched so far")
+                break
+    
+    logging.info(f"✓ Loaded {len(all_candles)} candles across {batch_count} batch(es). Starting backtest...")
+    
+    # Show actual time period covered
+    if all_candles:
+        first_candle_time = datetime.utcfromtimestamp(all_candles[0][0] / 1000)
+        last_candle_time = datetime.utcfromtimestamp(all_candles[-1][0] / 1000)
+        actual_days = (last_candle_time - first_candle_time).total_seconds() / 86400
+        logging.info(f"📅 Time period: {first_candle_time.strftime('%Y-%m-%d %H:%M')} to {last_candle_time.strftime('%Y-%m-%d %H:%M')} ({actual_days:.1f} days)")
     
     # Validate we have enough candles for the strategy
     min_required_candles = max(config.long_window + 1, 50)  # Need at least long_window + buffer, or 50 for indicators
@@ -270,16 +325,24 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         exit_trade = trader.update_position(current_price)
         if exit_trade:
             trade_count += 1
-            # Record exit trade marker (inherit strategy from entry)
+            # Record exit trade marker with complete details for HUD
             chart_data["trades"].append({
                 "timestamp": candle_timestamp.isoformat() + "Z",
                 "side": exit_trade.side,
                 "price": exit_trade.price,
                 "amount": exit_trade.amount,
+                "notional": exit_trade.notional,
+                "fee": exit_trade.fee,
+                "usdt_balance": exit_trade.usdt_balance,
+                "base_balance": exit_trade.base_balance,
                 "reason": exit_trade.exit_reason,
+                "exit_reason": exit_trade.exit_reason,
                 "pnl": exit_trade.pnl,
                 "strategy_name": None,  # Exit trades don't have direct strategy attribution
                 "confidence": None,
+                "rsi": None,
+                "atr": None,
+                "signal_direction": None,
             })
         
         # Get window of candles for signal computation
@@ -334,16 +397,29 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
             strategy_name = trade.signal.get("strategy_name", "Unknown")
             confidence = trade.signal.get("confidence", 0.0)
             
-            # Record entry trade marker with strategy attribution
+            # Get technical indicators from signal
+            indicators = trade.signal.get("indicators", {})
+            rsi = indicators.get("rsi")
+            atr = indicators.get("atr")
+            
+            # Record entry trade marker with complete details for HUD
             chart_data["trades"].append({
                 "timestamp": candle_time.isoformat() + "Z",
                 "side": trade.side,
                 "price": trade.price,
                 "amount": trade.amount,
+                "notional": trade.notional,
+                "fee": trade.fee,
+                "usdt_balance": trade.usdt_balance,
+                "base_balance": trade.base_balance,
                 "reason": "signal",
+                "exit_reason": None,
                 "pnl": None,
                 "strategy_name": strategy_name,
                 "confidence": confidence,
+                "rsi": rsi,
+                "atr": atr,
+                "signal_direction": strategy_name,  # For dashboard compatibility
             })
             
             logging.info(
@@ -371,8 +447,19 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
                 "timestamp": final_timestamp.isoformat() + "Z",
                 "side": final_exit.side,
                 "price": final_exit.price,
+                "amount": final_exit.amount,
+                "notional": final_exit.notional,
+                "fee": final_exit.fee,
+                "usdt_balance": final_exit.usdt_balance,
+                "base_balance": final_exit.base_balance,
                 "reason": final_exit.exit_reason,
+                "exit_reason": final_exit.exit_reason,
                 "pnl": final_exit.pnl,
+                "strategy_name": None,
+                "confidence": None,
+                "rsi": None,
+                "atr": None,
+                "signal_direction": None,
             })
     
     # Final results

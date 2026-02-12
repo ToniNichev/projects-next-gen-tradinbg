@@ -1453,6 +1453,7 @@
         borderWidth: 1.5,
         barPercentage: 0.7,
         categoryPercentage: 0.8,
+        order: 10, // Draw candlesticks first (behind everything)
       },
       {
         label: 'Portfolio Value',
@@ -1466,6 +1467,7 @@
         tension: 0.1,
         pointRadius: 0,
         pointHoverRadius: 4,
+        order: 5, // Draw portfolio line in middle
       },
     ];
     
@@ -1478,52 +1480,40 @@
       // Buy trades for this strategy
       if (trades.buy.length > 0) {
         datasets.push({
-          label: `${displayName} Buy`,
+          label: `🟢 ${displayName} BUY`,
           type: 'scatter',
           data: trades.buy,
           yAxisID: 'y',
           pointStyle: 'triangle',
-          pointRadius: 10,
+          pointRadius: 12,
           pointRotation: 0,
           backgroundColor: strategyColor,
           borderColor: '#ffffff',
-          borderWidth: 2,
+          borderWidth: 3,
           pointHoverRadius: 16,
           pointHoverBorderWidth: 4,
-          shadowOffsetX: 1,
-          shadowOffsetY: 1,
-          shadowBlur: 4,
-          shadowColor: 'rgba(0, 0, 0, 0.6)',
-          hoverBorderColor: '#ffffff',
-          hoverBorderWidth: 3,
           showLine: false,
-          order: 10,
+          order: 0, // Draw trade markers on top (last)
         });
       }
       
       // Sell trades for this strategy
       if (trades.sell.length > 0) {
         datasets.push({
-          label: `${displayName} Sell`,
+          label: `🔴 ${displayName} SELL`,
           type: 'scatter',
           data: trades.sell,
           yAxisID: 'y',
           pointStyle: 'triangle',
-          pointRadius: 10,
+          pointRadius: 12,
           pointRotation: 180,
           backgroundColor: strategyColor,
           borderColor: '#ffffff',
-          borderWidth: 2,
+          borderWidth: 3,
           pointHoverRadius: 16,
           pointHoverBorderWidth: 4,
-          shadowOffsetX: 1,
-          shadowOffsetY: 1,
-          shadowBlur: 4,
-          shadowColor: 'rgba(0, 0, 0, 0.6)',
-          hoverBorderColor: '#ffffff',
-          hoverBorderWidth: 3,
           showLine: false,
-          order: 10,
+          order: 0, // Draw trade markers on top (last)
         });
       }
     });
@@ -1554,74 +1544,156 @@
           tooltip: {
             enabled: true,
             mode: 'nearest',
-            intersect: false,
+            intersect: true,
             backgroundColor: 'rgba(0, 0, 0, 0.9)',
             titleColor: '#ffffff',
-            bodyColor: '#ffffff',
-            borderColor: '#ffffff',
-            borderWidth: 1,
-            cornerRadius: 6,
+            bodyColor: '#e1e8ff',
+            borderColor: 'rgba(88, 214, 141, 0.5)',
+            borderWidth: 2,
+            padding: 16,
             displayColors: true,
+            titleFont: {
+              size: 14,
+              weight: 'bold',
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+            },
+            bodyFont: {
+              size: 13,
+              family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+            },
+            bodySpacing: 6,
             callbacks: {
               title: function(context) {
-                // Handle both single point and multiple points
-                const point = context[0] || context;
-                const trade = point.raw;
-                const timestamp = new Date(trade.x).toLocaleString();
-                return timestamp;
+                if (context[0]) {
+                  const date = new Date(context[0].parsed.x);
+                  return '📅 ' + date.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                  });
+                }
+                return '';
               },
               label: function(context) {
-                const trade = context.raw;
-                const side = context.dataset.label;
-                const price = trade.y ? trade.y.toFixed(2) : 'N/A';
-                let label = `${side} @ $${price}`;
-
-                // Add trade reason if available
-                if (trade.reason) {
-                  const reasonText = trade.reason.replace('_', ' ').toUpperCase();
-                  label += ` (${reasonText})`;
+                // Format OHLC data for candlestick dataset
+                if (context.raw && typeof context.raw.o !== 'undefined') {
+                  const data = context.raw;
+                  return [
+                    `Open:  $${data.o.toFixed(2)}`,
+                    `High:  $${data.h.toFixed(2)}`,
+                    `Low:   $${data.l.toFixed(2)}`,
+                    `Close: $${data.c.toFixed(2)}`
+                  ];
                 }
-
-                return label;
-              },
-              afterLabel: function(context) {
-                const trade = context.raw;
-                let lines = [];
-
-                // Add strategy info for entry trades
-                if (trade.strategy_name && trade.reason === 'signal') {
-                  const strategyDisplay = getStrategyDisplayName(trade.strategy_name);
-                  lines.push(`Strategy: ${strategyDisplay}`);
+                
+                // For portfolio value line
+                if (context.dataset.label === 'Portfolio Value') {
+                  return `💰 Portfolio: $${context.parsed.y.toFixed(2)}`;
+                }
+                
+                // For signal markers
+                if (context.dataset.label === "Signals") {
+                  return `💡 Signal Price: $${context.parsed.y.toFixed(2)}`;
+                }
+                
+                // For trade markers (Buy/Sell) - Enhanced with comprehensive details
+                if (context.dataset.label && (context.dataset.label.includes('BUY') || context.dataset.label.includes('SELL'))) {
+                  const trade = context.raw;
+                  const lines = [];
                   
-                  // Add confidence if available
-                  if (trade.confidence !== null && trade.confidence !== undefined) {
-                    const confidencePct = (trade.confidence * 100).toFixed(0);
-                    lines.push(`Confidence: ${confidencePct}%`);
+                  // Trade type header with emoji
+                  const tradeIcon = trade.side === 'buy' ? '🟢' : '🔴';
+                  const tradeType = trade.side === 'buy' ? 'BUY' : 'SELL';
+                  lines.push(`${tradeIcon} ${tradeType} ORDER`);
+                  lines.push(''); // Empty line for spacing
+                  
+                  // Price
+                  lines.push(`💰 Price: $${trade.y.toFixed(2)}`);
+                  
+                  // Amount and value
+                  if (trade.amount) {
+                    lines.push(`📊 Amount: ${trade.amount.toFixed(6)} BTC`);
+                    
+                    // Use notional if available, otherwise calculate
+                    const notional = trade.notional || (trade.amount * trade.y);
+                    lines.push(`💵 Notional: $${notional.toFixed(2)}`);
                   }
-                  lines.push(''); // Add spacing
-                }
-
-                // Add P&L for exit trades
-                if (trade.pnl !== null && trade.pnl !== undefined && trade.pnl !== 'None') {
-                  let pnlValue = trade.pnl;
-                  // Handle numpy float64 or other numeric types
-                  if (typeof pnlValue === 'number' || !isNaN(parseFloat(pnlValue))) {
-                    const pnl = parseFloat(pnlValue);
-                    const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `$${pnl.toFixed(2)}`;
-                    lines.push(`P&L: ${pnlText}`);
+                  
+                  // Fee
+                  if (trade.fee !== null && trade.fee !== undefined && trade.fee > 0) {
+                    lines.push(`💸 Fee: $${trade.fee.toFixed(4)}`);
                   }
-                }
-
-                // Add amount information
-                if (trade.amount !== null && trade.amount !== undefined) {
-                  const amount = parseFloat(trade.amount);
-                  if (!isNaN(amount)) {
-                    const amountText = amount.toFixed(6);
-                    lines.push(`Amount: ${amountText} BTC`);
+                  
+                  // P&L with color indicator
+                  if (trade.pnl !== null && trade.pnl !== undefined) {
+                    const pnlIcon = trade.pnl >= 0 ? '📈' : '📉';
+                    const pnlStr = trade.pnl >= 0 ? `+$${trade.pnl.toFixed(2)}` : `$${trade.pnl.toFixed(2)}`;
+                    const pnlPct = trade.notional ? ((trade.pnl / trade.notional) * 100).toFixed(2) : '0.00';
+                    lines.push(''); // Spacing
+                    lines.push(`${pnlIcon} P&L: ${pnlStr} (${pnlPct}%)`);
                   }
+                  
+                  // Exit reason (backtest uses 'reason', live uses 'exit_reason')
+                  const exitReason = trade.exit_reason || trade.reason;
+                  if (exitReason) {
+                    const reasonText = exitReason.replace(/_/g, ' ').toUpperCase();
+                    const reasonEmoji = exitReason.includes('profit') ? '✅' : 
+                                       exitReason.includes('stop_loss') ? '🛑' : 
+                                       exitReason.includes('trailing') ? '📍' : '🎯';
+                    lines.push(`${reasonEmoji} Exit: ${reasonText}`);
+                  }
+                  
+                  // Balances after trade
+                  if (trade.usdt_balance !== null && trade.usdt_balance !== undefined) {
+                    lines.push(''); // Spacing
+                    lines.push(`💼 Balance After:`);
+                    lines.push(`   USDT: $${trade.usdt_balance.toFixed(2)}`);
+                    if (trade.base_balance !== null && trade.base_balance !== undefined) {
+                      lines.push(`   BTC: ${trade.base_balance.toFixed(6)}`);
+                    }
+                  }
+                  
+                  // Technical indicators at trade time
+                  if (trade.rsi !== null && trade.rsi !== undefined) {
+                    lines.push(''); // Spacing
+                    lines.push(`📊 Indicators:`);
+                    lines.push(`   RSI: ${trade.rsi.toFixed(1)}`);
+                    if (trade.atr !== null && trade.atr !== undefined) {
+                      lines.push(`   ATR: $${trade.atr.toFixed(2)}`);
+                    }
+                  }
+                  
+                  // Strategy that generated this trade (backtest uses 'strategy_name', live uses 'signal_direction')
+                  const strategyKey = trade.signal_direction || trade.strategy_name;
+                  if (strategyKey) {
+                    const strategyName = getStrategyDisplayName(strategyKey);
+                    lines.push(''); // Spacing
+                    lines.push(`🤖 Strategy: ${strategyName}`);
+                  }
+                  
+                  return lines;
                 }
-
-                return lines;
+                
+                return context.formattedValue;
+              },
+              labelColor: function(context) {
+                // Custom color box for trade markers
+                if (context.dataset.label && (context.dataset.label.includes('BUY') || context.dataset.label.includes('SELL'))) {
+                  const trade = context.raw;
+                  return {
+                    borderColor: trade.side === 'buy' ? '#58D68D' : '#ff5e57',
+                    backgroundColor: trade.side === 'buy' ? '#58D68D' : '#ff5e57',
+                    borderWidth: 2,
+                    borderRadius: 2,
+                  };
+                }
+                return {
+                  borderColor: context.dataset.borderColor,
+                  backgroundColor: context.dataset.backgroundColor,
+                };
               }
             }
           },
@@ -1631,8 +1703,9 @@
           }
         },
         interaction: {
-          mode: 'index',
-          intersect: false,
+          mode: 'nearest',
+          axis: 'xy',
+          intersect: true,
         },
         scales: {
           x: {

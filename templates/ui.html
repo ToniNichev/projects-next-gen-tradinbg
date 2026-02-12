@@ -574,6 +574,52 @@
   @keyframes spin {
     to { transform: rotate(360deg); }
   }
+  
+  /* Clear trades button */
+  #clear-trades-btn:hover {
+    background: rgba(255, 87, 87, 0.3) !important;
+    border-color: rgba(255, 87, 87, 0.6) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(255, 87, 87, 0.3);
+  }
+  
+  #clear-trades-btn:active {
+    transform: translateY(0);
+  }
+  
+  /* Strategy legend */
+  .strategy-legend {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    align-items: center;
+  }
+  
+  .legend-title {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    margin-right: 0.5rem;
+  }
+  
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+  }
+  
+  .legend-marker {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+  }
 </style>
 {% endblock %}
 
@@ -682,6 +728,22 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Trade History Management -->
+<div class="card" style="margin-top: 1rem; background: rgba(255, 87, 87, 0.05); border: 1px solid rgba(255, 87, 87, 0.2);">
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <h3 style="margin: 0 0 0.5rem 0; color: #ff5e57;">⚠️ Trade History Management</h3>
+      <p style="margin: 0; font-size: 0.875rem; color: var(--text-secondary);">
+        Clear all trade records from database. This will remove all historical trades and chart markers permanently.
+      </p>
+    </div>
+    <button id="clear-trades-btn" class="btn" onclick="confirmClearTrades()" 
+            style="background: rgba(255, 87, 87, 0.2); border: 1px solid rgba(255, 87, 87, 0.4); color: #ff5e57; padding: 0.75rem 1.5rem; white-space: nowrap;">
+      🗑️ Clear All Trades
+    </button>
   </div>
 </div>
 
@@ -834,6 +896,13 @@
       </div>
     </div>
   </div>
+  
+  <!-- Strategy Legend -->
+  <div id="strategy-legend" class="strategy-legend" style="display: none;">
+    <span class="legend-title">Strategies:</span>
+    <div id="legend-items" style="display: flex; gap: 1rem; flex-wrap: wrap;"></div>
+  </div>
+  
   <canvas id="priceChart"></canvas>
 </div>
 
@@ -901,6 +970,7 @@
               // Width settings for proper display
               barPercentage: 0.7,
               categoryPercentage: 0.8,
+              order: 10, // Draw candlesticks first (behind trade markers)
             },
           ],
         },
@@ -965,20 +1035,43 @@
               },
             },
             tooltip: {
-              mode: 'index',
-              intersect: false,
+              enabled: true,
+              mode: 'nearest',
+              intersect: true,
+              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              titleColor: '#ffffff',
+              bodyColor: '#e1e8ff',
+              borderColor: 'rgba(88, 214, 141, 0.5)',
+              borderWidth: 2,
+              padding: 16,
+              displayColors: true,
+              titleFont: {
+                size: 14,
+                weight: 'bold',
+                family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+              },
+              bodyFont: {
+                size: 13,
+                family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+              },
+              bodySpacing: 6,
               callbacks: {
                 title: function(context) {
-                  // Show timestamp as title
                   if (context[0]) {
                     const date = new Date(context[0].parsed.x);
-                    return date.toLocaleString();
+                    return '📅 ' + date.toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    });
                   }
                   return '';
                 },
                 label: function(context) {
-                  // Format OHLC data on separate lines for candlestick dataset
-                  // Check if this is a candlestick by looking for OHLC properties
+                  // Format OHLC data for candlestick dataset
                   if (context.raw && typeof context.raw.o !== 'undefined') {
                     const data = context.raw;
                     return [
@@ -988,30 +1081,105 @@
                       `Close: $${data.c.toFixed(2)}`
                     ];
                   }
+                  
                   // For signal markers
                   if (context.dataset.label === "Signals") {
-                    return `Price: $${context.parsed.y.toFixed(2)}`;
+                    return `💡 Signal Price: $${context.parsed.y.toFixed(2)}`;
                   }
-                  // For trade markers (Buy/Sell)
-                  if (context.dataset.label && (context.dataset.label.includes('Buy') || context.dataset.label.includes('Sell'))) {
+                  
+                  // For trade markers (Buy/Sell) - Enhanced with comprehensive details
+                  if (context.dataset.label && (context.dataset.label.includes('BUY') || context.dataset.label.includes('SELL'))) {
                     const trade = context.raw;
                     const lines = [];
-                    lines.push(`${context.dataset.label}: $${trade.y.toFixed(2)}`);
                     
+                    // Trade type header with emoji
+                    const tradeIcon = trade.side === 'buy' ? '🟢' : '🔴';
+                    const tradeType = trade.side === 'buy' ? 'BUY' : 'SELL';
+                    lines.push(`${tradeIcon} ${tradeType} ORDER`);
+                    lines.push(''); // Empty line for spacing
+                    
+                    // Price
+                    lines.push(`💰 Price: $${trade.y.toFixed(2)}`);
+                    
+                    // Amount and value
                     if (trade.amount) {
-                      lines.push(`Amount: ${trade.amount.toFixed(6)} BTC`);
+                      lines.push(`📊 Amount: ${trade.amount.toFixed(6)} BTC`);
+                      
+                      // Use notional if available, otherwise calculate
+                      const notional = trade.notional || (trade.amount * trade.y);
+                      lines.push(`💵 Notional: $${notional.toFixed(2)}`);
                     }
+                    
+                    // Fee
+                    if (trade.fee !== null && trade.fee !== undefined && trade.fee > 0) {
+                      lines.push(`💸 Fee: $${trade.fee.toFixed(4)}`);
+                    }
+                    
+                    // P&L with color indicator
                     if (trade.pnl !== null && trade.pnl !== undefined) {
+                      const pnlIcon = trade.pnl >= 0 ? '📈' : '📉';
                       const pnlStr = trade.pnl >= 0 ? `+$${trade.pnl.toFixed(2)}` : `$${trade.pnl.toFixed(2)}`;
-                      lines.push(`P&L: ${pnlStr}`);
+                      const pnlPct = trade.notional ? ((trade.pnl / trade.notional) * 100).toFixed(2) : '0.00';
+                      lines.push(''); // Spacing
+                      lines.push(`${pnlIcon} P&L: ${pnlStr} (${pnlPct}%)`);
                     }
+                    
+                    // Exit reason
                     if (trade.exit_reason) {
-                      lines.push(`Reason: ${trade.exit_reason.replace(/_/g, ' ')}`);
+                      const reasonText = trade.exit_reason.replace(/_/g, ' ').toUpperCase();
+                      const reasonEmoji = trade.exit_reason.includes('profit') ? '✅' : 
+                                         trade.exit_reason.includes('stop_loss') ? '🛑' : 
+                                         trade.exit_reason.includes('trailing') ? '📍' : '🎯';
+                      lines.push(`${reasonEmoji} Exit: ${reasonText}`);
+                    }
+                    
+                    // Balances after trade
+                    if (trade.usdt_balance !== null && trade.usdt_balance !== undefined) {
+                      lines.push(''); // Spacing
+                      lines.push(`💼 Balance After:`);
+                      lines.push(`   USDT: $${trade.usdt_balance.toFixed(2)}`);
+                      if (trade.base_balance !== null && trade.base_balance !== undefined) {
+                        lines.push(`   BTC: ${trade.base_balance.toFixed(6)}`);
+                      }
+                    }
+                    
+                    // Technical indicators at trade time
+                    if (trade.rsi !== null && trade.rsi !== undefined) {
+                      lines.push(''); // Spacing
+                      lines.push(`📊 Indicators:`);
+                      lines.push(`   RSI: ${trade.rsi.toFixed(1)}`);
+                      if (trade.atr !== null && trade.atr !== undefined) {
+                        lines.push(`   ATR: $${trade.atr.toFixed(2)}`);
+                      }
+                    }
+                    
+                    // Strategy that generated this trade
+                    if (trade.signal_direction) {
+                      const strategyName = getStrategyDisplayName(trade.signal_direction);
+                      lines.push(''); // Spacing
+                      lines.push(`🤖 Strategy: ${strategyName}`);
                     }
                     
                     return lines;
                   }
+                  
                   return context.formattedValue;
+                },
+                labelColor: function(context) {
+                  // Custom color box for trade markers
+                  if (context.dataset.label && (context.dataset.label.includes('BUY') || context.dataset.label.includes('SELL'))) {
+                    const trade = context.raw;
+                    return {
+                      borderColor: trade.side === 'buy' ? '#58D68D' : '#ff5e57',
+                      backgroundColor: trade.side === 'buy' ? '#58D68D' : '#ff5e57',
+                      borderWidth: 2,
+                      borderRadius: 2,
+                    };
+                  }
+                  return {
+                    borderColor: context.dataset.borderColor,
+                    backgroundColor: context.dataset.backgroundColor,
+                  };
                 }
               }
             },
@@ -1088,6 +1256,30 @@
         });
       }
       
+      // Update strategy legend
+      function updateStrategyLegend(strategies) {
+        const legendContainer = document.getElementById('strategy-legend');
+        const legendItems = document.getElementById('legend-items');
+        
+        if (!strategies || strategies.length === 0) {
+          legendContainer.style.display = 'none';
+          return;
+        }
+        
+        legendContainer.style.display = 'flex';
+        legendItems.innerHTML = strategies.map(strategyName => {
+          const color = getStrategyColor(strategyName);
+          const displayName = getStrategyDisplayName(strategyName);
+          
+          return `
+            <div class="legend-item">
+              <div class="legend-marker" style="background-color: ${color};"></div>
+              <span>${displayName}</span>
+            </div>
+          `;
+        }).join('');
+      }
+      
       // Add trade marker datasets to chart
       async function updateTradeMarkers() {
         if (!showTradeMarkers) {
@@ -1096,6 +1288,8 @@
             chart.data.datasets.pop();
           }
           chart.update('none');
+          // Hide legend when trades are hidden
+          updateStrategyLegend([]);
           return;
         }
         
@@ -1116,7 +1310,7 @@
         const tradesByStrategy = {};
         
         visibleTrades.forEach(trade => {
-          const strategyName = trade.signal_direction || 'Unknown';
+          const strategyName = trade.strategy_name || 'Unknown';
           if (!tradesByStrategy[strategyName]) {
             tradesByStrategy[strategyName] = { buy: [], sell: [] };
           }
@@ -1129,6 +1323,12 @@
             pnl: trade.pnl,
             exit_reason: trade.exit_reason,
             signal_direction: trade.signal_direction,
+            notional: trade.notional,
+            fee: trade.fee,
+            usdt_balance: trade.usdt_balance,
+            base_balance: trade.base_balance,
+            rsi: trade.rsi,
+            atr: trade.atr,
           };
           
           if (trade.side === 'buy') {
@@ -1152,7 +1352,7 @@
           // Buy trades
           if (trades.buy.length > 0) {
             chart.data.datasets.push({
-              label: `${displayName} Buy`,
+              label: `🟢 ${displayName} BUY`,
               type: 'scatter',
               data: trades.buy,
               yAxisID: 'y',
@@ -1165,14 +1365,14 @@
               pointHoverRadius: 16,
               pointHoverBorderWidth: 4,
               showLine: false,
-              order: 10,
+              order: 0,
             });
           }
           
           // Sell trades
           if (trades.sell.length > 0) {
             chart.data.datasets.push({
-              label: `${displayName} Sell`,
+              label: `🔴 ${displayName} SELL`,
               type: 'scatter',
               data: trades.sell,
               yAxisID: 'y',
@@ -1185,10 +1385,13 @@
               pointHoverRadius: 16,
               pointHoverBorderWidth: 4,
               showLine: false,
-              order: 10,
+              order: 0,
             });
           }
         });
+        
+        // Update strategy legend with active strategies
+        updateStrategyLegend(Object.keys(tradesByStrategy));
         
         chart.update('none');
       }
@@ -1423,6 +1626,7 @@
               data: [],
               showLine: false,
               yAxisID: "y",
+              order: 5, // Draw signals in middle layer
             });
           }
           
@@ -2408,6 +2612,12 @@
       async function confirmTrade() {
         if (!pendingTradeAction) return;
         
+        // Route to appropriate handler based on action type
+        if (pendingTradeAction.type === 'clear_trades') {
+          await executeClearTrades();
+          return;
+        }
+        
         const confirmBtn = document.getElementById('modal-confirm-btn');
         const originalText = confirmBtn.textContent;
         confirmBtn.innerHTML = '<span class="loading-spinner"></span> Processing...';
@@ -2454,6 +2664,7 @@
         const confirmBtn = document.getElementById('modal-confirm-btn');
         confirmBtn.textContent = 'Confirm';
         confirmBtn.disabled = false;
+        confirmBtn.style.background = ''; // Reset to default style
       }
       
       // Show notification
@@ -2467,6 +2678,80 @@
         setTimeout(() => {
           toast.classList.remove('show');
         }, 5000);
+      }
+      
+      // Confirm clear trades
+      function confirmClearTrades() {
+        // Show confirmation modal
+        pendingTradeAction = {
+          type: 'clear_trades'
+        };
+        
+        const modalBody = `
+          <div style="margin-bottom: 1rem;">
+            <strong style="color: #ff5e57;">⚠️ Warning: This action cannot be undone!</strong>
+          </div>
+          <div style="margin-bottom: 1rem; color: var(--text-secondary);">
+            This will permanently delete all trade records from the database, including:
+          </div>
+          <ul style="margin: 0 0 1rem 1.5rem; color: var(--text-secondary);">
+            <li>All historical trade data</li>
+            <li>Trade markers on the chart</li>
+            <li>Trading statistics and P&L history</li>
+          </ul>
+          <div style="padding: 1rem; background: rgba(255, 87, 87, 0.1); border-radius: 0.5rem; border: 1px solid rgba(255, 87, 87, 0.3);">
+            <strong style="color: #ff5e57;">Are you sure you want to clear all trades?</strong>
+          </div>
+        `;
+        
+        document.getElementById('modal-title').textContent = '🗑️ Clear All Trades';
+        document.getElementById('modal-body').innerHTML = modalBody;
+        
+        // Update confirm button style for destructive action
+        const confirmBtn = document.getElementById('modal-confirm-btn');
+        confirmBtn.style.background = '#ff5e57';
+        confirmBtn.textContent = 'Yes, Clear All Trades';
+        
+        document.getElementById('confirmation-modal').classList.add('show');
+      }
+      
+      // Execute clear trades
+      async function executeClearTrades() {
+        const confirmBtn = document.getElementById('modal-confirm-btn');
+        const originalText = confirmBtn.textContent;
+        confirmBtn.innerHTML = '<span class="loading-spinner"></span> Clearing...';
+        confirmBtn.disabled = true;
+        
+        try {
+          const response = await fetch('/api/manual/clear-trades', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok && data.success) {
+            showNotification(`✅ ${data.message}`, 'success');
+            closeModal();
+            
+            // Clear cached trades
+            cachedTrades = [];
+            
+            // Refresh chart to remove trade markers
+            await updateTradeMarkers();
+            await refresh();
+          } else {
+            showNotification(`❌ ${data.error || 'Failed to clear trades'}`, 'error');
+            confirmBtn.textContent = originalText;
+            confirmBtn.disabled = false;
+          }
+        } catch (error) {
+          showNotification(`❌ Error: ${error.message}`, 'error');
+          confirmBtn.textContent = originalText;
+          confirmBtn.disabled = false;
+        }
       }
       
       // Update position size preview

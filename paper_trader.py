@@ -36,8 +36,8 @@ class TradeRecord:
 
 @dataclass
 class Position:
-    """Tracks an open position with risk management levels"""
-    side: str  # 'long' or 'short'
+    """Tracks an open long position with risk management levels (spot trading only)"""
+    side: str  # 'long' only (spot trading doesn't support shorts)
     entry_price: float
     amount: float
     entry_time: str
@@ -45,8 +45,8 @@ class Position:
     take_profit: float
     trailing_stop: float
     initial_trailing_stop_pct: float
-    highest_price: float = 0.0  # For trailing stop tracking (long)
-    lowest_price: float = 0.0   # For trailing stop tracking (short)
+    highest_price: float = 0.0  # For trailing stop tracking
+    lowest_price: float = 0.0   # Unused in spot-only mode (kept for database compatibility)
 
 
 class PaperTrader:
@@ -207,6 +207,7 @@ class PaperTrader:
         pos = self.open_position
         exit_reason = None
         
+        # Only long positions supported (spot trading)
         if pos.side == "long":
             # Update trailing stop for long positions
             if self.use_trailing_stop:
@@ -224,24 +225,10 @@ class PaperTrader:
                 exit_reason = "take_profit"
             elif self.use_trailing_stop and current_price <= pos.trailing_stop:
                 exit_reason = "trailing_stop"
-                
-        elif pos.side == "short":
-            # Update trailing stop for short positions
-            if self.use_trailing_stop:
-                if pos.lowest_price == 0 or current_price < pos.lowest_price:
-                    pos.lowest_price = current_price
-                    # Update trailing stop level
-                    new_trailing = current_price * (1 + pos.initial_trailing_stop_pct)
-                    if new_trailing < pos.trailing_stop or pos.trailing_stop == 0:
-                        pos.trailing_stop = new_trailing
-            
-            # Check exit conditions
-            if current_price >= pos.stop_loss:
-                exit_reason = "stop_loss"
-            elif current_price <= pos.take_profit:
-                exit_reason = "take_profit"
-            elif self.use_trailing_stop and pos.trailing_stop > 0 and current_price >= pos.trailing_stop:
-                exit_reason = "trailing_stop"
+        else:
+            # Should never happen in spot-only mode
+            logging.warning(f"Invalid position side: {pos.side}. Only 'long' supported in spot trading.")
+            return None
         
         # Exit position if any condition triggered
         if exit_reason:
@@ -289,36 +276,27 @@ class PaperTrader:
                 logging.error(f"Failed to update position in database: {e}")
 
     def _close_position(self, current_price: float, exit_reason: str) -> Optional[TradeRecord]:
-        """Close the current open position"""
+        """Close the current open long position (spot trading only)"""
         if not self.open_position:
             return None
         
         pos = self.open_position
         
-        if pos.side == "long":
-            # Sell to close long position
-            fill_price = current_price * (1 - self.slippage)
-            notional = pos.amount * fill_price
-            fee = notional * self.fee_rate
-            self.base_balance -= pos.amount
-            self.usdt_balance += notional - fee
-            
-            # Calculate P&L
-            entry_cost = pos.amount * pos.entry_price
-            pnl = (notional - fee) - entry_cost
-            
-        else:  # short
-            # Buy to close short position
-            fill_price = current_price * (1 + self.slippage)
-            notional = pos.amount * fill_price
-            fee = notional * self.fee_rate
-            self.usdt_balance -= notional + fee
-            self.base_balance += pos.amount
-            
-            # Calculate P&L (for short: profit when price goes down)
-            exit_cost = notional + fee
-            entry_value = pos.amount * pos.entry_price
-            pnl = entry_value - exit_cost
+        # Only long positions supported in spot trading
+        if pos.side != "long":
+            logging.warning(f"Cannot close {pos.side} position in spot-only mode")
+            return None
+        
+        # Sell to close long position
+        fill_price = current_price * (1 - self.slippage)
+        notional = pos.amount * fill_price
+        fee = notional * self.fee_rate
+        self.base_balance -= pos.amount
+        self.usdt_balance += notional - fee
+        
+        # Calculate P&L
+        entry_cost = pos.amount * pos.entry_price
+        pnl = (notional - fee) - entry_cost
         
         # Update stats
         self.total_trades += 1
@@ -330,7 +308,7 @@ class PaperTrader:
         self._close_position_in_db(fill_price, exit_reason, pnl)
         
         trade = TradeRecord(
-            side="sell" if pos.side == "long" else "buy",
+            side="sell",
             price=fill_price,
             amount=pos.amount,
             notional=notional,
@@ -361,17 +339,20 @@ class PaperTrader:
         elif order_pct is None:
             order_pct = 0.2  # Default fallback
         
-        # If we have an open position in the opposite direction, close it first
+        # Spot trading logic: Long positions only
         if self.open_position:
-            if (self.open_position.side == "long" and signal.direction == "bearish") or \
-               (self.open_position.side == "short" and signal.direction == "bullish"):
-                self._close_position(signal.price, "signal")
+            # Close long position on bearish signal
+            if self.open_position.side == "long" and signal.direction == "bearish":
+                return self._close_position(signal.price, "signal")
         
-        # Open new position based on signal
+        # Open new long position on bullish signal (only if no position)
         if signal.direction == "bullish" and not self.open_position:
             return self._buy(signal.price, order_pct, signal)
         elif signal.direction == "bearish" and not self.open_position:
-            return self._sell(signal.price, order_pct, signal)
+            # In spot trading, can't open short positions
+            # Bearish signals without a position are ignored
+            logging.debug(f"Bearish signal ignored - no position to exit (spot trading mode)")
+            return None
         
         return None
 
@@ -422,46 +403,22 @@ class PaperTrader:
 
     def _sell(self, price: float, order_pct: float, signal) -> Optional[TradeRecord]:
         """
-        Open a short position (in paper trading, we simulate shorting).
-        Note: For spot trading, this would just close a long. 
-        For futures, this would open an actual short.
+        Sell owned BTC (spot trading only - no shorting).
+        Can only sell if you have BTC to sell.
         """
-        # For spot paper trading: if we have base balance, sell it
-        # If no base balance, simulate shorting by treating it as opening a short position
+        # Spot trading: can only sell what you own
+        if self.base_balance <= 0:
+            logging.info(f"Cannot sell - no BTC position to exit (balance: {self.base_balance})")
+            return None
         
-        if self.base_balance > 0:
-            # Close existing long position
-            amount = self.base_balance * order_pct
-        else:
-            # Simulate short: allocate USDT as if we're borrowing and selling
-            if self.usdt_balance <= 0:
-                return None
-            notional = self.usdt_balance * order_pct
-            fill_price = price * (1 - self.slippage)
-            amount = notional / fill_price
-
+        # Calculate amount to sell
+        amount = self.base_balance * order_pct
+        
         fill_price = price * (1 - self.slippage)
         notional = amount * fill_price
         fee = notional * self.fee_rate
         self.base_balance -= amount
         self.usdt_balance += notional - fee
-
-        # Create position for short (if we're actually shorting, not just closing)
-        if self.base_balance < 0:  # We have a short position
-            self.open_position = Position(
-                side="short",
-                entry_price=fill_price,
-                amount=abs(self.base_balance),
-                entry_time=datetime.now(timezone.utc).isoformat(),
-                stop_loss=signal.stop_loss if signal.stop_loss > 0 else fill_price * 1.02,
-                take_profit=signal.take_profit if signal.take_profit > 0 else fill_price * 0.96,
-                trailing_stop=fill_price * (1 + self.trailing_stop_pct),
-                initial_trailing_stop_pct=self.trailing_stop_pct,
-                lowest_price=fill_price,
-            )
-            
-            # Save position opening to database
-            self._open_position_in_db(self.open_position)
 
         trade = TradeRecord(
             side="sell",
