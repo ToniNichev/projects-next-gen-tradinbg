@@ -14,6 +14,8 @@ dist/
 *.log
 data/
 .env
+.env.*
+.env.bak*
 
 # Database files
 *.db

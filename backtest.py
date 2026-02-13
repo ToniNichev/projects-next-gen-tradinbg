@@ -325,6 +325,9 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         exit_trade = trader.update_position(current_price)
         if exit_trade:
             trade_count += 1
+            # Get strategy name from the exit trade signal (populated from position)
+            exit_strategy_name = exit_trade.signal.get("strategy_name") if exit_trade.signal else None
+            
             # Record exit trade marker with complete details for HUD
             chart_data["trades"].append({
                 "timestamp": candle_timestamp.isoformat() + "Z",
@@ -338,11 +341,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
                 "reason": exit_trade.exit_reason,
                 "exit_reason": exit_trade.exit_reason,
                 "pnl": exit_trade.pnl,
-                "strategy_name": None,  # Exit trades don't have direct strategy attribution
+                "strategy_name": exit_strategy_name,  # Now includes strategy from position
                 "confidence": None,
                 "rsi": None,
                 "atr": None,
-                "signal_direction": None,
+                "signal_direction": exit_strategy_name,  # For dashboard compatibility
             })
         
         # Get window of candles for signal computation
@@ -443,6 +446,10 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         if final_exit:
             trade_count += 1
             final_timestamp = datetime.utcfromtimestamp(all_candles[-1][0] / 1000)
+            
+            # Get strategy name from the exit trade signal (populated from position)
+            final_strategy_name = final_exit.signal.get("strategy_name") if final_exit.signal else None
+            
             chart_data["trades"].append({
                 "timestamp": final_timestamp.isoformat() + "Z",
                 "side": final_exit.side,
@@ -455,11 +462,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
                 "reason": final_exit.exit_reason,
                 "exit_reason": final_exit.exit_reason,
                 "pnl": final_exit.pnl,
-                "strategy_name": None,
+                "strategy_name": final_strategy_name,  # Now includes strategy from position
                 "confidence": None,
                 "rsi": None,
                 "atr": None,
-                "signal_direction": None,
+                "signal_direction": final_strategy_name,  # For dashboard compatibility
             })
     
     # Final results

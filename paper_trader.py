@@ -47,6 +47,7 @@ class Position:
     initial_trailing_stop_pct: float
     highest_price: float = 0.0  # For trailing stop tracking
     lowest_price: float = 0.0   # Unused in spot-only mode (kept for database compatibility)
+    strategy_name: Optional[str] = None  # Track which strategy opened this position
 
 
 class PaperTrader:
@@ -251,6 +252,7 @@ class PaperTrader:
                     "highest_price": position.highest_price,
                     "lowest_price": position.lowest_price,
                     "is_open": True,
+                    "strategy_name": position.strategy_name,
                 }
                 db_position = self.db_manager.add_position(position_data)
                 self.db_position_id = db_position.id
@@ -317,7 +319,7 @@ class PaperTrader:
             usdt_balance=self.usdt_balance,
             base_balance=self.base_balance,
             timestamp=datetime.now(timezone.utc).isoformat(),
-            signal={},
+            signal={"strategy_name": pos.strategy_name} if pos.strategy_name else {},
             exit_reason=exit_reason,
             pnl=pnl,
         )
@@ -381,6 +383,7 @@ class PaperTrader:
             trailing_stop=fill_price * (1 - self.trailing_stop_pct),
             initial_trailing_stop_pct=self.trailing_stop_pct,
             highest_price=fill_price,
+            strategy_name=signal.to_dict().get("strategy_name", "Unknown"),
         )
         
         # Save position opening to database

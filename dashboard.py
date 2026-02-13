@@ -1511,6 +1511,9 @@ def get_manual_status():
         return jsonify({"error": "Manual trading not available", "available": False}), 503
     
     try:
+        from config import BotConfig
+        config = BotConfig.load()
+        
         with _trader_lock:
             current_price = get_current_price()
             balances = _trader_instance.get_balances()
@@ -1545,6 +1548,8 @@ def get_manual_status():
                 "position": position_info,
                 "can_buy": balances["USDT"] > 0 and (not _trader_instance.open_position or _trader_instance.open_position.side == "short"),
                 "can_sell": _trader_instance.open_position is not None,
+                "min_position_size": config.min_position_size,
+                "max_position_size": config.max_position_size,
             })
     except Exception as e:
         return jsonify({"error": str(e), "available": False}), 500
@@ -1590,15 +1595,13 @@ def manual_buy():
             trade = _trader_instance.handle_signal(signal)
             
             if trade:
-                # Update dashboard state
-                update_state(
-                    balances=_trader_instance.get_balances(),
-                    last_trade=trade.to_dict(),
-                    price=current_price,
-                    signal_direction="bullish",
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    trade_side="buy",
-                )
+                # Update dashboard state (balances only, no chart history for manual trades)
+                _state["balances"] = _trader_instance.get_balances()
+                _state["last_trade"] = trade.to_dict()
+                _state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                
+                # Don't add to _history for manual trades - chart should show real market candles
+                # Manual trades are tracked in database and displayed as markers on the chart
                 
                 return jsonify({
                     "success": True,
@@ -1639,14 +1642,12 @@ def manual_sell():
                 trade = _trader_instance._close_position(current_price, "manual")
                 
                 if trade:
-                    update_state(
-                        balances=_trader_instance.get_balances(),
-                        last_trade=trade.to_dict(),
-                        price=current_price,
-                        signal_direction="bearish",
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        trade_side="sell",
-                    )
+                    # Update dashboard state (balances only, no chart history for manual trades)
+                    _state["balances"] = _trader_instance.get_balances()
+                    _state["last_trade"] = trade.to_dict()
+                    _state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    
+                    # Don't add to _history for manual trades - chart should show real market candles
                     
                     return jsonify({
                         "success": True,
@@ -1670,14 +1671,12 @@ def manual_sell():
                 trade = _trader_instance.handle_signal(signal)
                 
                 if trade:
-                    update_state(
-                        balances=_trader_instance.get_balances(),
-                        last_trade=trade.to_dict(),
-                        price=current_price,
-                        signal_direction="bearish",
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        trade_side="sell",
-                    )
+                    # Update dashboard state (balances only, no chart history for manual trades)
+                    _state["balances"] = _trader_instance.get_balances()
+                    _state["last_trade"] = trade.to_dict()
+                    _state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    
+                    # Don't add to _history for manual trades - chart should show real market candles
                     
                     return jsonify({
                         "success": True,
@@ -2642,8 +2641,15 @@ def start_dashboard(host="0.0.0.0", port=8000):
         cors = CORS(app, resources={r"/*": {"origins": "*"}})
     
     def runner():
-        app.run(host=host, port=port, debug=False, use_reloader=False)
+        try:
+            flask_logging.info(f"🚀 Starting Flask dashboard on {host}:{port}")
+            app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+        except Exception as e:
+            flask_logging.error(f"❌ Failed to start Flask dashboard: {e}")
+            import traceback
+            traceback.print_exc()
 
-    thread = threading.Thread(target=runner, daemon=True)
+    thread = threading.Thread(target=runner, daemon=True, name="FlaskDashboard")
     thread.start()
+    flask_logging.info(f"✅ Dashboard thread started (daemon=True, name=FlaskDashboard)")
 

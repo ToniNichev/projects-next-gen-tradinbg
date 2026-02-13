@@ -103,6 +103,40 @@
   .loading-indicator.show {
     display: flex;
   }
+  .no-data-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.75);
+    padding: 1.5rem 2rem;
+    border-radius: 0.75rem;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    z-index: 999;
+    text-align: center;
+    border: 1px solid rgba(255, 94, 87, 0.3);
+  }
+  .no-data-indicator.show {
+    display: flex;
+  }
+  .no-data-indicator .no-data-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--accent-red);
+  }
+  .no-data-indicator .no-data-detail {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    max-width: 320px;
+  }
+  .no-data-indicator button {
+    margin-top: 0.25rem;
+    padding: 0.4rem 1rem;
+    font-size: 0.8rem;
+  }
   .chart-controls button {
     padding: 0.5rem 1rem;
     background: rgba(88, 214, 141, 0.2);
@@ -692,7 +726,10 @@
       <h3>Execute Trade</h3>
       
       <div class="control-group">
-        <label for="position-size">Position Size (%)</label>
+        <label for="position-size">
+          Position Size (%)
+          <span id="position-size-range" style="color: var(--text-secondary); font-weight: normal; font-size: 0.875rem;"></span>
+        </label>
         <input type="number" id="position-size" min="10" max="100" value="20" step="5">
       </div>
       
@@ -860,6 +897,11 @@
   <div class="loading-indicator" id="chart-loading">
     <div class="spinner"></div>
     <span>Loading candles...</span>
+  </div>
+  <div class="no-data-indicator" id="chart-no-data">
+    <span class="no-data-title">No Chart Data Available</span>
+    <span class="no-data-detail">Could not load candles from the exchange API and no bot history is available yet. Check that your API keys are configured and the exchange is reachable.</span>
+    <button onclick="refresh()">Retry</button>
   </div>
   <div class="chart-controls">
     <div class="timeframe-group">
@@ -1234,7 +1276,7 @@
       // Fetch executed trades from database
       async function fetchTrades(limit = 200) {
         try {
-          const response = await fetch(`/api/trades?limit=${limit}`);
+          const response = await fetch(`/api/trades?limit=${limit}`, {credentials: 'include'});
           const data = await response.json();
           
           if (data.trades) {
@@ -1516,24 +1558,24 @@
 
       async function refresh() {
         try {
-          // Fetch data based on selected timeframe
+          // Fetch candle data from exchange
           let history = [];
+          let body = {};
           
-          if (currentTimeframe === '1h') {
-            // Use live data from bot for default timeframe
-            const resp = await fetch("/history");
-            const body = await resp.json();
-            history = body.history || [];
-          } else {
-            // Fetch historical candles for selected timeframe
+          try {
             isLoadingTimeframe = true;
-            const resp = await fetch(`/api/candles/${currentTimeframe}?limit=200`);
-            const body = await resp.json();
-            isLoadingTimeframe = false;
+            const resp = await fetch(`/api/candles/${currentTimeframe}?limit=200`, {credentials: 'include'});
+            body = await resp.json();
             
             if (body.error) {
               console.error("Error fetching candles:", body.error);
-              return;
+              // Fall back to history endpoint if candles API fails
+              throw new Error(body.error);
+            }
+            
+            if (!body.candles || body.candles.length === 0) {
+              console.warn("No candles returned from API");
+              throw new Error("No candles available");
             }
             
             // Convert to history format
@@ -1547,6 +1589,27 @@
               signal_direction: "neutral",
               trade_side: null
             }));
+          } catch (candleError) {
+            // Fallback to /history endpoint if candles API is unavailable
+            console.warn("Falling back to /history endpoint:", candleError.message);
+            try {
+              const historyResp = await fetch("/history", {credentials: 'include'});
+              const historyBody = await historyResp.json();
+              history = historyBody.history || [];
+              
+              if (history.length === 0) {
+                console.warn("No history data available");
+                // Show empty chart rather than crashing
+                history = [];
+              }
+            } catch (historyError) {
+              console.error("Failed to fetch history as fallback:", historyError);
+              history = [];
+            }
+          } finally {
+            // Always reset loading flag, even on error, so timeframe changes
+            // and auto-refreshes are not permanently blocked
+            isLoadingTimeframe = false;
           }
           
           console.log("History data:", history);
@@ -1558,24 +1621,36 @@
           console.log("Current local time:", now.toLocaleString());
           console.log("Timezone offset (minutes):", now.getTimezoneOffset());
           
-          const candleData = history.map((row) => {
-            // Parse UTC timestamp - the 'Z' or lack thereof matters!
-            // ISO strings from backend should be treated as UTC
-            let timestamp = row.timestamp;
-            if (!timestamp.endsWith('Z') && !timestamp.includes('+') && !timestamp.includes('-', 10)) {
-              // Add 'Z' to explicitly mark as UTC if not present
-              timestamp = timestamp + 'Z';
-            }
-            const utcDate = new Date(timestamp);
+          // Handle empty history gracefully
+          let candleData = [];
+          const noDataEl = document.getElementById('chart-no-data');
+          if (history && history.length > 0) {
+            // Hide no-data indicator when we have data
+            noDataEl.classList.remove('show');
             
-            return {
-              x: utcDate.getTime(),  // This is milliseconds since epoch (timezone-agnostic)
-              o: row.open ?? row.price,
-              h: row.high ?? row.price,
-              l: row.low ?? row.price,
-              c: row.close ?? row.price,
-            };
-          });
+            candleData = history.map((row) => {
+              // Parse UTC timestamp - the 'Z' or lack thereof matters!
+              // ISO strings from backend should be treated as UTC
+              let timestamp = row.timestamp;
+              if (!timestamp.endsWith('Z') && !timestamp.includes('+') && !timestamp.includes('-', 10)) {
+                // Add 'Z' to explicitly mark as UTC if not present
+                timestamp = timestamp + 'Z';
+              }
+              const utcDate = new Date(timestamp);
+              
+              return {
+                x: utcDate.getTime(),  // This is milliseconds since epoch (timezone-agnostic)
+                o: row.open ?? row.price,
+                h: row.high ?? row.price,
+                l: row.low ?? row.price,
+                c: row.close ?? row.price,
+              };
+            });
+          } else {
+            console.warn("No chart data available");
+            // Show no-data indicator so user knows what happened
+            noDataEl.classList.add('show');
+          }
           
           console.log("Candlestick data:", candleData);
           if (candleData.length > 0) {
@@ -1632,14 +1707,24 @@
           
           // Only show signal markers on the default timeframe (1h - bot's actual trading timeframe)
           if (currentTimeframe === '1h') {
-            chart.data.datasets[1].data = history
-              .filter((row) => row.signal_direction !== "neutral")
-              .map((row) => ({
-                x: new Date(row.timestamp).getTime(),
-                y: row.price,
-                backgroundColor:
-                  row.signal_direction === "bullish" ? "#33ff8a" : "#ff5e57",
-              }));
+            // Fetch bot-generated signals from history endpoint (not candle data)
+            try {
+              const signalResp = await fetch("/history", {credentials: 'include'});
+              const signalBody = await signalResp.json();
+              const signalHistory = signalBody.history || [];
+              
+              chart.data.datasets[1].data = signalHistory
+                .filter((row) => row.signal_direction !== "neutral")
+                .map((row) => ({
+                  x: new Date(row.timestamp).getTime(),
+                  y: row.price,
+                  backgroundColor:
+                    row.signal_direction === "bullish" ? "#33ff8a" : "#ff5e57",
+                }));
+            } catch (error) {
+              console.error("Error fetching signals:", error);
+              chart.data.datasets[1].data = [];
+            }
           } else {
             // Clear signals for other timeframes
             chart.data.datasets[1].data = [];
@@ -1679,27 +1764,27 @@
           console.log("Current timeframe:", currentTimeframe);
           
           // Always fetch latest trade/signal data regardless of timeframe
-          const resp = await fetch("/history");
-          const body = await resp.json();
+          const resp = await fetch("/history", {credentials: 'include'});
+          const historyBody = await resp.json();
+          
+          // Fetch state and signal info
+          const state = await (await fetch('/state', {credentials: 'include'})).json();
           
           // Update signal info (only show on 1h since that's the trading timeframe)
-          if (currentTimeframe === '1h') {
-            const lastSignalFromHistory = history[history.length - 1];
-            const lastSignal = lastSignalFromHistory || body.last_signal;
-            if (lastSignal) {
-              document.getElementById("signal-text").textContent =
-                lastSignal.signal_direction.toUpperCase();
-              // Format time in local timezone
-              const signalTime = new Date(lastSignal.timestamp);
-              document.getElementById(
-                "signal-detail"
-              ).textContent = `${signalTime.toLocaleString()} · price $${lastSignal.price.toFixed(2)}`;
-            }
+          if (currentTimeframe === '1h' && state.last_signal) {
+            const lastSignal = state.last_signal;
+            document.getElementById("signal-text").textContent =
+              lastSignal.signal_direction?.toUpperCase() || lastSignal.direction?.toUpperCase() || "N/A";
+            // Format time in local timezone
+            const signalTime = new Date(lastSignal.timestamp);
+            document.getElementById(
+              "signal-detail"
+            ).textContent = `${signalTime.toLocaleString()} · price $${lastSignal.price.toFixed(2)}`;
           }
           
           // Always update last trade (regardless of timeframe)
-          const lastTrade = body.last_trade;
-          if (lastTrade) {
+          if (state.last_trade) {
+            const lastTrade = state.last_trade;
             document.getElementById("trade-text").textContent =
               lastTrade.side.toUpperCase();
             // Format time in local timezone
@@ -1710,8 +1795,7 @@
           }
           
           // Always update balance with current price
-          const latestPrice = history[history.length - 1]?.close || (body.last_signal?.price || 0);
-          const state = await (await fetch('/state')).json();
+          const latestPrice = history[history.length - 1]?.close || (state.last_signal?.price || 0);
           if (state.balances) {
             const totalUSDT = state.balances.USDT + (state.balances.BASE * latestPrice);
             document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
@@ -1723,6 +1807,18 @@
           updateChartInfo();
         } catch (err) {
           console.error("Error refreshing chart:", err);
+          
+          // Hide loading indicator and show no-data indicator
+          document.getElementById('chart-loading').classList.remove('show');
+          const noDataEl = document.getElementById('chart-no-data');
+          noDataEl.classList.add('show');
+          
+          // Try to show error on chart label
+          if (chart && chart.data.datasets[0]) {
+            chart.data.datasets[0].data = [];
+            chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe}) - Error Loading Data`;
+            chart.update('none');
+          }
         }
       }
 
@@ -2405,7 +2501,7 @@
       // Update manual trading status
       async function updateManualTradingStatus() {
         try {
-          const response = await fetch('/api/manual/status');
+          const response = await fetch('/api/manual/status', {credentials: 'include'});
           const data = await response.json();
           
           if (data.available) {
@@ -2413,12 +2509,37 @@
             updatePositionDisplay(data);
             updateTradePreview(data);
             updateButtonStates(data);
+            updatePositionSizeConstraints(data);
           } else {
             document.getElementById('position-info').innerHTML = 
               '<div class="no-position-message">Manual trading not available</div>';
           }
         } catch (error) {
           console.error('Failed to fetch manual trading status:', error);
+        }
+      }
+      
+      // Update position size input constraints based on config
+      function updatePositionSizeConstraints(status) {
+        if (status.min_position_size !== undefined && status.max_position_size !== undefined) {
+          const input = document.getElementById('position-size');
+          const rangeLabel = document.getElementById('position-size-range');
+          
+          const minPct = Math.round(status.min_position_size * 100);
+          const maxPct = Math.round(status.max_position_size * 100);
+          
+          input.min = minPct;
+          input.max = maxPct;
+          
+          // Adjust current value if it's outside the new range
+          const currentValue = parseFloat(input.value);
+          if (currentValue < minPct) {
+            input.value = minPct;
+          } else if (currentValue > maxPct) {
+            input.value = maxPct;
+          }
+          
+          rangeLabel.textContent = `(${minPct}-${maxPct}%)`;
         }
       }
       
@@ -2496,7 +2617,18 @@
           return;
         }
         
-        const positionSize = parseFloat(document.getElementById('position-size').value) / 100;
+        const positionSizePct = parseFloat(document.getElementById('position-size').value);
+        const positionSize = positionSizePct / 100;
+        
+        // Validate position size against config constraints
+        if (manualTradingStatus.min_position_size && positionSize < manualTradingStatus.min_position_size) {
+          showNotification(`Position size too small (min: ${Math.round(manualTradingStatus.min_position_size * 100)}%)`, 'error');
+          return;
+        }
+        if (manualTradingStatus.max_position_size && positionSize > manualTradingStatus.max_position_size) {
+          showNotification(`Position size too large (max: ${Math.round(manualTradingStatus.max_position_size * 100)}%)`, 'error');
+          return;
+        }
         
         // Show confirmation modal
         pendingTradeAction = {
@@ -2541,7 +2673,18 @@
           return;
         }
         
-        const positionSize = parseFloat(document.getElementById('position-size').value) / 100;
+        const positionSizePct = parseFloat(document.getElementById('position-size').value);
+        const positionSize = positionSizePct / 100;
+        
+        // Validate position size against config constraints
+        if (manualTradingStatus.min_position_size && positionSize < manualTradingStatus.min_position_size) {
+          showNotification(`Position size too small (min: ${Math.round(manualTradingStatus.min_position_size * 100)}%)`, 'error');
+          return;
+        }
+        if (manualTradingStatus.max_position_size && positionSize > manualTradingStatus.max_position_size) {
+          showNotification(`Position size too large (max: ${Math.round(manualTradingStatus.max_position_size * 100)}%)`, 'error');
+          return;
+        }
         
         // Show confirmation modal
         pendingTradeAction = {
@@ -2780,7 +2923,7 @@
       
       async function updateLLMAnalysis() {
         try {
-          const response = await fetch('/api/llm/latest');
+          const response = await fetch('/api/llm/latest', {credentials: 'include'});
           
           if (!response.ok) {
             // No analysis available yet
@@ -2885,7 +3028,7 @@
         }, 3600); // Update every 3.6s for smooth animation (100 steps = 360 seconds = 6 minutes)
         
         try {
-          const response = await fetch('/api/llm/trigger', { method: 'POST' });
+          const response = await fetch('/api/llm/trigger', { method: 'POST', credentials: 'include' });
           const data = await response.json();
           
           if (response.ok) {
@@ -2899,7 +3042,7 @@
               
               try {
                 // Check if new analysis is available
-                const historyResponse = await fetch('/api/llm/history?limit=1');
+                const historyResponse = await fetch('/api/llm/history?limit=1', {credentials: 'include'});
                 if (historyResponse.ok) {
                   const historyData = await historyResponse.json();
                   if (historyData.analyses && historyData.analyses.length > 0) {

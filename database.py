@@ -100,6 +100,7 @@ class Position(Base):
     pnl = Column(Float)
     pnl_percent = Column(Float)
     is_open = Column(Boolean, default=True, index=True)
+    strategy_name = Column(String(100), index=True)  # Track which strategy opened this position
     
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -959,7 +960,7 @@ class DatabaseManager:
                     
                     # Position Sizing - Large
                     "order_pct": 0.40,
-                    "min_position_size": 0.25,
+                    "min_position_size": 0.20,
                     "max_position_size": 0.50,
                     "use_dynamic_sizing": True,
                     
@@ -1174,7 +1175,7 @@ class DatabaseManager:
                     
                     # Position Sizing - Larger for confirmed breakouts
                     "order_pct": 0.35,
-                    "min_position_size": 0.25,
+                    "min_position_size": 0.20,
                     "max_position_size": 0.45,
                     "use_dynamic_sizing": True,
                     
@@ -1281,7 +1282,7 @@ class DatabaseManager:
                     
                     # Position Sizing - Larger positions, lower risk
                     "order_pct": 0.35,
-                    "min_position_size": 0.25,
+                    "min_position_size": 0.15,
                     "max_position_size": 0.45,
                     "use_dynamic_sizing": True,
                     

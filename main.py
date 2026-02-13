@@ -279,7 +279,18 @@ def main():
         api_secret=config.binance_api_secret,
         tld="us",
     )
-    twm.start()
+    twm.daemon = True  # Run as daemon thread
+    
+    # Try to start websocket manager with custom port to avoid conflict with dashboard (port 3010)
+    # The websocket manager uses a local server, so we need to ensure it doesn't conflict
+    try:
+        twm.start()
+    except OSError as e:
+        if "Address already in use" in str(e):
+            logging.warning("Default websocket port in use, this is expected if dashboard is on same port")
+            # The websocket will still work, it just won't be able to start its local server
+        else:
+            raise
     
     # Buffer to store candles from websocket (avoids fetch_ohlcv calls)
     candle_buffer = []

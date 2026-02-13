@@ -45,7 +45,7 @@ class BotConfig:
     
     # Position Sizing (Priority 2)
     max_position_size: float = 0.35  # Max 35% per trade
-    min_position_size: float = 0.15  # Min 15% per trade (increased)
+    min_position_size: float = 0.10  # Min 10% per trade (flexible for manual trading)
     use_dynamic_sizing: bool = True  # Enable dynamic position sizing
     
     # Volatility & Indicators (Priority 3 & 4)
@@ -194,7 +194,7 @@ class BotConfig:
             use_trailing_stop=get_val("use_trailing_stop", "BOT_USE_TRAILING_STOP", True, bool),
             # Position Sizing
             max_position_size=get_val("max_position_size", "BOT_MAX_POSITION_SIZE", 0.35, float),
-            min_position_size=get_val("min_position_size", "BOT_MIN_POSITION_SIZE", 0.15, float),
+            min_position_size=get_val("min_position_size", "BOT_MIN_POSITION_SIZE", 0.10, float),
             use_dynamic_sizing=get_val("use_dynamic_sizing", "BOT_USE_DYNAMIC_SIZING", True, bool),
             # ATR and MACD
             atr_period=get_val("atr_period", "BOT_ATR_PERIOD", 14, int),
