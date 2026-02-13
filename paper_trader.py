@@ -84,8 +84,44 @@ class PaperTrader:
         self.winning_trades = 0
         self.total_pnl = 0.0
         
+        # Restore balance from database if available
+        if self.enable_database:
+            self._restore_from_database()
+        
         if self.enable_csv_logging:
             self._ensure_log_file()
+
+    def _restore_from_database(self) -> None:
+        """Restore balance and open position from database"""
+        try:
+            # Get the most recent trade to restore balance
+            recent_trades = self.db_manager.get_trades(limit=1)
+            if recent_trades:
+                last_trade = recent_trades[0]
+                self.usdt_balance = float(last_trade.usdt_balance)
+                self.base_balance = float(last_trade.base_balance)
+                logging.info(f"📊 Restored balance from database: USDT={self.usdt_balance:.2f}, BASE={self.base_balance:.6f}")
+            
+            # Get any open positions
+            open_positions = self.db_manager.get_open_positions()
+            if open_positions:
+                db_pos = open_positions[0]  # Should only be one open position
+                self.open_position = Position(
+                    side=db_pos.side,
+                    entry_price=float(db_pos.entry_price),
+                    amount=float(db_pos.amount),
+                    entry_time=db_pos.entry_time.isoformat(),
+                    stop_loss=float(db_pos.stop_loss) if db_pos.stop_loss else 0.0,
+                    take_profit=float(db_pos.take_profit) if db_pos.take_profit else 0.0,
+                    trailing_stop=float(db_pos.trailing_stop) if db_pos.trailing_stop else 0.0,
+                    initial_trailing_stop_pct=self.trailing_stop_pct,
+                    highest_price=float(db_pos.entry_price),
+                    strategy_name=db_pos.strategy_name if hasattr(db_pos, 'strategy_name') else None,
+                )
+                self.db_position_id = db_pos.id
+                logging.info(f"📊 Restored open position: {db_pos.side} {db_pos.amount:.6f} @ ${db_pos.entry_price:.2f}")
+        except Exception as e:
+            logging.warning(f"Could not restore from database: {e}")
 
     def _ensure_log_file(self) -> None:
         if not self.log_path:
@@ -162,8 +198,9 @@ class PaperTrader:
                     })
                 
                 self.db_manager.add_trade(trade_data)
+                logging.debug(f"✓ Saved {trade.side} trade to database: {trade.amount:.6f} @ ${trade.price:.2f}")
             except Exception as e:
-                logging.error(f"Failed to save trade to database: {e}")
+                logging.error(f"Failed to save trade to database: {e}", exc_info=True)
         
         # Save to CSV if enabled
         if self.enable_csv_logging and self.log_path:
@@ -274,8 +311,9 @@ class PaperTrader:
                 }
                 self.db_manager.update_position(self.db_position_id, updates)
                 self.db_position_id = None
+                logging.debug(f"✓ Closed position {self.db_position_id} in database: {exit_reason}")
             except Exception as e:
-                logging.error(f"Failed to update position in database: {e}")
+                logging.error(f"Failed to update position in database: {e}", exc_info=True)
 
     def _close_position(self, current_price: float, exit_reason: str) -> Optional[TradeRecord]:
         """Close the current open long position (spot trading only)"""

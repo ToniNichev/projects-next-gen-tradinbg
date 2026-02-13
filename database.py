@@ -472,6 +472,18 @@ class DatabaseManager:
             deleted_count = session.query(Trade).delete()
             self.logger.warning(f"Cleared {deleted_count} trade records from database")
             return deleted_count
+    
+    def clear_all_positions(self) -> int:
+        """
+        Delete all position records from the database.
+
+        Returns:
+            Number of positions deleted
+        """
+        with self.get_session() as session:
+            deleted_count = session.query(Position).delete()
+            self.logger.warning(f"Cleared {deleted_count} position records from database")
+            return deleted_count
 
     def add_position(self, position_data: Dict) -> Position:
         """Add a position record"""

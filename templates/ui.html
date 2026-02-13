@@ -1794,15 +1794,6 @@
             ).textContent = `${tradeTime.toLocaleString()} · ${lastTrade.usdt_balance.toFixed(2)} USDT`;
           }
           
-          // Always update balance with current price
-          const latestPrice = history[history.length - 1]?.close || (state.last_signal?.price || 0);
-          if (state.balances) {
-            const totalUSDT = state.balances.USDT + (state.balances.BASE * latestPrice);
-            document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
-            document.getElementById("balance-detail").textContent = 
-              `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
-          }
-          
           // Update chart info display
           updateChartInfo();
         } catch (err) {
@@ -1818,6 +1809,34 @@
             chart.data.datasets[0].data = [];
             chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe}) - Error Loading Data`;
             chart.update('none');
+          }
+        } finally {
+          // Always update balance and trade info, even if chart fails
+          try {
+            const state = await (await fetch('/state', {credentials: 'include'})).json();
+            
+            // Always update balance with current price
+            let latestPrice = 0;
+            try {
+              // Try to get latest price from history or state
+              const historyResp = await fetch("/history", {credentials: 'include'});
+              const historyBody = await historyResp.json();
+              if (historyBody.history && historyBody.history.length > 0) {
+                latestPrice = historyBody.history[historyBody.history.length - 1].close;
+              }
+            } catch {
+              // Fallback to state price
+              latestPrice = state.last_signal?.price || 0;
+            }
+            
+            if (state.balances) {
+              const totalUSDT = state.balances.USDT + (state.balances.BASE * latestPrice);
+              document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
+              document.getElementById("balance-detail").textContent = 
+                `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
+            }
+          } catch (balanceErr) {
+            console.error("Error updating balance:", balanceErr);
           }
         }
       }

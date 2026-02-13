@@ -1852,7 +1852,7 @@ def sync_exchange():
 @require_auth
 @limiter.limit("5 per minute")  # Lower limit for destructive operations
 def clear_all_trades():
-    """Clear all trade records from the database"""
+    """Clear all trade records from the database and reset trader balance"""
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
 
@@ -1865,6 +1865,9 @@ def clear_all_trades():
 
         # Clear all trades
         deleted_count = db.clear_all_trades()
+        
+        # Also clear all positions
+        deleted_positions = db.clear_all_positions()
 
         # Verify the operation
         if deleted_count != count_before:
@@ -1872,10 +1875,38 @@ def clear_all_trades():
                 "error": f"Clear operation inconsistent: expected {count_before}, deleted {deleted_count}"
             }), 500
 
+        # Get initial balance from config
+        from config import BotConfig
+        config = BotConfig.load()
+        initial_balance = config.initial_usdt
+
+        # Reset trader balance to initial value
+        if _trader_instance:
+            with _trader_lock:
+                # Reset balances
+                _trader_instance.usdt_balance = initial_balance
+                _trader_instance.base_balance = 0.0
+                _trader_instance.open_position = None
+                _trader_instance.total_trades = 0
+                _trader_instance.winning_trades = 0
+                _trader_instance.total_pnl = 0.0
+                
+                # Update dashboard state
+                _state["balances"] = {
+                    "USDT": initial_balance,
+                    "BASE": 0.0
+                }
+                _state["last_trade"] = None
+                _state["updated_at"] = datetime.now(timezone.utc).isoformat()
+                
+                logging.info(f"✅ Reset trader balance to ${initial_balance:.2f}")
+
         return jsonify({
             "success": True,
-            "message": f"Cleared {deleted_count} trade records from database",
-            "count": deleted_count
+            "message": f"Cleared {deleted_count} trades and {deleted_positions} positions. Balance reset to ${initial_balance:.2f}",
+            "count": deleted_count,
+            "positions_cleared": deleted_positions,
+            "balance_reset": initial_balance
         }), 200
 
     except Exception as e:
@@ -2517,12 +2548,18 @@ def set_trader(trader, lock, exchange=None, strategy_manager=None):
         exchange: CCXT exchange instance (optional, for live price)
         strategy_manager: StrategyManager instance (optional, for multi-strategy)
     """
-    global _trader_instance, _trader_lock, _exchange_instance, _strategy_manager
+    global _trader_instance, _trader_lock, _exchange_instance, _strategy_manager, _state
     _trader_instance = trader
     _trader_lock = lock
     _exchange_instance = exchange
     _strategy_manager = strategy_manager
+    
+    # Initialize state with trader's current balance
+    _state["balances"] = trader.get_balances()
+    _state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
     logging.getLogger(__name__).info("Manual trading enabled - trader instance registered")
+    logging.getLogger(__name__).info(f"Initial balance: {_state['balances']}")
     if strategy_manager:
         logging.getLogger(__name__).info("Strategy manager registered for dashboard integration")
 
