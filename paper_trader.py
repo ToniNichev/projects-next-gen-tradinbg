@@ -397,7 +397,7 @@ class PaperTrader:
         return None
 
     def _buy(self, price: float, order_pct: float, signal) -> Optional[TradeRecord]:
-        """Open a long position"""
+        """Open a long position or add to existing long position (scale in)"""
         if self.usdt_balance <= 0:
             return None
         notional = self.usdt_balance * order_pct
@@ -410,22 +410,64 @@ class PaperTrader:
         self.usdt_balance -= notional + fee
         self.base_balance += amount
 
-        # Create position with risk management levels
-        self.open_position = Position(
-            side="long",
-            entry_price=fill_price,
-            amount=amount,
-            entry_time=datetime.now(timezone.utc).isoformat(),
-            stop_loss=signal.stop_loss if signal.stop_loss > 0 else fill_price * 0.98,
-            take_profit=signal.take_profit if signal.take_profit > 0 else fill_price * 1.04,
-            trailing_stop=fill_price * (1 - self.trailing_stop_pct),
-            initial_trailing_stop_pct=self.trailing_stop_pct,
-            highest_price=fill_price,
-            strategy_name=signal.to_dict().get("strategy_name", "Unknown"),
-        )
-        
-        # Save position opening to database
-        self._open_position_in_db(self.open_position)
+        # Check if we're adding to an existing long position
+        if self.open_position and self.open_position.side == "long":
+            # Scale in: calculate new average entry price
+            old_position = self.open_position
+            old_cost = old_position.entry_price * old_position.amount
+            new_cost = fill_price * amount
+            total_amount = old_position.amount + amount
+            avg_entry_price = (old_cost + new_cost) / total_amount
+            
+            # Update position with new average entry price and amount
+            self.open_position.amount = total_amount
+            self.open_position.entry_price = avg_entry_price
+            
+            # Recalculate stop loss and take profit based on new average entry
+            # Keep the same percentage distance from the new average entry price
+            old_sl_pct = (old_position.entry_price - old_position.stop_loss) / old_position.entry_price
+            old_tp_pct = (old_position.take_profit - old_position.entry_price) / old_position.entry_price
+            
+            self.open_position.stop_loss = avg_entry_price * (1 - old_sl_pct)
+            self.open_position.take_profit = avg_entry_price * (1 + old_tp_pct)
+            
+            # Update trailing stop based on new average entry
+            self.open_position.trailing_stop = max(
+                old_position.trailing_stop,  # Keep current trailing stop if higher
+                avg_entry_price * (1 - self.trailing_stop_pct)
+            )
+            
+            # Update database position
+            if self.enable_database and self.db_manager and self.db_position_id:
+                try:
+                    updates = {
+                        "entry_price": avg_entry_price,
+                        "amount": total_amount,
+                        "stop_loss": self.open_position.stop_loss,
+                        "take_profit": self.open_position.take_profit,
+                        "trailing_stop": self.open_position.trailing_stop,
+                    }
+                    self.db_manager.update_position(self.db_position_id, updates)
+                    logging.info(f"🔼 Scaled into long position: {amount:.6f} BTC @ ${fill_price:.2f} | New avg entry: ${avg_entry_price:.2f} | Total: {total_amount:.6f} BTC")
+                except Exception as e:
+                    logging.error(f"Failed to update position in database: {e}")
+        else:
+            # Create new position with risk management levels
+            self.open_position = Position(
+                side="long",
+                entry_price=fill_price,
+                amount=amount,
+                entry_time=datetime.now(timezone.utc).isoformat(),
+                stop_loss=signal.stop_loss if signal.stop_loss > 0 else fill_price * 0.98,
+                take_profit=signal.take_profit if signal.take_profit > 0 else fill_price * 1.04,
+                trailing_stop=fill_price * (1 - self.trailing_stop_pct),
+                initial_trailing_stop_pct=self.trailing_stop_pct,
+                highest_price=fill_price,
+                strategy_name=signal.to_dict().get("strategy_name", "Unknown"),
+            )
+            
+            # Save position opening to database
+            self._open_position_in_db(self.open_position)
 
         trade = TradeRecord(
             side="buy",

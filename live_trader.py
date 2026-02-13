@@ -998,6 +998,8 @@ class LiveTrader:
                         "stop_loss": trade.signal.get("stop_loss"),
                         "take_profit": trade.signal.get("take_profit"),
                         "position_size": trade.signal.get("position_size"),
+                        "strategy_name": trade.signal.get("strategy_name"),
+                        "signal_confidence": trade.signal.get("confidence"),
                     })
                 
                 self.db_manager.add_trade(trade_data)

@@ -971,6 +971,7 @@
         'llm_pattern': '#9D4EDD',          // Purple
         'LLM_Pattern': '#9D4EDD',          // Purple (alternative name)
         'Aggregated': '#FFFFFF',           // White (multi-strategy)
+        'Manual': '#00FF00',               // Green (manual trades)
         'Unknown': '#808080',              // Gray (fallback)
       };
       
@@ -2627,6 +2628,13 @@
         
         buyBtn.disabled = !status.can_buy;
         sellBtn.disabled = !status.can_sell;
+        
+        // Update button text based on position status
+        if (status.position && status.position.side === 'long') {
+          buyBtn.innerHTML = '🔼 Add to Long';
+        } else {
+          buyBtn.innerHTML = '🟢 Buy';
+        }
       }
       
       // Execute buy
@@ -2655,32 +2663,88 @@
           positionSize: positionSize
         };
         
-        const modalBody = `
-          <div style="margin-bottom: 1rem;">
-            <strong>Buy Order Details:</strong>
-          </div>
-          <div class="preview-item">
-            <span class="preview-label">Price:</span>
-            <span class="preview-value">$${manualTradingStatus.current_price.toFixed(2)}</span>
-          </div>
-          <div class="preview-item">
-            <span class="preview-label">Position Size:</span>
-            <span class="preview-value">${(positionSize * 100).toFixed(1)}%</span>
-          </div>
-          <div class="preview-item">
-            <span class="preview-label">Order Value:</span>
-            <span class="preview-value">$${(manualTradingStatus.balances.USDT * positionSize).toFixed(2)}</span>
-          </div>
-          <div class="preview-item">
-            <span class="preview-label">Est. Amount:</span>
-            <span class="preview-value">${(manualTradingStatus.balances.USDT * positionSize / manualTradingStatus.current_price).toFixed(6)} BTC</span>
-          </div>
-          <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
-            This will execute a market buy order immediately.
-          </div>
-        `;
+        const orderValue = manualTradingStatus.balances.USDT * positionSize;
+        const newAmount = orderValue / manualTradingStatus.current_price;
         
-        document.getElementById('modal-title').textContent = '🟢 Confirm Buy Order';
+        let modalBody = '';
+        let modalTitle = '';
+        
+        // Check if we're adding to existing position
+        if (manualTradingStatus.position && manualTradingStatus.position.side === 'long') {
+          const pos = manualTradingStatus.position;
+          const oldCost = pos.entry_price * pos.amount;
+          const newCost = manualTradingStatus.current_price * newAmount;
+          const totalAmount = pos.amount + newAmount;
+          const avgEntry = (oldCost + newCost) / totalAmount;
+          
+          modalTitle = '🔼 Confirm Scale In';
+          modalBody = `
+            <div style="margin-bottom: 1rem;">
+              <strong>Adding to Existing Long Position:</strong>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Current Entry:</span>
+              <span class="preview-value">$${pos.entry_price.toFixed(2)}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Current Amount:</span>
+              <span class="preview-value">${pos.amount.toFixed(6)} BTC</span>
+            </div>
+            <div style="margin-top: 0.75rem; margin-bottom: 0.75rem; border-top: 1px solid rgba(255,255,255,0.1);"></div>
+            <div class="preview-item">
+              <span class="preview-label">Add Price:</span>
+              <span class="preview-value">$${manualTradingStatus.current_price.toFixed(2)}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Add Amount:</span>
+              <span class="preview-value">${newAmount.toFixed(6)} BTC</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Order Value:</span>
+              <span class="preview-value">$${orderValue.toFixed(2)}</span>
+            </div>
+            <div style="margin-top: 0.75rem; margin-bottom: 0.75rem; border-top: 1px solid rgba(255,255,255,0.1);"></div>
+            <div class="preview-item" style="font-weight: bold;">
+              <span class="preview-label">New Avg Entry:</span>
+              <span class="preview-value" style="color: #58D68D;">$${avgEntry.toFixed(2)}</span>
+            </div>
+            <div class="preview-item" style="font-weight: bold;">
+              <span class="preview-label">Total Amount:</span>
+              <span class="preview-value" style="color: #58D68D;">${totalAmount.toFixed(6)} BTC</span>
+            </div>
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
+              This will scale into your position and recalculate your average entry price.
+            </div>
+          `;
+        } else {
+          modalTitle = '🟢 Confirm Buy Order';
+          modalBody = `
+            <div style="margin-bottom: 1rem;">
+              <strong>Buy Order Details:</strong>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Price:</span>
+              <span class="preview-value">$${manualTradingStatus.current_price.toFixed(2)}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Position Size:</span>
+              <span class="preview-value">${(positionSize * 100).toFixed(1)}%</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Order Value:</span>
+              <span class="preview-value">$${orderValue.toFixed(2)}</span>
+            </div>
+            <div class="preview-item">
+              <span class="preview-label">Est. Amount:</span>
+              <span class="preview-value">${newAmount.toFixed(6)} BTC</span>
+            </div>
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
+              This will execute a market buy order immediately.
+            </div>
+          `;
+        }
+        
+        document.getElementById('modal-title').textContent = modalTitle;
         document.getElementById('modal-body').innerHTML = modalBody;
         document.getElementById('confirmation-modal').classList.add('show');
       }

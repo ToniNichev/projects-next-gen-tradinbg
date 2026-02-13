@@ -258,6 +258,7 @@ def get_trades():
                     "signal_direction": t.signal_direction,
                     "rsi": float(t.rsi) if t.rsi is not None else None,
                     "atr": float(t.atr) if t.atr is not None else None,
+                    "strategy_name": t.strategy_name if t.strategy_name else None,
                 }
                 trades_data.append(trade_dict)
             except Exception as e:
@@ -1546,7 +1547,7 @@ def get_manual_status():
                 "balances": balances,
                 "portfolio_value": portfolio_value,
                 "position": position_info,
-                "can_buy": balances["USDT"] > 0 and (not _trader_instance.open_position or _trader_instance.open_position.side == "short"),
+                "can_buy": balances["USDT"] > 0,  # Can always buy if have USDT (supports scaling in)
                 "can_sell": _trader_instance.open_position is not None,
                 "min_position_size": config.min_position_size,
                 "max_position_size": config.max_position_size,
@@ -1577,10 +1578,6 @@ def manual_buy():
             return jsonify({"error": f"Position size too large (max: {config.max_position_size*100}%)"}), 400
         
         with _trader_lock:
-            # Check if already in long position
-            if _trader_instance.open_position and _trader_instance.open_position.side == "long":
-                return jsonify({"error": "Already in long position"}), 400
-            
             # Check balance
             if _trader_instance.usdt_balance <= 0:
                 return jsonify({"error": "Insufficient USDT balance"}), 400
@@ -1591,8 +1588,8 @@ def manual_buy():
             # Create synthetic bullish signal
             signal = create_manual_signal("bullish", current_price, position_size, config)
             
-            # Execute trade
-            trade = _trader_instance.handle_signal(signal)
+            # Execute trade (will scale in if position exists)
+            trade = _trader_instance._buy(current_price, position_size, signal)
             
             if trade:
                 # Update dashboard state (balances only, no chart history for manual trades)
@@ -2600,7 +2597,7 @@ def create_manual_signal(direction: str, current_price: float, position_size: fl
     Returns:
         StrategySignal object
     """
-    from strategy import StrategySignal
+    from strategies.base_strategy import StrategySignal
     from datetime import datetime, timezone
     
     # Calculate stop loss and take profit based on config
@@ -2623,15 +2620,14 @@ def create_manual_signal(direction: str, current_price: float, position_size: fl
     return StrategySignal(
         direction=direction,
         price=current_price,
-        short_ema=current_price,
-        long_ema=current_price,
-        trend_strength=0.0,
+        confidence=1.0,  # Manual trades have full confidence
         timestamp=datetime.now(timezone.utc),
-        info={"manual_trade": True, "source": "dashboard"},
+        strategy_name="Manual",
         stop_loss=stop_loss,
         take_profit=take_profit,
         position_size=position_size,
-        atr=current_price * 0.02,  # Estimated ATR
+        indicators={"atr": current_price * 0.02},  # Estimated ATR
+        info={"manual_trade": True, "source": "dashboard"},
     )
 
 
