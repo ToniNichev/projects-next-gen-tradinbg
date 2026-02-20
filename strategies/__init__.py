@@ -13,7 +13,7 @@ from .constants import StrategyNames
 
 # LLM strategy is optional (requires database and Ollama)
 try:
-    from .llm_pattern_strategy import LLMPatternStrategy
+    from .llm.strategy import LLMPatternStrategy
     LLM_AVAILABLE = True
 except ImportError:
     LLMPatternStrategy = None

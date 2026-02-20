@@ -241,13 +241,21 @@ class StrategyManager:
         for signal in relevant_signals:
             self.strategy_stats[signal.strategy_name]["signals_used"] += 1
         
-        # Calculate weighted averages
+        # Calculate weighted averages (guard against all-zero confidence signals)
         total_confidence = sum(s.confidence for s in relevant_signals)
         
-        avg_price = sum(s.price * s.confidence for s in relevant_signals) / total_confidence
-        avg_stop_loss = sum(s.stop_loss * s.confidence for s in relevant_signals) / total_confidence
-        avg_take_profit = sum(s.take_profit * s.confidence for s in relevant_signals) / total_confidence
-        avg_position_size = sum(s.position_size * s.confidence for s in relevant_signals) / total_confidence
+        if total_confidence > 0:
+            avg_price = sum(s.price * s.confidence for s in relevant_signals) / total_confidence
+            avg_stop_loss = sum(s.stop_loss * s.confidence for s in relevant_signals) / total_confidence
+            avg_take_profit = sum(s.take_profit * s.confidence for s in relevant_signals) / total_confidence
+            avg_position_size = sum(s.position_size * s.confidence for s in relevant_signals) / total_confidence
+        else:
+            # All signals have zero confidence — fall back to simple (unweighted) average
+            n = len(relevant_signals)
+            avg_price = sum(s.price for s in relevant_signals) / n
+            avg_stop_loss = sum(s.stop_loss for s in relevant_signals) / n
+            avg_take_profit = sum(s.take_profit for s in relevant_signals) / n
+            avg_position_size = sum(s.position_size for s in relevant_signals) / n
         avg_confidence = total_confidence / len(relevant_signals)
         
         # Combine indicators

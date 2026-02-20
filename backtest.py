@@ -295,6 +295,12 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     logging.info(f"Strategy: EMA {config.short_window}/{config.long_window} on {config.timeframe} timeframe")
     logging.info(f"Order size: {config.order_pct * 100}% per trade")
     logging.info("-" * 80)
+
+    # Inform LLM strategy of the real total candle count so progress tracking is accurate
+    if LLM_AVAILABLE and strategy_manager:
+        for strategy in strategy_manager.strategies:
+            if hasattr(strategy, "set_backtest_total_candles"):
+                strategy.set_backtest_total_candles(len(all_candles))
     
     trade_count = 0
     

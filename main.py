@@ -191,7 +191,7 @@ def main():
         # LLM Pattern Strategy - always create, set enabled state from config
         llm_scheduler = None
         try:
-            from strategies.llm_pattern_strategy import LLMPatternStrategy
+            from strategies.llm.strategy import LLMPatternStrategy
             from llm_scheduler import LLMScheduler
             
             llm_strategy = LLMPatternStrategy(strategy_configs["llm_pattern"], db_manager=db_manager)
