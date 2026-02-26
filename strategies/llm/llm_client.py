@@ -66,7 +66,7 @@ class OllamaClient:
     
     def analyze(self, prompt: str) -> Dict:
         """
-        Send prompt to LLM and get analysis response
+        Send prompt to LLM and get analysis response with timeout protection
         
         Args:
             prompt: Analysis prompt to send to LLM
@@ -80,11 +80,30 @@ class OllamaClient:
             ConnectionError: If cannot connect to Ollama
             TimeoutError: If request times out
         """
+        import signal
+        import threading
+        
         start_time = datetime.utcnow()
         
         logger.info(f"Sending analysis request to Ollama ({self.model})...")
         
+        # Set up signal-based timeout as a failsafe (Unix only, and only in main thread)
+        def timeout_handler(signum, frame):
+            raise TimeoutError(f"LLM request exceeded {self.timeout_seconds}s timeout")
+        
+        old_handler = None
+        use_signal_timeout = False
+        
         try:
+            # Only use signal-based timeout if we're in the main thread
+            # signal.signal() will raise ValueError if called from non-main thread
+            is_main_thread = threading.current_thread() is threading.main_thread()
+            
+            if hasattr(signal, 'SIGALRM') and is_main_thread:
+                use_signal_timeout = True
+                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(self.timeout_seconds + 5)  # Add 5s buffer over ollama timeout
+            
             # Call Ollama API with timeout
             response = self.client.generate(
                 model=self.model,
@@ -93,9 +112,14 @@ class OllamaClient:
                 options={
                     "temperature": self.temperature,
                     "num_predict": self.num_predict,
-                    "timeout": self.timeout_seconds,
                 }
             )
+            
+            # Cancel the alarm if we set it
+            if use_signal_timeout:
+                signal.alarm(0)
+                if old_handler:
+                    signal.signal(signal.SIGALRM, old_handler)
             
             duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
 
@@ -113,7 +137,23 @@ class OllamaClient:
                 "duration_ms": duration_ms,
             }
             
+        except TimeoutError as e:
+            # Cancel the alarm if we set it
+            if use_signal_timeout:
+                signal.alarm(0)
+                if old_handler:
+                    signal.signal(signal.SIGALRM, old_handler)
+            
+            logger.error(f"Ollama request timed out after {self.timeout_seconds}s")
+            raise TimeoutError(f"Ollama timeout: {e}")
+            
         except Exception as e:
+            # Cancel the alarm on any error if we set it
+            if use_signal_timeout:
+                signal.alarm(0)
+                if old_handler:
+                    signal.signal(signal.SIGALRM, old_handler)
+            
             err_str = str(e).lower()
             err_type = type(e).__name__
 

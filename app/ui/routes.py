@@ -89,16 +89,16 @@ def strategies_page():
 @ui_bp.route('/settings')
 @require_auth
 def settings_page():
-    """
-    Settings page
-    
-    Renders the settings/configuration interface.
-    Note: Currently uses strategy_config.html as the settings template.
-    
-    Validates: Requirements 15.5, 15.7
-    """
+    """Settings page — renders the unified strategy / config UI."""
     logger.debug("Rendering settings page")
-    # Using strategy_config.html as settings template since settings.html doesn't exist yet
+    return render_template("strategy_config.html")
+
+
+@ui_bp.route('/strategy-config')
+@require_auth
+def strategy_config_page():
+    """Strategy configuration and parameter adjustment page."""
+    logger.debug("Rendering strategy-config page")
     return render_template("strategy_config.html")
 
 

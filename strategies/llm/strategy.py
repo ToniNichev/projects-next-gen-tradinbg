@@ -133,12 +133,16 @@ class LLMPatternStrategy(BaseStrategy):
         # Handle backtest sampling
         if is_backtest_mode:
             should_analyze = self._handle_backtest_sampling(candle_data)
-            if not should_analyze and self._last_backtest_analysis:
-                return self._signal_from_analysis(
-                    self._last_backtest_analysis, exchange, symbol, current_price
-                )
-            elif not should_analyze:
-                return self._neutral_signal(exchange, symbol, current_price)
+            if not should_analyze:
+                # Either not a sample point or not enough candles
+                if self._last_backtest_analysis:
+                    # Reuse last analysis
+                    return self._signal_from_analysis(
+                        self._last_backtest_analysis, exchange, symbol, current_price
+                    )
+                else:
+                    # No analysis yet - return neutral
+                    return self._neutral_signal(exchange, symbol, current_price)
         
         # Check cache (skip in backtest mode)
         if not is_backtest_mode and self.cache.cache_minutes > 0:
@@ -164,16 +168,22 @@ class LLMPatternStrategy(BaseStrategy):
             # Perform LLM analysis
             analysis = self._analyze_with_llm(market_data, trade_context, current_price, symbol)
             
-            # Track backtest progress
-            if is_backtest_mode and analysis:
-                self._track_backtest_progress(analysis)
-                self._last_backtest_analysis = analysis
-            
             # Cache the analysis (only in live mode)
             if analysis and not is_backtest_mode and self.cache.cache_minutes > 0:
                 self.cache.cache_analysis(analysis, self.lookback_days, self.llm_client.model)
             
-            return self._signal_from_analysis(analysis, exchange, symbol, current_price)
+            signal = self._signal_from_analysis(analysis, exchange, symbol, current_price)
+            
+            # Log signal details for debugging
+            logger.info(
+                f"{self.name}: Generated signal - {signal.direction.upper()} "
+                f"(confidence: {signal.confidence:.1%}, position: {signal.position_size:.1%})"
+            )
+            if signal.direction != "neutral":
+                logger.info(
+                    f"{self.name}: Trade details - Entry: ${current_price:.2f}, "
+                    f"Stop: ${signal.stop_loss:.2f}, Target: ${signal.take_profit:.2f}"
+                )
             
         except ConnectionError:
             logger.error(f"{self.name}: Cannot connect to Ollama - returning neutral signal")
@@ -184,6 +194,17 @@ class LLMPatternStrategy(BaseStrategy):
         except Exception as e:
             logger.error(f"{self.name}: LLM analysis failed: {e}", exc_info=True)
             return self._neutral_signal(exchange, symbol, current_price)
+        
+        # Track backtest progress and store last analysis AFTER the try block so that
+        # a failing progress callback cannot discard a valid LLM analysis result.
+        if is_backtest_mode and analysis:
+            self._last_backtest_analysis = analysis
+            try:
+                self._track_backtest_progress(analysis)
+            except Exception as cb_err:
+                logger.warning(f"{self.name}: Progress tracking error: {cb_err}")
+        
+        return signal
     
     def set_backtest_total_candles(self, total_candles: int):
         """
@@ -195,10 +216,26 @@ class LLMPatternStrategy(BaseStrategy):
         self._backtest_total_analyses = max(
             1, total_candles // self.backtest_sample_interval
         )
+        
+        # Calculate when first analysis will occur (need 50+ candles minimum)
+        first_valid_candle = 50
+        first_analysis_candle = ((first_valid_candle // self.backtest_sample_interval) + 1) * self.backtest_sample_interval
+        
         logger.info(
             f"{self.name}: 📊 Backtest configured - {total_candles} total candles, "
             f"sampling every {self.backtest_sample_interval} = {self._backtest_total_analyses} analyses"
         )
+        if total_candles < first_valid_candle:
+            logger.warning(
+                f"{self.name}: ⚠️  Only {total_candles} candles available. "
+                f"LLM analysis requires 50+ candles for technical indicators. "
+                f"No LLM signals will be generated in this backtest."
+            )
+        else:
+            logger.info(
+                f"{self.name}: First analysis will occur at candle {first_analysis_candle} "
+                f"(need 50+ candles for indicators)"
+            )
 
     def _handle_backtest_sampling(self, candle_data: list) -> bool:
         """
@@ -225,37 +262,56 @@ class LLMPatternStrategy(BaseStrategy):
             )
             
             if self._progress_callback:
-                self._progress_callback(
-                    total_analyses=self._backtest_total_analyses,
-                    total_candles=self._backtest_total_candles,
-                    completed_analyses=0,
-                    current_candle=0
-                )
+                try:
+                    self._progress_callback(
+                        total_analyses=self._backtest_total_analyses,
+                        total_candles=self._backtest_total_candles,
+                        completed_analyses=0,
+                        current_candle=0
+                    )
+                except Exception as cb_err:
+                    logger.warning(f"{self.name}: Progress callback error on init: {cb_err}")
         
         self._backtest_candle_count += 1
-        should_analyze = (self._backtest_candle_count % self.backtest_sample_interval == 0)
         
-        if should_analyze:
-            self._backtest_current_analysis += 1
-            progress_pct = (
-                (self._backtest_current_analysis / self._backtest_total_analyses * 100)
-                if self._backtest_total_analyses > 0 else 0
-            )
-            
-            # Calculate ETA
-            eta_str = ""
-            if len(self._backtest_analysis_times) > 0:
-                avg_time = sum(self._backtest_analysis_times) / len(self._backtest_analysis_times)
-                remaining = self._backtest_total_analyses - self._backtest_current_analysis
-                eta_seconds = remaining * avg_time
-                eta_minutes = eta_seconds / 60
-                eta_str = f" - Est. {eta_minutes:.0f} min remaining (avg: {avg_time:.1f}s/analysis)"
-            
-            logger.info(
-                f"{self.name}: 🔍 Analysis {self._backtest_current_analysis}/"
-                f"{self._backtest_total_analyses} ({progress_pct:.0f}%) - "
-                f"Candle {self._backtest_candle_count}{eta_str}"
-            )
+        # Check if it's time to sample (every Nth candle)
+        is_sample_candle = (self._backtest_candle_count % self.backtest_sample_interval == 0)
+        
+        # CRITICAL FIX: Only analyze if we have enough candles in the window
+        # This prevents attempting analysis before we have sufficient data for technical indicators
+        has_enough_candles = candle_data and len(candle_data) >= 50
+        
+        should_analyze = is_sample_candle and has_enough_candles
+        
+        if is_sample_candle:
+            if has_enough_candles:
+                # We have enough data - proceed with analysis
+                self._backtest_current_analysis += 1
+                progress_pct = (
+                    (self._backtest_current_analysis / self._backtest_total_analyses * 100)
+                    if self._backtest_total_analyses > 0 else 0
+                )
+                
+                # Calculate ETA
+                eta_str = ""
+                if len(self._backtest_analysis_times) > 0:
+                    avg_time = sum(self._backtest_analysis_times) / len(self._backtest_analysis_times)
+                    remaining = self._backtest_total_analyses - self._backtest_current_analysis
+                    eta_seconds = remaining * avg_time
+                    eta_minutes = eta_seconds / 60
+                    eta_str = f" - Est. {eta_minutes:.0f} min remaining (avg: {avg_time:.1f}s/analysis)"
+                
+                logger.info(
+                    f"{self.name}: 🔍 Analysis {self._backtest_current_analysis}/"
+                    f"{self._backtest_total_analyses} ({progress_pct:.0f}%) - "
+                    f"Candle {self._backtest_candle_count} (window: {len(candle_data)} candles){eta_str}"
+                )
+            else:
+                # Not enough candles yet - skip this analysis point
+                logger.debug(
+                    f"{self.name}: Skipping candle {self._backtest_candle_count} "
+                    f"(sample point but only {len(candle_data) if candle_data else 0}/50 candles available)"
+                )
         else:
             logger.debug(
                 f"{self.name}: Skipping candle {self._backtest_candle_count} "

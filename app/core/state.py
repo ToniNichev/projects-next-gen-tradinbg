@@ -68,6 +68,9 @@ class BacktestState:
     total_analyses: int = 0
     completed_analyses: int = 0
     current_strategy: str = ""
+    current_candle: int = 0
+    total_candles: int = 0
+    eta_seconds: int = 0
     results: List[Dict[str, Any]] = field(default_factory=list)
 
 
@@ -249,6 +252,9 @@ class ApplicationState:
                 total_analyses=self._backtest_state.total_analyses,
                 completed_analyses=self._backtest_state.completed_analyses,
                 current_strategy=self._backtest_state.current_strategy,
+                current_candle=self._backtest_state.current_candle,
+                total_candles=self._backtest_state.total_candles,
+                eta_seconds=self._backtest_state.eta_seconds,
                 results=self._backtest_state.results.copy()
             )
     
@@ -270,6 +276,9 @@ class ApplicationState:
                 'total_analyses': self._backtest_state.total_analyses,
                 'completed_analyses': self._backtest_state.completed_analyses,
                 'current_strategy': self._backtest_state.current_strategy,
+                'current_candle': self._backtest_state.current_candle,
+                'total_candles': self._backtest_state.total_candles,
+                'eta_seconds': self._backtest_state.eta_seconds,
                 'results': self._backtest_state.results
             }
             

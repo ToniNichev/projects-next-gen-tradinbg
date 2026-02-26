@@ -49,21 +49,29 @@ class MarketDataFetcher:
             candles = exchange.fetch_ohlcv(symbol, timeframe, limit=100)
         elif len(candle_data) < 50:
             # During backtesting the sliding window may be smaller than 50 at the very start.
+            # This should never happen if backtest sampling logic is working correctly.
             # Never fall back to a live exchange fetch here — that would pollute historical
-            # simulation with current market data.  Raise a clear error instead.
+            # simulation with current market data. Raise a clear error instead.
+            logger.error(
+                f"Insufficient candles in backtest window: {len(candle_data)}/50 required. "
+                f"This indicates the backtest sampling is attempting analysis too early."
+            )
             raise ValueError(
                 f"Not enough candles in backtest window for analysis "
                 f"(need 50+, got {len(candle_data)}). "
                 f"The backtest should skip LLM analysis until at least 50 candles are available."
             )
         else:
-            candles = candle_data[-100:]  # Use last 100 candles
+            # Use last 100 candles (or all if fewer than 100)
+            candles = candle_data[-100:] if len(candle_data) >= 100 else candle_data
+            logger.debug(f"Using {len(candles)} candles from backtest window (total available: {len(candle_data)})")
         
-        # Need at least 50 candles for all indicators
+        # Final validation: Need at least 50 candles for all indicators
         if len(candles) < 50:
             raise ValueError(
                 f"Not enough candles for analysis (need 50+, got {len(candles)}). "
-                f"For backtesting, use '--days 3' or more for 1h timeframe."
+                f"For backtesting, ensure your date range provides at least 50 candles. "
+                f"Recommendations: 1h timeframe needs 3+ days, 4h needs 10+ days, 1d needs 60+ days."
             )
         
         # Extract OHLCV data

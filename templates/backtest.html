@@ -1032,9 +1032,13 @@
         if (statusData.running && statusData.progress) {
           const progress = statusData.progress;
           if (progress.total_analyses > 0) {
+            // Real LLM progress data is available — stop the time-estimate animation so
+            // the two don't fight each other and cause the bar to jump back and forth.
+            clearInterval(progressInterval);
+
             const progressPct = (progress.completed_analyses / progress.total_analyses) * 100;
             progressBar.style.width = `${Math.min(progressPct, 95)}%`;
-            progressPercent.textContent = `${progressPct.toFixed(0)}%`;
+            progressPercent.textContent = `${Math.round(progressPct)}%`;
             
             // Show analysis progress and ETA
             if (progress.eta_seconds > 0) {

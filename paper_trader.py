@@ -518,6 +518,61 @@ class PaperTrader:
         self._log_trade(trade)
         return trade
     
+    # ------------------------------------------------------------------
+    # Public trading interface (matches LiveTrader's API so that
+    # TradingManager can work with either trader without special-casing)
+    # ------------------------------------------------------------------
+
+    def execute_market_buy(self, amount: float, signal) -> Optional[TradeRecord]:
+        """
+        Execute a market buy.
+
+        ``amount`` is interpreted as:
+        - A fraction of the current USDT balance (0 < amount <= 1), or
+        - A USDT notional value (amount > 1) which is converted to a fraction.
+
+        Delegates to the internal ``_buy()`` method and returns its TradeRecord.
+        """
+        if amount <= 0:
+            return None
+        if amount > 1.0:
+            order_pct = min(amount / self.usdt_balance, 1.0) if self.usdt_balance > 0 else 0.0
+        else:
+            order_pct = amount
+        return self._buy(signal.price, order_pct, signal)
+
+    def execute_market_sell(
+        self, amount: float, signal, exit_reason: str = "manual"
+    ) -> Optional[TradeRecord]:
+        """
+        Execute a market sell (closes the open long position).
+
+        In spot paper-trading there is no concept of selling a partial
+        position via the public API — the full open position is closed.
+        ``amount`` is accepted for interface compatibility but is ignored.
+        """
+        if not self.open_position:
+            logging.info("execute_market_sell: no open position to close")
+            return None
+        return self._close_position(signal.price, exit_reason)
+
+    def enable_trading(self) -> None:
+        """No-op — included for interface compatibility with LiveTrader."""
+
+    def disable_trading(self) -> None:
+        """No-op — included for interface compatibility with LiveTrader."""
+
+    def trigger_emergency_stop(self, close_positions: bool = True) -> None:
+        """
+        Emergency stop.  If ``close_positions`` is True and a long position
+        is open, it is closed immediately at its entry price (best-effort
+        estimate when no live feed is available at stop time).
+        """
+        logging.critical("PaperTrader: emergency stop triggered")
+        if close_positions and self.open_position:
+            close_price = self.open_position.entry_price
+            self._close_position(close_price, "emergency_stop")
+
     def get_trade_history(self, limit: int = 100, **filters) -> List[Dict]:
         """
         Get trade history from database.

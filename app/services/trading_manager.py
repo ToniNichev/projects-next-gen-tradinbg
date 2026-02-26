@@ -589,7 +589,7 @@ class TradingManager:
         """
         try:
             # Import StrategySignal (avoid circular import)
-            from strategies.base import StrategySignal
+            from strategies.base_strategy import StrategySignal
             
             # Get current price
             current_price = self.get_current_price()
@@ -609,10 +609,10 @@ class TradingManager:
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 position_size=self.config.order_pct,
-                confidence=1.0,  # Manual trades have full confidence
+                confidence=1.0,
                 strategy_name="manual",
-                timestamp=datetime.utcnow().isoformat(),
-                metadata={"type": "manual_trade", "amount": amount}
+                timestamp=datetime.utcnow(),
+                info={"type": "manual_trade", "amount": amount}
             )
             
             self.logger.debug(f"Created manual signal: {direction} @ ${current_price:.2f}")

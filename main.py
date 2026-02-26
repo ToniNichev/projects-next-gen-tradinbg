@@ -7,7 +7,8 @@ import ccxt
 from binance import ThreadedWebsocketManager
 
 from config import BotConfig
-from dashboard import start_dashboard, update_state, set_trader
+from app import create_app, init_services, start_app
+from app.core.state import get_app_state
 from paper_trader import PaperTrader
 
 # Import LiveTrader for real money trading
@@ -206,7 +207,8 @@ def main():
                     llm_strategy=llm_strategy,
                     exchange=exchange,
                     symbol=config.symbol,
-                    interval_minutes=config.llm_cache_minutes
+                    timeframe=config.timeframe,
+                    interval_minutes=config.llm_cache_minutes,
                 )
                 llm_scheduler.start()
                 logging.info("LLM pattern analysis scheduler started")
@@ -248,15 +250,25 @@ def main():
         else:
             logging.warning("Multi-strategy not available. Using legacy single strategy.")
     
-    # Create trader lock before starting dashboard
+    # Create trader lock before starting app
     trader_lock = threading.Lock()
-    
-    # Start dashboard and enable manual trading
-    start_dashboard(config.dashboard_host, config.dashboard_port)
-    set_trader(trader, trader_lock, exchange, strategy_manager)
-    logging.info("Manual trading enabled on dashboard")
+
+    # Build the Flask app, wire the service layer, start the server thread.
+    # init_services() also seeds ApplicationState so the new /app/api/*
+    # blueprint routes return live data immediately.
+    flask_app = create_app()
+    app_state = init_services(trader, trader_lock, exchange, strategy_manager, config)
+    start_app(flask_app, config.dashboard_host, config.dashboard_port)
+
+    # Also register the trader with the legacy dashboard globals so that the
+    # existing UI routes (/state, /history, /api/manual/buy, etc.) keep
+    # working while the migration to the new architecture is in progress.
+    from dashboard import set_trader as _legacy_set_trader
+    _legacy_set_trader(trader, trader_lock, exchange, strategy_manager)
+
+    logging.info("Application started — dashboard + service layer ready")
     if strategy_manager:
-        logging.info("Multi-strategy dashboard integration enabled")
+        logging.info("Multi-strategy integration enabled")
     
     stop_event = threading.Event()
 
@@ -308,21 +320,31 @@ def main():
         # Compute initial signal and populate dashboard with historical data
         if len(candle_buffer) >= config.long_window:
             try:
-                # Populate dashboard history with recent candles (last 100 for chart)
+                # Populate both the legacy dashboard history and ApplicationState
+                # so that all routes (old and new) return chart data on first load.
                 from dashboard import _record_history
                 for candle in candle_buffer[-100:]:
+                    ts = datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc).isoformat()
+                    ohlc = {
+                        "open": float(candle[1]),
+                        "high": float(candle[2]),
+                        "low": float(candle[3]),
+                        "close": float(candle[4]),
+                    }
                     _record_history(
-                        timestamp=datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc).isoformat(),
-                        price=float(candle[4]),  # close price
+                        timestamp=ts,
+                        price=float(candle[4]),
                         signal_direction="neutral",
                         trade_side=None,
-                        ohlc={
-                            "open": float(candle[1]),
-                            "high": float(candle[2]),
-                            "low": float(candle[3]),
-                            "close": float(candle[4]),
-                        },
+                        ohlc=ohlc,
                     )
+                    app_state.add_history_record({
+                        "timestamp": ts,
+                        "price": float(candle[4]),
+                        "signal_direction": "neutral",
+                        "trade_side": None,
+                        **ohlc,
+                    })
                 
                 # Compute and display initial signal
                 if strategy_manager:
@@ -359,7 +381,8 @@ def main():
                         min_position_size=config.min_position_size,
                         max_position_size=config.max_position_size,
                     )
-                update_state(
+                from dashboard import update_state as _legacy_update_state
+                _legacy_update_state(
                     balances=trader.get_balances(),
                     last_signal=initial_signal.to_dict(),
                     last_trade=None,
@@ -374,6 +397,16 @@ def main():
                         "close": candle_buffer[-1][4],
                     },
                 )
+                # Mirror into ApplicationState for the new blueprint routes.
+                try:
+                    balances = trader.get_balances()
+                    app_state.update_trading_state(
+                        usdt_balance=balances.get("USDT", 0.0),
+                        base_balance=balances.get("BASE", 0.0),
+                        current_price=initial_signal.price,
+                    )
+                except Exception as _e:
+                    logging.debug("ApplicationState initial update skipped: %s", _e)
                 logging.info(
                     "Initial signal computed: %s at price %.2f (populated %d historical candles)",
                     initial_signal.direction,
@@ -485,21 +518,52 @@ def main():
                         max_position_size=config.max_position_size,
                     )
                 trade = trader.handle_signal(signal_obj)
-                update_state(
-                    balances=trader.get_balances(),
+
+                balances = trader.get_balances()
+                ohlc = {
+                    "open": float(kline.get("o", 0.0)),
+                    "high": float(kline.get("h", 0.0)),
+                    "low": float(kline.get("l", 0.0)),
+                    "close": float(kline.get("c", 0.0)),
+                }
+
+                # Update legacy dashboard globals (keeps the existing UI working).
+                from dashboard import update_state as _legacy_update_state
+                _legacy_update_state(
+                    balances=balances,
                     last_signal=signal_obj.to_dict(),
                     last_trade=trade.to_dict() if trade else None,
                     price=signal_obj.price,
                     signal_direction=signal_obj.direction,
                     timestamp=signal_obj.timestamp.isoformat(),
-                trade_side=trade.side if trade else None,
-                ohlc={
-                    "open": float(kline.get("o", 0.0)),
-                    "high": float(kline.get("h", 0.0)),
-                    "low": float(kline.get("l", 0.0)),
-                    "close": float(kline.get("c", 0.0)),
-                },
+                    trade_side=trade.side if trade else None,
+                    ohlc=ohlc,
                 )
+
+                # Mirror into ApplicationState for the new blueprint routes.
+                try:
+                    pos = trader.open_position
+                    app_state.update_trading_state(
+                        usdt_balance=balances.get("USDT", 0.0),
+                        base_balance=balances.get("BASE", 0.0),
+                        current_price=signal_obj.price,
+                        position_open=pos is not None,
+                        position_entry_price=pos.entry_price if pos else 0.0,
+                        position_amount=pos.amount if pos else 0.0,
+                        position_side="long" if pos else "none",
+                        stop_loss=pos.stop_loss if pos else 0.0,
+                        take_profit=pos.take_profit if pos else 0.0,
+                        trailing_stop=pos.trailing_stop if pos else 0.0,
+                    )
+                    app_state.add_history_record({
+                        "timestamp": signal_obj.timestamp.isoformat(),
+                        "price": signal_obj.price,
+                        "signal_direction": signal_obj.direction,
+                        "trade_side": trade.side if trade else None,
+                        **ohlc,
+                    })
+                except Exception as _e:
+                    logging.debug("ApplicationState kline update skipped: %s", _e)
 
             # Log signal with strategy info
             if strategy_manager and hasattr(signal_obj, 'info') and 'strategies_used' in signal_obj.info:

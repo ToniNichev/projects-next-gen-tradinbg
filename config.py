@@ -99,7 +99,7 @@ class BotConfig:
     llm_ollama_model: str = "mistral"  # or llama2, codellama, phi, etc.
     llm_lookback_days: int = 7
     llm_cache_minutes: int = 15  # How often to refresh analysis
-    llm_timeout_seconds: int = 60
+    llm_timeout_seconds: int = 120  # Increased for slower systems
     llm_temperature: float = 0.3  # LLM temperature for response consistency (0.0-1.0)
     llm_num_predict: int = 1000  # Max tokens to generate (affects speed and detail)
     llm_require_patterns: bool = False  # Require at least one pattern found

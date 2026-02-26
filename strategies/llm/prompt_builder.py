@@ -104,12 +104,14 @@ Provide your response in the following JSON format:
 }
 
 IMPORTANT GUIDELINES:
-- Set "direction" to "neutral" if signals are mixed or weak
-- "confidence" should be 0.0-1.0 (0.7+ = strong signal, 0.5-0.7 = moderate, <0.5 = weak)
+- Set "direction" to "bullish" if you see upward momentum or positive technical patterns
+- Set "direction" to "bearish" if you see downward momentum or negative technical patterns
+- Only set "neutral" if truly conflicting signals with no edge either way
+- "confidence" should be 0.0-1.0 (0.7+ = strong signal, 0.5-0.7 = moderate, 0.3-0.5 = weak but actionable, <0.3 = too weak)
 - List 2-5 specific technical patterns in "patterns_found" (e.g., "RSI oversold + MACD bullish crossover", "Price bouncing off support at $64000")
 - Suggest stop_loss_pct and take_profit_pct based on ATR/volatility (typical: 2-3% stop, 3-5% profit)
 - Suggest position_size (0.15-0.40) based on confidence and signal strength
-- Be conservative - only suggest non-neutral if you see clear technical setup
+- Make a decision based on the weight of evidence - avoid neutral unless genuinely unclear
 
 Response:"""
         

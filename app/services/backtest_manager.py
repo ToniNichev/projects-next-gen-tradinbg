@@ -107,20 +107,39 @@ class BacktestManager:
                     "error": f"Backtest module not available: {str(e)}"
                 }
             
-            # Create progress wrapper to update app state
-            def wrapped_progress_callback(progress: float, completed: int, total: int):
+            # Create progress wrapper to update app state.
+            # Uses **kwargs to match the keyword-argument signature that LLMPatternStrategy
+            # uses when calling the progress callback:
+            #   _progress_callback(total_analyses=..., total_candles=..., completed_analyses=...,
+            #                      current_candle=..., eta_seconds=..., avg_time_per_analysis=...)
+            def wrapped_progress_callback(**kwargs):
                 """Wrapper to update app state and call user callback."""
+                total_analyses = kwargs.get('total_analyses') or 0
+                completed_analyses = kwargs.get('completed_analyses') or 0
+                total_candles = kwargs.get('total_candles') or 0
+                current_candle = kwargs.get('current_candle') or 0
+                eta_seconds = kwargs.get('eta_seconds') or 0
+
+                progress = completed_analyses / total_analyses if total_analyses > 0 else 0.0
+
                 # Update app state
                 self.update_progress(
                     progress=progress,
-                    completed_analyses=completed,
-                    total_analyses=total
+                    completed_analyses=completed_analyses,
+                    total_analyses=total_analyses,
+                    current_candle=current_candle,
+                    total_candles=total_candles,
+                    eta_seconds=eta_seconds,
                 )
-                
+
                 # Call user callback if provided
                 if progress_callback:
                     try:
-                        progress_callback(progress, completed, total)
+                        progress_callback(
+                            progress=progress,
+                            completed=completed_analyses,
+                            total=total_analyses,
+                        )
                     except Exception as e:
                         self.logger.warning(f"Progress callback error: {e}")
             
@@ -226,13 +245,19 @@ class BacktestManager:
             - Returns current backtest state snapshot
         """
         backtest_state = self.app_state.get_backtest_state()
-        
+
         return {
             "running": backtest_state.running,
-            "progress": backtest_state.progress,
-            "completed_analyses": backtest_state.completed_analyses,
-            "total_analyses": backtest_state.total_analyses,
-            "current_strategy": backtest_state.current_strategy
+            # progress is a nested object so the frontend can do statusData.progress.total_analyses etc.
+            "progress": {
+                "progress_pct": backtest_state.progress,
+                "total_analyses": backtest_state.total_analyses,
+                "completed_analyses": backtest_state.completed_analyses,
+                "current_candle": backtest_state.current_candle,
+                "total_candles": backtest_state.total_candles,
+                "eta_seconds": backtest_state.eta_seconds,
+            },
+            "current_strategy": backtest_state.current_strategy,
         }
     
     def get_backtest_results(self) -> List[Dict[str, Any]]:

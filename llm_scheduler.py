@@ -23,7 +23,14 @@ class LLMScheduler:
     - Clean shutdown support
     """
     
-    def __init__(self, llm_strategy, exchange=None, symbol: str = "BTC/USDT", interval_minutes: int = 15):
+    def __init__(
+        self,
+        llm_strategy,
+        exchange=None,
+        symbol: str = "BTC/USDT",
+        timeframe: str = "1h",
+        interval_minutes: int = 15,
+    ):
         """
         Initialize LLM scheduler.
         
@@ -36,6 +43,7 @@ class LLMScheduler:
         self.llm_strategy = llm_strategy
         self.exchange = exchange
         self.symbol = symbol
+        self.timeframe = timeframe
         self.interval_seconds = interval_minutes * 60
         self.running = False
         self.thread = None
@@ -53,7 +61,7 @@ class LLMScheduler:
         
         self.logger.info(
             f"LLM scheduler started (interval: {self.interval_seconds/60:.1f} min, "
-            f"model: {self.llm_strategy.model})"
+            f"model: {self.llm_strategy.llm_client.model})"
         )
         
         # Trigger initial analysis immediately in background
@@ -120,21 +128,24 @@ class LLMScheduler:
             start_time = time.time()
             self.logger.info("Starting scheduled LLM pattern analysis...")
             
-            # Run analysis by calling compute_signal
-            # If force=True, temporarily invalidate cache by setting cache_minutes to 0
-            if force and hasattr(self.llm_strategy, 'cache_minutes'):
-                original_cache = self.llm_strategy.cache_minutes
-                self.llm_strategy.cache_minutes = 0
-                
-            signal = self.llm_strategy.compute_signal(
-                exchange=self.exchange,
-                symbol=self.symbol,
-                timeframe="1h",  # Not used for LLM strategy
-                candle_data=None
-            )
-            
-            if force and hasattr(self.llm_strategy, 'cache_minutes'):
-                self.llm_strategy.cache_minutes = original_cache
+            # Run analysis via compute_signal.
+            # If force=True, temporarily bypass the cache by zeroing its TTL.
+            # The try/finally guarantees the original TTL is always restored.
+            original_cache = None
+            if force and hasattr(self.llm_strategy, 'cache'):
+                original_cache = self.llm_strategy.cache.cache_minutes
+                self.llm_strategy.cache.cache_minutes = 0
+
+            try:
+                signal = self.llm_strategy.compute_signal(
+                    exchange=self.exchange,
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    candle_data=None,
+                )
+            finally:
+                if original_cache is not None and hasattr(self.llm_strategy, 'cache'):
+                    self.llm_strategy.cache.cache_minutes = original_cache
             
             duration = time.time() - start_time
             
@@ -172,7 +183,7 @@ class LLMScheduler:
                     "Cannot connect to Ollama. Make sure:\n"
                     "  1. Ollama is installed (https://ollama.ai)\n"
                     "  2. Ollama service is running: ollama serve\n"
-                    f"  3. Model is pulled: ollama pull {self.llm_strategy.model}"
+                    f"  3. Model is pulled: ollama pull {self.llm_strategy.llm_client.model}"
                 )
             elif "timeout" in str(e).lower():
                 self.logger.error(
@@ -201,7 +212,7 @@ class LLMScheduler:
         return {
             "running": self.running,
             "interval_minutes": self.interval_seconds / 60,
-            "model": self.llm_strategy.model,
+            "model": self.llm_strategy.llm_client.model,
             "cache_valid": cache_valid,
             "last_analysis": last_analysis_time,
         }
