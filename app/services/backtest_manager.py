@@ -169,6 +169,25 @@ class BacktestManager:
             
             # Parse chart data to count winning/losing trades
             chart_data = result.get("chart_data", {})
+            
+            # Ensure chart_data has required structure
+            if not isinstance(chart_data, dict):
+                self.logger.warning(f"chart_data is not a dict: {type(chart_data)}")
+                chart_data = {}
+            if "candles" not in chart_data:
+                self.logger.warning("chart_data missing 'candles' field, initializing empty")
+                chart_data["candles"] = []
+            if "trades" not in chart_data:
+                self.logger.warning("chart_data missing 'trades' field, initializing empty")
+                chart_data["trades"] = []
+            if "portfolio_values" not in chart_data:
+                self.logger.warning("chart_data missing 'portfolio_values' field, initializing empty")
+                chart_data["portfolio_values"] = []
+            
+            self.logger.info(f"Chart data summary: {len(chart_data.get('candles', []))} candles, "
+                           f"{len(chart_data.get('trades', []))} trades, "
+                           f"{len(chart_data.get('portfolio_values', []))} portfolio values")
+            
             trades = chart_data.get("trades", [])
             
             for trade in trades:
@@ -182,23 +201,27 @@ class BacktestManager:
             # Calculate win rate
             win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
             
-            # Build complete backtest result
+            # Build complete backtest result in format expected by frontend
             backtest_result = {
                 "id": backtest_id,
                 "timestamp": timestamp.isoformat() + "Z",
                 "days_back": days_back,
-                "total_trades": total_trades,
-                "winning_trades": winning_trades,
-                "losing_trades": losing_trades,
-                "win_rate": win_rate,
-                "total_pnl": result.get("pnl", 0.0),
-                "pnl_pct": result.get("pnl_pct", 0.0),
-                "buy_hold_pct": result.get("buy_hold_pct", 0.0),
-                "final_value": result.get("final_value", 0.0),
-                "strategies_used": strategies_used,
-                "aggregation_mode": aggregation_mode,
-                "config_snapshot": config_snapshot,
-                "chart_data": chart_data
+                "status": "completed",
+                "parameters": config_overrides or {},
+                "result": {
+                    "trades": total_trades,
+                    "winning_trades": winning_trades,
+                    "losing_trades": losing_trades,
+                    "win_rate": win_rate,
+                    "pnl": result.get("pnl", 0.0),
+                    "pnl_pct": result.get("pnl_pct", 0.0),
+                    "buy_hold_pct": result.get("buy_hold_pct", 0.0),
+                    "final_value": result.get("final_value", 0.0),
+                    "strategies_used": strategies_used,
+                    "aggregation_mode": aggregation_mode,
+                    "config_snapshot": config_snapshot,
+                    "chart_data": chart_data
+                }
             }
             
             # Store result in app state

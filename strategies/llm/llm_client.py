@@ -39,8 +39,9 @@ class OllamaClient:
         try:
             import ollama
             self.ollama = ollama
-            self.client = ollama.Client(host=self.ollama_url)
-            logger.info(f"Ollama client initialized: {self.ollama_url} (model: {self.model})")
+            # Pass timeout to httpx client via kwargs
+            self.client = ollama.Client(host=self.ollama_url, timeout=self.timeout_seconds)
+            logger.info(f"Ollama client initialized: {self.ollama_url} (model: {self.model}, timeout: {self.timeout_seconds}s)")
         except ImportError:
             logger.error("ollama package not installed. Install with: pip install ollama")
             raise ImportError("ollama package required for LLM strategy")
@@ -104,7 +105,7 @@ class OllamaClient:
                 old_handler = signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(self.timeout_seconds + 5)  # Add 5s buffer over ollama timeout
             
-            # Call Ollama API with timeout
+            # Call Ollama API (timeout configured in client initialization)
             response = self.client.generate(
                 model=self.model,
                 prompt=prompt,
@@ -172,22 +173,72 @@ class OllamaClient:
             logger.error(f"Ollama API call failed ({err_type}): {e}")
             raise
     
-    def test_connection(self) -> bool:
+    def test_connection(self, quick: bool = False) -> bool:
         """
-        Test connection to Ollama server
+        Test connection to Ollama server and verify model availability
+        
+        Args:
+            quick: If True, only check server reachability and model availability.
+                   If False, also test model generation (slower but more thorough).
         
         Returns:
-            True if connection successful, False otherwise
+            True if connection successful and model available, False otherwise
         """
         try:
-            # Try a simple generation request
-            self.client.generate(
+            # First, check if server is reachable by listing models
+            # Use a temporary client with shorter timeout for the connection test
+            import httpx
+            test_client = self.ollama.Client(
+                host=self.ollama_url,
+                timeout=httpx.Timeout(10.0, connect=5.0)  # 10s total, 5s connect
+            )
+            
+            response = test_client.list()
+            
+            # Handle both dict (older versions) and Pydantic object (newer versions)
+            if hasattr(response, 'models'):
+                models_list = response.models
+                num_models = len(models_list)
+                model_names = [getattr(m, 'model', str(m)) for m in models_list]
+            elif isinstance(response, dict):
+                models_list = response.get('models', [])
+                num_models = len(models_list)
+                model_names = [m.get('name', m.get('model', '')) for m in models_list]
+            else:
+                logger.warning(f"Unexpected response type from ollama.list(): {type(response)}")
+                model_names = []
+                num_models = 0
+            
+            logger.info(f"Ollama server is reachable, found {num_models} models")
+            
+            # Check if our model is available (handle both "model" and "model:latest" naming)
+            model_base = self.model.split(':')[0] if ':' in self.model else self.model
+            model_found = any(
+                model_base in name or self.model in name 
+                for name in model_names
+            )
+            
+            if not model_found:
+                logger.warning(f"Model '{self.model}' not found. Available models: {model_names}")
+                logger.warning(f"You may need to run: ollama pull {self.model}")
+                return False
+            
+            # If quick mode, skip the generation test
+            if quick:
+                logger.info(f"✓ Ollama server reachable and model '{self.model}' available")
+                return True
+            
+            # Try a minimal generation request (may be slow if model not loaded)
+            logger.info(f"Testing model '{self.model}' with a simple prompt (may take a moment)...")
+            test_client.generate(
                 model=self.model,
-                prompt="test",
+                prompt="ok",
                 stream=False,
                 options={"num_predict": 1}
             )
+            logger.info(f"✓ Ollama connection test passed for model '{self.model}'")
             return True
         except Exception as e:
             logger.error(f"Ollama connection test failed: {e}")
+            logger.error("Make sure Ollama is running: ollama serve")
             return False

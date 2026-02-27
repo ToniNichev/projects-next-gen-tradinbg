@@ -130,7 +130,7 @@ def init_services(trader, lock, exchange, strategy_manager, config) -> "Applicat
 
     trading_manager = TradingManager(app_state, config)
     config_service = ConfigService()
-    backtest_manager = BacktestManager(app_state, exchange)
+    backtest_manager = BacktestManager(app_state, config)
 
     init_api_services(trading_manager, config_service, backtest_manager)
 

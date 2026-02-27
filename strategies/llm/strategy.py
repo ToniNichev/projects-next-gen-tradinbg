@@ -247,6 +247,18 @@ class LLMPatternStrategy(BaseStrategy):
         # Initialize backtest tracking on first candle (only if not already set via set_backtest_total_candles)
         if not self._backtest_started:
             self._backtest_started = True
+            
+            # Test Ollama connection before starting backtest (quick mode - just checks server/model availability)
+            logger.info(f"{self.name}: Testing Ollama connection before starting backtest...")
+            if not self.llm_client.test_connection(quick=True):
+                logger.warning(
+                    f"{self.name}: ⚠️  Ollama connection test failed! "
+                    f"Make sure Ollama is running and the model is available. "
+                    f"Run: ollama serve && ollama pull {self.llm_client.model}"
+                )
+                logger.warning(f"{self.name}: Continuing with backtest - will handle errors per-analysis")
+                # Don't abort the backtest - let it continue and handle timeouts per analysis
+            
             if self._backtest_total_candles == 0:
                 # Fallback: set_backtest_total_candles was not called — use window size as approximation
                 self._backtest_total_candles = len(candle_data) if candle_data else 0

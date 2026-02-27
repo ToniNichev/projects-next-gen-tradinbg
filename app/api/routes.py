@@ -148,6 +148,16 @@ def run_backtest():
             days_back=days_back,
             config_overrides=data.get("config_overrides"),
         )
+        
+        # Add backtest_id to response for frontend polling
+        if result.get("success") and result.get("data"):
+            response = {
+                "success": True,
+                "backtest_id": result["data"]["id"],
+                "data": result["data"]
+            }
+            return jsonify(response), 200
+        
         return jsonify(result), 200 if result.get("success") else 400
     except ValueError as exc:
         return jsonify(create_response(success=False, error=str(exc))), 400
@@ -173,7 +183,8 @@ def get_backtest_results():
     if _backtest_manager is None:
         return jsonify(create_response(success=False, error="Backtest manager not initialised")), 503
     try:
-        return jsonify(create_response(success=True, data=_backtest_manager.get_backtest_results()))
+        results = _backtest_manager.get_backtest_results()
+        return jsonify(create_response(success=True, data={"results": results}))
     except Exception as exc:
         return jsonify(create_response(success=False, error=str(exc))), 500
 
@@ -185,8 +196,7 @@ def get_backtest_result(backtest_id):
         return jsonify(create_response(success=False, error="Backtest manager not initialised")), 503
     try:
         results = _backtest_manager.get_backtest_results()
-        items = results.get("results", results) if isinstance(results, dict) else results
-        match = next((r for r in items if r.get("id") == backtest_id), None)
+        match = next((r for r in results if r.get("id") == backtest_id), None)
         if not match:
             return jsonify(create_response(success=False, error="Backtest not found")), 404
         return jsonify(create_response(success=True, data=match))
@@ -200,12 +210,13 @@ def clear_backtest_results():
     if _backtest_manager is None:
         return jsonify(create_response(success=False, error="Backtest manager not initialised")), 503
     try:
-        app_state = get_app_state()
-        bs = app_state.get_backtest_state()
-        count = len(bs.results) if hasattr(bs, "results") else 0
-        # Clear via state
-        if hasattr(bs, "results"):
-            bs.results.clear()
+        # Get count before clearing
+        results = _backtest_manager.get_backtest_results()
+        count = len(results)
+        
+        # Clear using the manager's clear method
+        clear_result = _backtest_manager.clear_backtest_results()
+        
         return jsonify(create_response(success=True,
                                        message=f"Cleared {count} backtest result(s)",
                                        data={"count": count}))
@@ -220,10 +231,9 @@ def get_timing_history():
         return jsonify(create_response(success=False, error="Backtest manager not initialised")), 503
     try:
         results = _backtest_manager.get_backtest_results()
-        items = results.get("results", results) if isinstance(results, dict) else results
 
         history: Dict[int, list] = {}
-        for r in items[:20]:
+        for r in results[:20]:
             if "duration_seconds" in r and r.get("status") == "completed":
                 days = r.get("days_back", 0)
                 history.setdefault(days, []).append(r["duration_seconds"])

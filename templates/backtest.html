@@ -1026,11 +1026,16 @@
         
         const resultsData = await resultsResponse.json();
         const statusData = await statusResponse.json();
-        const result = resultsData.results.find(r => r.id === backtestId);
+        // Handle API response format: {success: true, data: {results: [...]}}
+        const results = resultsData.data?.results || resultsData.results || [];
+        const result = results.find(r => r.id === backtestId);
+        
+        // Handle status API response format: {success: true, data: {running: ..., progress: ...}}
+        const status = statusData.data || statusData;
         
         // Update progress bar based on actual LLM progress
-        if (statusData.running && statusData.progress) {
-          const progress = statusData.progress;
+        if (status.running && status.progress) {
+          const progress = status.progress;
           if (progress.total_analyses > 0) {
             // Real LLM progress data is available — stop the time-estimate animation so
             // the two don't fight each other and cause the bar to jump back and forth.
@@ -1117,13 +1122,16 @@
       
       const container = document.getElementById('results-container');
       
-      if (data.results.length === 0) {
+      // Handle API response format: {success: true, data: {results: [...]}}
+      const results = data.data?.results || data.results || [];
+      
+      if (results.length === 0) {
         container.innerHTML = '<p class="text-muted" style="text-align: center; padding: 3rem;">No backtests run yet.</p>';
         return;
       }
       
       // Track which results are new
-      const currentResultIds = new Set(data.results.map(r => r.id));
+      const currentResultIds = new Set(results.map(r => r.id));
       const newResultIds = new Set();
       
       // Find new results by comparing with previous IDs
@@ -1133,7 +1141,7 @@
         }
       });
       
-      container.innerHTML = data.results.map(result => {
+      container.innerHTML = results.map(result => {
         if (result.status !== 'completed' || !result.result) return '';
         
         const r = result.result;
@@ -1241,7 +1249,9 @@
     
     const response = await fetch('/api/backtest/results');
     const data = await response.json();
-    const results = data.results.filter(r => selectedResults.has(r.id) && r.status === 'completed');
+    // Handle API response format: {success: true, data: {results: [...]}}
+    const allResults = data.data?.results || data.results || [];
+    const results = allResults.filter(r => selectedResults.has(r.id) && r.status === 'completed');
     
     const comparison = document.getElementById('comparison-content');
     comparison.innerHTML = `
@@ -1329,7 +1339,9 @@
     fetch('/api/backtest/results')
       .then(res => res.json())
       .then(data => {
-        const result = data.results.find(r => r.id === backtestId);
+        // Handle API response format: {success: true, data: {results: [...]}}
+        const results = data.data?.results || data.results || [];
+        const result = results.find(r => r.id === backtestId);
         if (!result || !result.result || !result.result.chart_data) {
           alert('Chart data not available for this backtest');
           return;
@@ -1521,6 +1533,11 @@
         });
       }
     });
+    
+    // Calculate time range to show all data
+    const allTimestamps = candleData.map(c => c.x);
+    const minTime = Math.min(...allTimestamps);
+    const maxTime = Math.max(...allTimestamps);
     
     backtestChart = new Chart(ctx, {
       type: 'candlestick',
@@ -1714,6 +1731,8 @@
         scales: {
           x: {
             type: 'time',
+            min: minTime,
+            max: maxTime,
             time: {
               unit: 'hour',
               displayFormats: {
