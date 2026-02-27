@@ -150,9 +150,23 @@ class BotConfig:
         
         # Helper function to get value: database first, then env, then default
         def get_val(db_key, env_key, default, value_type=str):
+            # Check database first
             if db_key in db_config:
-                return db_config[db_key]
+                db_val = db_config[db_key]
+                # Database stores all values as strings, need to convert based on type
+                if value_type == bool:
+                    # Handle both string "True"/"False" and actual booleans
+                    if isinstance(db_val, bool):
+                        return db_val
+                    return str(db_val).lower() in ("true", "1", "yes")
+                elif value_type == int:
+                    return int(db_val)
+                elif value_type == float:
+                    return float(db_val)
+                else:
+                    return db_val
             
+            # Fall back to environment variable
             env_val = env.get(env_key)
             if env_val is None:
                 return default

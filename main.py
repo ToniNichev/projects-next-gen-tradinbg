@@ -66,11 +66,22 @@ def build_exchange(config: BotConfig) -> ccxt.binanceus:
 
 
 def main():
-    config = BotConfig.load()
+    # Initialize logging first
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    
+    # Initialize database BEFORE loading config so config can read from DB
+    if DATABASE_AVAILABLE:
+        try:
+            initialize_database("sqlite:///data/trading.db")
+            logging.info("✓ Database initialized for configuration loading")
+        except Exception as e:
+            logging.warning(f"Could not initialize database: {e}, using environment variables")
+    
+    # Now load config (will read from database if available)
+    config = BotConfig.load()
 
     if not config.binance_api_key or not config.binance_api_secret:
         logging.warning(
