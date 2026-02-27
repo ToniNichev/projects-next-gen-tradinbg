@@ -183,6 +183,15 @@ def enable_strategy(strategy_name):
         return jsonify({"error": "Multi-strategy system not enabled"}), 503
     try:
         sm.enable_strategy(strategy_name)
+        
+        # Persist to database if available
+        if DATABASE_AVAILABLE:
+            config_key = _get_strategy_config_key(strategy_name)
+            if config_key:
+                db = get_database()
+                _batch_save_config({config_key: True}, db)
+                logger.info(f"Persisted {strategy_name} enabled state to database")
+        
         return jsonify({"success": True, "message": f"Strategy '{strategy_name}' enabled",
                         "strategy": strategy_name, "enabled": True})
     except Exception as exc:
@@ -200,6 +209,15 @@ def disable_strategy(strategy_name):
         if len(sm.get_enabled_strategies()) <= 1:
             return jsonify({"error": "Cannot disable the last active strategy"}), 400
         sm.disable_strategy(strategy_name)
+        
+        # Persist to database if available
+        if DATABASE_AVAILABLE:
+            config_key = _get_strategy_config_key(strategy_name)
+            if config_key:
+                db = get_database()
+                _batch_save_config({config_key: False}, db)
+                logger.info(f"Persisted {strategy_name} disabled state to database")
+        
         return jsonify({"success": True, "message": f"Strategy '{strategy_name}' disabled",
                         "strategy": strategy_name, "enabled": False})
     except Exception as exc:
