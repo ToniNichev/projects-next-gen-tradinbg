@@ -410,6 +410,20 @@
     border-radius: 50%;
     border: 2px solid #ffffff;
   }
+  
+  .legend-item strong {
+    font-size: 0.875rem;
+  }
+  
+  /* Make HOD/LOD legend items more compact */
+  .strategy-legend .legend-item {
+    transition: all 0.2s;
+  }
+  
+  .strategy-legend .legend-item:hover {
+    transform: scale(1.05);
+    background: rgba(255, 255, 255, 0.1) !important;
+  }
 </style>
 {% endblock %}
 
@@ -569,6 +583,24 @@
     <div id="strategy-legend" class="strategy-legend" style="display: none;">
       <span class="legend-title">Strategies:</span>
       <div id="legend-items" style="display: flex; gap: 1rem; flex-wrap: wrap;"></div>
+    </div>
+    
+    <!-- HOD/LOD Legend -->
+    <div class="strategy-legend" style="margin-top: 0.5rem;">
+      <span class="legend-title">Support/Resistance:</span>
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+        <div class="legend-item">
+          <div style="width: 24px; height: 3px; background: rgba(255, 99, 132, 0.6); border-radius: 2px;"></div>
+          <span style="font-size: 0.875rem;">HOD (High of Day)</span>
+        </div>
+        <div class="legend-item">
+          <div style="width: 24px; height: 3px; background: rgba(75, 192, 192, 0.6); border-radius: 2px;"></div>
+          <span style="font-size: 0.875rem;">LOD (Low of Day)</span>
+        </div>
+        <div class="legend-item" style="font-size: 0.75rem; color: var(--text-secondary); font-style: italic;">
+          💡 Marker size = Signal confidence
+        </div>
+      </div>
     </div>
     
     <canvas id="backtestChart"></canvas>
@@ -1400,6 +1432,72 @@
     return strategyName;
   }
 
+  function calculateDailyLevels(candles) {
+    /**
+     * Calculate HOD (High of Day) and LOD (Low of Day) levels from candle data.
+     * Returns array of daily levels with timestamps for drawing horizontal lines.
+     */
+    const dailyLevels = new Map();
+    
+    candles.forEach(candle => {
+      const date = new Date(candle.timestamp);
+      const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      if (!dailyLevels.has(dateKey)) {
+        dailyLevels.set(dateKey, {
+          date: dateKey,
+          high: candle.high,
+          low: candle.low,
+          startTime: new Date(candle.timestamp).getTime(),
+          endTime: new Date(candle.timestamp).getTime(),
+        });
+      } else {
+        const level = dailyLevels.get(dateKey);
+        level.high = Math.max(level.high, candle.high);
+        level.low = Math.min(level.low, candle.low);
+        level.endTime = new Date(candle.timestamp).getTime();
+      }
+    });
+    
+    return Array.from(dailyLevels.values());
+  }
+  
+  function calculateStrategyStats(tradesByStrategy) {
+    /**
+     * Calculate win rate, trade count, and avg confidence per strategy.
+     */
+    const stats = {};
+    
+    Object.keys(tradesByStrategy).forEach(strategyName => {
+      const trades = tradesByStrategy[strategyName];
+      const allTrades = [...trades.buy, ...trades.sell];
+      
+      // Count trades with PnL (sell trades only)
+      const sellTrades = trades.sell.filter(t => t.pnl !== null && t.pnl !== undefined);
+      const winningTrades = sellTrades.filter(t => t.pnl > 0).length;
+      const losingTrades = sellTrades.filter(t => t.pnl < 0).length;
+      const totalExitTrades = winningTrades + losingTrades;
+      
+      // Calculate average confidence
+      const tradesWithConfidence = allTrades.filter(t => t.confidence);
+      const avgConfidence = tradesWithConfidence.length > 0
+        ? tradesWithConfidence.reduce((sum, t) => sum + t.confidence, 0) / tradesWithConfidence.length
+        : 0;
+      
+      stats[strategyName] = {
+        totalTrades: allTrades.length,
+        buyTrades: trades.buy.length,
+        sellTrades: trades.sell.length,
+        winningTrades,
+        losingTrades,
+        winRate: totalExitTrades > 0 ? (winningTrades / totalExitTrades * 100) : 0,
+        avgConfidence: avgConfidence,
+      };
+    });
+    
+    return stats;
+  }
+  
   function renderPriceChart(chartData) {
     const ctx = document.getElementById('backtestChart').getContext('2d');
     
@@ -1422,6 +1520,9 @@
       x: new Date(pv.timestamp).getTime(),
       y: pv.value,
     }));
+    
+    // Calculate daily HOD/LOD levels
+    const dailyLevels = calculateDailyLevels(chartData.candles);
     
     // Group trades by strategy for color-coding
     const tradesByStrategy = {};
@@ -1450,7 +1551,10 @@
       }
     });
     
-    // Create datasets - candlesticks and portfolio first, then trade markers grouped by strategy
+    // Calculate strategy statistics
+    const strategyStats = calculateStrategyStats(tradesByStrategy);
+    
+    // Create datasets - candlesticks and portfolio first, then HOD/LOD lines, then trade markers
     const datasets = [
       {
         label: 'BTC/USDT',
@@ -1487,7 +1591,60 @@
       },
     ];
     
-    // Add trade marker datasets for each strategy
+    // Add HOD (High of Day) lines for each day
+    dailyLevels.forEach((level, index) => {
+      // HOD line (resistance)
+      datasets.push({
+        label: `HOD ${level.date}`,
+        type: 'line',
+        data: [
+          { x: level.startTime, y: level.high },
+          { x: level.endTime, y: level.high }
+        ],
+        yAxisID: 'y',
+        borderColor: 'rgba(255, 99, 132, 0.6)', // Red for resistance
+        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        order: 7,
+        hidden: false,
+        // Disable tooltip for HOD lines
+        tooltip: {
+          enabled: false
+        }
+      });
+      
+      // LOD line (support)
+      datasets.push({
+        label: `LOD ${level.date}`,
+        type: 'line',
+        data: [
+          { x: level.startTime, y: level.low },
+          { x: level.endTime, y: level.low }
+        ],
+        yAxisID: 'y',
+        borderColor: 'rgba(75, 192, 192, 0.6)', // Teal for support
+        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: false,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        order: 7,
+        hidden: false,
+        // Disable tooltip for LOD lines
+        tooltip: {
+          enabled: false
+        }
+      });
+    });
+    
+    // Add trade marker datasets for each strategy with confidence-based sizing
     Object.keys(tradesByStrategy).forEach(strategyName => {
       const trades = tradesByStrategy[strategyName];
       const strategyColor = getStrategyColor(strategyName);
@@ -1496,40 +1653,44 @@
       // Buy trades for this strategy
       if (trades.buy.length > 0) {
         datasets.push({
-          label: `🟢 ${displayName} BUY`,
+          label: `🟢 ${displayName}`,
           type: 'scatter',
           data: trades.buy,
           yAxisID: 'y',
           pointStyle: 'triangle',
-          pointRadius: 12,
+          pointRadius: 14,  // Fixed larger size - easy to see
           pointRotation: 0,
           backgroundColor: strategyColor,
           borderColor: '#ffffff',
           borderWidth: 3,
-          pointHoverRadius: 16,
+          pointHoverRadius: 25,  // HUGE hover area - easy to trigger
           pointHoverBorderWidth: 4,
+          pointHoverBackgroundColor: strategyColor,
+          pointHoverBorderColor: '#ffffff',
           showLine: false,
-          order: 0, // Draw trade markers on top (last)
+          order: 0,
         });
       }
       
       // Sell trades for this strategy
       if (trades.sell.length > 0) {
         datasets.push({
-          label: `🔴 ${displayName} SELL`,
+          label: `🔴 ${displayName}`,
           type: 'scatter',
           data: trades.sell,
           yAxisID: 'y',
           pointStyle: 'triangle',
-          pointRadius: 12,
+          pointRadius: 14,  // Fixed larger size - easy to see
           pointRotation: 180,
           backgroundColor: strategyColor,
           borderColor: '#ffffff',
           borderWidth: 3,
-          pointHoverRadius: 16,
+          pointHoverRadius: 25,  // HUGE hover area - easy to trigger
           pointHoverBorderWidth: 4,
+          pointHoverBackgroundColor: strategyColor,
+          pointHoverBorderColor: '#ffffff',
           showLine: false,
-          order: 0, // Draw trade markers on top (last)
+          order: 0,
         });
       }
     });
@@ -1564,141 +1725,57 @@
         plugins: {
           tooltip: {
             enabled: true,
-            mode: 'nearest',
+            mode: 'point',
             intersect: true,
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            position: 'nearest',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
             titleColor: '#ffffff',
-            bodyColor: '#e1e8ff',
-            borderColor: 'rgba(88, 214, 141, 0.5)',
-            borderWidth: 2,
-            padding: 16,
-            displayColors: true,
+            bodyColor: '#ffffff',
+            borderColor: 'rgba(255, 255, 255, 0.3)',
+            borderWidth: 1,
+            padding: 8,
+            displayColors: false,
+            caretSize: 6,
+            caretPadding: 8,
+            cornerRadius: 4,
             titleFont: {
               size: 14,
               weight: 'bold',
               family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
             },
             bodyFont: {
-              size: 13,
+              size: 14,
+              weight: 'bold',
               family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
             },
-            bodySpacing: 6,
             callbacks: {
               title: function(context) {
-                if (context[0]) {
-                  const date = new Date(context[0].parsed.x);
-                  return '📅 ' + date.toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                  });
-                }
+                // No title - just show the label
                 return '';
               },
               label: function(context) {
-                // Format OHLC data for candlestick dataset
+                // For trade markers - just show the dataset label (e.g., "🟢 EMA Crossover")
+                if (context.dataset.label && (context.dataset.label.includes('🟢') || context.dataset.label.includes('🔴'))) {
+                  return context.dataset.label;
+                }
+                
+                // For portfolio
+                if (context.dataset.label === 'Portfolio Value') {
+                  return `💰 $${context.parsed.y.toFixed(0)}`;
+                }
+                
+                // For candlesticks
                 if (context.raw && typeof context.raw.o !== 'undefined') {
                   const data = context.raw;
                   return [
-                    `Open:  $${data.o.toFixed(2)}`,
-                    `High:  $${data.h.toFixed(2)}`,
-                    `Low:   $${data.l.toFixed(2)}`,
-                    `Close: $${data.c.toFixed(2)}`
+                    `O: $${data.o.toFixed(0)}`,
+                    `H: $${data.h.toFixed(0)}`,
+                    `L: $${data.l.toFixed(0)}`,
+                    `C: $${data.c.toFixed(0)}`
                   ];
                 }
                 
-                // For portfolio value line
-                if (context.dataset.label === 'Portfolio Value') {
-                  return `💰 Portfolio: $${context.parsed.y.toFixed(2)}`;
-                }
-                
-                // For signal markers
-                if (context.dataset.label === "Signals") {
-                  return `💡 Signal Price: $${context.parsed.y.toFixed(2)}`;
-                }
-                
-                // For trade markers (Buy/Sell) - Enhanced with comprehensive details
-                if (context.dataset.label && (context.dataset.label.includes('BUY') || context.dataset.label.includes('SELL'))) {
-                  const trade = context.raw;
-                  const lines = [];
-                  
-                  // Trade type header with emoji
-                  const tradeIcon = trade.side === 'buy' ? '🟢' : '🔴';
-                  const tradeType = trade.side === 'buy' ? 'BUY' : 'SELL';
-                  lines.push(`${tradeIcon} ${tradeType} ORDER`);
-                  lines.push(''); // Empty line for spacing
-                  
-                  // Price
-                  lines.push(`💰 Price: $${trade.y.toFixed(2)}`);
-                  
-                  // Amount and value
-                  if (trade.amount) {
-                    lines.push(`📊 Amount: ${trade.amount.toFixed(6)} BTC`);
-                    
-                    // Use notional if available, otherwise calculate
-                    const notional = trade.notional || (trade.amount * trade.y);
-                    lines.push(`💵 Notional: $${notional.toFixed(2)}`);
-                  }
-                  
-                  // Fee
-                  if (trade.fee !== null && trade.fee !== undefined && trade.fee > 0) {
-                    lines.push(`💸 Fee: $${trade.fee.toFixed(4)}`);
-                  }
-                  
-                  // P&L with color indicator
-                  if (trade.pnl !== null && trade.pnl !== undefined) {
-                    const pnlIcon = trade.pnl >= 0 ? '📈' : '📉';
-                    const pnlStr = trade.pnl >= 0 ? `+$${trade.pnl.toFixed(2)}` : `$${trade.pnl.toFixed(2)}`;
-                    const pnlPct = trade.notional ? ((trade.pnl / trade.notional) * 100).toFixed(2) : '0.00';
-                    lines.push(''); // Spacing
-                    lines.push(`${pnlIcon} P&L: ${pnlStr} (${pnlPct}%)`);
-                  }
-                  
-                  // Exit reason (backtest uses 'reason', live uses 'exit_reason')
-                  const exitReason = trade.exit_reason || trade.reason;
-                  if (exitReason) {
-                    const reasonText = exitReason.replace(/_/g, ' ').toUpperCase();
-                    const reasonEmoji = exitReason.includes('profit') ? '✅' : 
-                                       exitReason.includes('stop_loss') ? '🛑' : 
-                                       exitReason.includes('trailing') ? '📍' : '🎯';
-                    lines.push(`${reasonEmoji} Exit: ${reasonText}`);
-                  }
-                  
-                  // Balances after trade
-                  if (trade.usdt_balance !== null && trade.usdt_balance !== undefined) {
-                    lines.push(''); // Spacing
-                    lines.push(`💼 Balance After:`);
-                    lines.push(`   USDT: $${trade.usdt_balance.toFixed(2)}`);
-                    if (trade.base_balance !== null && trade.base_balance !== undefined) {
-                      lines.push(`   BTC: ${trade.base_balance.toFixed(6)}`);
-                    }
-                  }
-                  
-                  // Technical indicators at trade time
-                  if (trade.rsi !== null && trade.rsi !== undefined) {
-                    lines.push(''); // Spacing
-                    lines.push(`📊 Indicators:`);
-                    lines.push(`   RSI: ${trade.rsi.toFixed(1)}`);
-                    if (trade.atr !== null && trade.atr !== undefined) {
-                      lines.push(`   ATR: $${trade.atr.toFixed(2)}`);
-                    }
-                  }
-                  
-                  // Strategy that generated this trade (backtest uses 'strategy_name', live uses 'signal_direction')
-                  const strategyKey = trade.signal_direction || trade.strategy_name;
-                  if (strategyKey) {
-                    const strategyName = getStrategyDisplayName(strategyKey);
-                    lines.push(''); // Spacing
-                    lines.push(`🤖 Strategy: ${strategyName}`);
-                  }
-                  
-                  return lines;
-                }
-                
-                return context.formattedValue;
+                return context.dataset.label || '';
               },
               labelColor: function(context) {
                 // Custom color box for trade markers
@@ -1790,6 +1867,11 @@
             display: true,
             labels: {
               color: '#e1e8ff',
+              // Filter out HOD/LOD lines from main legend (we have custom legend for them)
+              filter: function(item, chart) {
+                const label = item.text || '';
+                return !label.startsWith('HOD ') && !label.startsWith('LOD ');
+              },
             },
           },
           tooltip: {
@@ -1833,14 +1915,14 @@
       },
     });
     
-    // Update strategy legend
-    updateStrategyLegend(Object.keys(tradesByStrategy));
+    // Update strategy legend with statistics
+    updateStrategyLegend(Object.keys(tradesByStrategy), strategyStats);
     
     // Add drag-to-pan support
     setupDragPan(backtestChart, 'backtestChart');
   }
   
-  function updateStrategyLegend(strategies) {
+  function updateStrategyLegend(strategies, stats) {
     const legendContainer = document.getElementById('strategy-legend');
     const legendItems = document.getElementById('legend-items');
     
@@ -1853,11 +1935,37 @@
     legendItems.innerHTML = strategies.map(strategyName => {
       const color = getStrategyColor(strategyName);
       const displayName = getStrategyDisplayName(strategyName);
+      const stratStats = stats[strategyName] || {};
+      
+      // Format statistics
+      const winRate = stratStats.winRate || 0;
+      const winRateColor = winRate >= 50 ? 'var(--accent-green)' : 'var(--accent-red)';
+      const totalTrades = stratStats.totalTrades || 0;
+      const avgConfidence = stratStats.avgConfidence || 0;
+      
+      // Build stats HTML with confidence indicator
+      const confidenceBar = avgConfidence > 0 
+        ? `<div style="display: inline-block; width: 40px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; margin-left: 4px; vertical-align: middle;">
+             <div style="width: ${avgConfidence * 100}%; height: 100%; background: ${color}; border-radius: 4px;"></div>
+           </div>`
+        : '';
       
       return `
-        <div class="legend-item">
-          <div class="legend-marker" style="background-color: ${color};"></div>
-          <span>${displayName}</span>
+        <div class="legend-item" style="flex-direction: column; align-items: flex-start; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 0.375rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+            <div class="legend-marker" style="background-color: ${color};"></div>
+            <strong>${displayName}</strong>
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 1.5rem;">
+            <span title="Total trades (buy + sell)">${totalTrades} trades</span>
+            ${stratStats.winningTrades !== undefined ? `
+              · <span style="color: ${winRateColor};" title="Win rate">${winRate.toFixed(0)}% win</span>
+            ` : ''}
+            ${avgConfidence > 0 ? `
+              · <span title="Average confidence">Avg conf: ${(avgConfidence * 100).toFixed(0)}%</span>
+              ${confidenceBar}
+            ` : ''}
+          </div>
         </div>
       `;
     }).join('');
