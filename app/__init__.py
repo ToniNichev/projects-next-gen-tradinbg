@@ -42,8 +42,10 @@ def create_app(config=None):
 
     # Templates live at the project root's ``templates/`` directory.
     template_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
+    # Static files live at the project root's ``static/`` directory.
+    static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 
-    app = Flask(__name__, template_folder=template_dir)
+    app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
     app.config["JSON_SORT_KEYS"] = False
 
     # Reduce werkzeug noise (errors only)
