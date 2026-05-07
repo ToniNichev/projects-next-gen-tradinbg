@@ -1,5 +1,8 @@
 import logging
+import logging.handlers
+import os
 import signal
+import sys
 import threading
 from datetime import datetime, timezone
 
@@ -42,6 +45,45 @@ except ImportError:
     logging.warning("Database module not available. Install SQLAlchemy to enable database features.")
 
 
+def _configure_logging(log_dir: str = "logs") -> None:
+    """Configure root logger with a rotating file handler and a stderr
+    handler restricted to WARNING+.
+
+    Why: Python's default ``logging.basicConfig`` sends every level to
+    stderr. When the bot runs under launchd, that stream is captured into
+    ``logs/bot_error.log`` (``StandardErrorPath``) which has no rotation
+    and grows without bound. Routing INFO+ to a rotated file and only
+    WARNING+ to stderr keeps the launchd error file small and bounds disk
+    usage to roughly ``maxBytes * (backupCount + 1)``.
+    """
+    os.makedirs(log_dir, exist_ok=True)
+    fmt = "%(asctime)s %(levelname)s %(name)s %(message)s"
+    formatter = logging.Formatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    file_handler = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, "app.log"),
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(formatter)
+    root.addHandler(stderr_handler)
+
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
 def build_exchange(config: BotConfig) -> ccxt.binanceus:
     import socket
     import urllib3.util.connection as urllib3_cn
@@ -66,11 +108,7 @@ def build_exchange(config: BotConfig) -> ccxt.binanceus:
 
 
 def main():
-    # Initialize logging first
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    _configure_logging()
     
     # Initialize database BEFORE loading config so config can read from DB
     if DATABASE_AVAILABLE:
@@ -436,7 +474,13 @@ def main():
         kline = msg.get("k", {})
         started_at = datetime.utcfromtimestamp(int(kline.get("t", 0)) / 1000)
         ended_at = datetime.utcfromtimestamp(int(kline.get("T", 0)) / 1000)
-        logging.info(
+        # In-progress klines arrive every few seconds and dominate the log
+        # volume. Only emit INFO when a candle closes; the partial updates
+        # remain available at DEBUG level for troubleshooting.
+        is_closed = bool(kline.get("x"))
+        log_level = logging.INFO if is_closed else logging.DEBUG
+        logging.log(
+            log_level,
             "Kline %s %s-%s open=%.2f high=%.2f low=%.2f close=%.2f volume=%.2f closed=%s",
             config.symbol,
             started_at.isoformat(),
@@ -446,7 +490,7 @@ def main():
             float(kline.get("l", 0.0)),
             float(kline.get("c", 0.0)),
             float(kline.get("v", 0.0)),
-            kline.get("x"),
+            is_closed,
         )
         if kline.get("s") != binance_symbol:
             return
