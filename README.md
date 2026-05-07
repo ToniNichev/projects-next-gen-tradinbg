@@ -17,7 +17,7 @@ Lightweight Python engine that reads Binance.US market data, applies a moving-av
    export BINANCE_US_KEY=yourkey
    export BINANCE_US_SECRET=yoursecret
    ```
-   or copy `.env.example` to `.env` and edit the values when you install `python-dotenv`.
+   or copy `env.example` to `.env` and edit the values when you install `python-dotenv`.
 3. Customize parameters via environment variables (optional):
    - `BOT_SYMBOL` (default `BTC/USDT`)
    - `BOT_TIMEFRAME` (default `5m`)

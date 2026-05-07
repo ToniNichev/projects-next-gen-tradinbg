@@ -35,9 +35,7 @@ production_deploy() {
     if [ ! -f "$PROJECT_DIR/.env" ]; then
         print_error ".env file not found!"
         echo "Creating from example..."
-        if [ -f "$PROJECT_DIR/.env.example" ]; then
-            cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
-        elif [ -f "$PROJECT_DIR/env.example" ]; then
+        if [ -f "$PROJECT_DIR/env.example" ]; then
             cp "$PROJECT_DIR/env.example" "$PROJECT_DIR/.env"
         fi
         print_warning "Please configure .env before continuing:"
