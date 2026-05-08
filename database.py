@@ -24,6 +24,8 @@ from sqlalchemy import (
     create_engine,
     desc,
     func,
+    inspect,
+    text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -101,7 +103,9 @@ class Position(Base):
     pnl_percent = Column(Float)
     is_open = Column(Boolean, default=True, index=True)
     strategy_name = Column(String(100), index=True)  # Track which strategy opened this position
-    
+    # CCXT / exchange order id for protective STOP_LOSS_LIMIT (live spot only; NULL in paper)
+    exchange_stop_order_id = Column(String(64), nullable=True)
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -294,14 +298,29 @@ class DatabaseManager:
         """
         self.database_url = database_url
         self.engine = create_engine(database_url, echo=False)
-        self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
+        # ``expire_on_commit=False`` lets callers keep using the returned
+        # ORM rows after the session closes (standard SQLAlchemy pattern
+        # for read-then-detach code).  Without it, every attribute access
+        # after commit triggers a lazy reload on a detached instance and
+        # raises ``DetachedInstanceError`` — which is exactly what was
+        # happening in :py:meth:`live_trader.LiveTrader._restore_position_from_db`.
+        self.SessionLocal = sessionmaker(
+            bind=self.engine,
+            autocommit=False,
+            autoflush=False,
+            expire_on_commit=False,
+        )
         self.logger = logging.getLogger(__name__)
 
     def create_tables(self):
         """Create all tables if they don't exist"""
         Base.metadata.create_all(bind=self.engine)
         self.logger.info("Database tables created successfully")
-        
+        try:
+            self._ensure_positions_exchange_stop_column()
+        except Exception as e:
+            self.logger.warning("Could not apply positions schema patch: %s", e)
+
         # Initialize built-in presets
         try:
             self.initialize_builtin_presets()
@@ -312,6 +331,32 @@ class DatabaseManager:
         """Drop all tables (use with caution!)"""
         Base.metadata.drop_all(bind=self.engine)
         self.logger.warning("All database tables dropped")
+
+    def _ensure_positions_exchange_stop_column(self) -> None:
+        """Add ``exchange_stop_order_id`` to existing SQLite DBs (create_all is no-op)."""
+        try:
+            insp = inspect(self.engine)
+        except Exception:
+            return
+        if not insp.has_table("positions"):
+            return
+        cols = {c["name"] for c in insp.get_columns("positions")}
+        if "exchange_stop_order_id" in cols:
+            return
+        dialect = self.engine.dialect.name
+        if dialect == "sqlite":
+            ddl = "ALTER TABLE positions ADD COLUMN exchange_stop_order_id VARCHAR(64)"
+        elif dialect == "postgresql":
+            ddl = "ALTER TABLE positions ADD COLUMN exchange_stop_order_id VARCHAR(64)"
+        else:
+            self.logger.warning(
+                "No automatic migration for exchange_stop_order_id on dialect %s; add column manually.",
+                dialect,
+            )
+            return
+        with self.engine.begin() as conn:
+            conn.execute(text(ddl))
+        self.logger.info("Added column positions.exchange_stop_order_id")
 
     @contextmanager
     def get_session(self) -> Session:

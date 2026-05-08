@@ -128,7 +128,20 @@ class BotConfig:
     confirmation_threshold_usd: float = 100.0  # Threshold for trade confirmation
     max_single_trade_usd: float = 500.0  # Maximum single trade size in USD
     api_retry_attempts: int = 3  # Number of retry attempts for API calls
-    api_retry_delay_seconds: float = 1.0  # Delay between retry attempts
+    api_retry_delay_seconds: float = 1.0  # Delay between retry attempts (exponential backoff applied per attempt)
+    order_poll_timeout_seconds: float = 10.0  # Max time to wait for a market order to reach a terminal state
+    order_poll_interval_seconds: float = 0.5  # Polling cadence while waiting for terminal state
+
+    # Exchange-native protective orders (Binance spot STOP_LOSS_LIMIT)
+    exchange_stop_loss_enabled: bool = True  # Place a stop-limit sell after each buy (live only)
+    exchange_stop_update_on_trailing: bool = True  # Replace the order when the trailing stop ratchets up
+
+    # All-time peak portfolio equity (USDT) for drawdown kill-switch
+    portfolio_drawdown_kill_enabled: bool = True
+
+    # Kline websocket watchdog — alert if no candle activity for this long
+    ws_watchdog_enabled: bool = True
+    ws_stale_alert_seconds: float = 180.0
 
     @classmethod
     def load(cls) -> "BotConfig":
@@ -286,6 +299,13 @@ class BotConfig:
             max_single_trade_usd=float(env.get("BOT_MAX_SINGLE_TRADE_USD", 500.0)),
             api_retry_attempts=int(env.get("BOT_API_RETRY_ATTEMPTS", 3)),
             api_retry_delay_seconds=float(env.get("BOT_API_RETRY_DELAY_SECONDS", 1.0)),
+            order_poll_timeout_seconds=float(env.get("BOT_ORDER_POLL_TIMEOUT_SECONDS", 10.0)),
+            order_poll_interval_seconds=float(env.get("BOT_ORDER_POLL_INTERVAL_SECONDS", 0.5)),
+            exchange_stop_loss_enabled=env.get("BOT_EXCHANGE_STOP_LOSS_ENABLED", "true").lower() == "true",
+            exchange_stop_update_on_trailing=env.get("BOT_EXCHANGE_STOP_UPDATE_ON_TRAILING", "true").lower() == "true",
+            portfolio_drawdown_kill_enabled=env.get("BOT_PORTFOLIO_DRAWDOWN_KILL_ENABLED", "true").lower() == "true",
+            ws_watchdog_enabled=env.get("BOT_WS_WATCHDOG_ENABLED", "true").lower() == "true",
+            ws_stale_alert_seconds=float(env.get("BOT_WS_STALE_ALERT_SECONDS", 180.0)),
         )
     
     def get_strategy_configs(self) -> dict:

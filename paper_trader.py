@@ -527,33 +527,74 @@ class PaperTrader:
         """
         Execute a market buy.
 
-        ``amount`` is interpreted as:
-        - A fraction of the current USDT balance (0 < amount <= 1), or
-        - A USDT notional value (amount > 1) which is converted to a fraction.
+        ``amount`` is the BASE-currency amount to buy (e.g. BTC), matching
+        :py:meth:`live_trader.LiveTrader.execute_market_buy` so callers can
+        switch traders without changing the API contract.
 
-        Delegates to the internal ``_buy()`` method and returns its TradeRecord.
+        Returns the resulting :class:`TradeRecord` or ``None`` if the trade
+        was rejected (zero/negative amount, no funds, would over-spend).
         """
         if amount <= 0:
             return None
-        if amount > 1.0:
-            order_pct = min(amount / self.usdt_balance, 1.0) if self.usdt_balance > 0 else 0.0
-        else:
-            order_pct = amount
-        return self._buy(signal.price, order_pct, signal)
+        if self.usdt_balance <= 0:
+            logging.info("execute_market_buy: no USDT balance")
+            return None
+
+        price = signal.price
+        if price <= 0:
+            logging.info("execute_market_buy: invalid signal price %s", price)
+            return None
+
+        # Project what _buy() will do so we can validate before any state
+        # mutation.  _buy uses (usdt_balance * order_pct) as the pre-fee
+        # notional and adds fee on top, then derives BTC amount from the
+        # post-slippage fill price.  Inverting that:
+        fill_price = price * (1 + self.slippage)
+        notional_required = amount * fill_price
+        total_cost = notional_required * (1 + self.fee_rate)
+
+        if total_cost > self.usdt_balance:
+            logging.info(
+                "execute_market_buy: insufficient USDT (need %.2f for %.8f BASE, have %.2f)",
+                total_cost,
+                amount,
+                self.usdt_balance,
+            )
+            return None
+
+        order_pct = notional_required / self.usdt_balance
+        return self._buy(price, order_pct, signal)
 
     def execute_market_sell(
         self, amount: float, signal, exit_reason: str = "manual"
     ) -> Optional[TradeRecord]:
         """
-        Execute a market sell (closes the open long position).
+        Execute a market sell.
 
-        In spot paper-trading there is no concept of selling a partial
-        position via the public API — the full open position is closed.
-        ``amount`` is accepted for interface compatibility but is ignored.
+        ``amount`` is the BASE-currency amount to sell.  In spot paper
+        trading we only support closing the entire open long position,
+        so ``amount`` must be approximately equal to the open position's
+        size (within 1e-8 to absorb float noise).  Anything else is
+        rejected to keep the API honest about its capabilities.
         """
         if not self.open_position:
             logging.info("execute_market_sell: no open position to close")
             return None
+
+        if amount <= 0:
+            return None
+
+        # Tolerate tiny float drift between the caller and the trader's
+        # bookkeeping (e.g. JSON round-trip).
+        if abs(amount - self.open_position.amount) > 1e-8:
+            logging.info(
+                "execute_market_sell: partial sells not supported in paper "
+                "spot mode (requested %.8f, position %.8f)",
+                amount,
+                self.open_position.amount,
+            )
+            return None
+
         return self._close_position(signal.price, exit_reason)
 
     def enable_trading(self) -> None:

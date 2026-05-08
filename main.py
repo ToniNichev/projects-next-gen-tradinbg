@@ -4,6 +4,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 
 import ccxt
@@ -43,6 +44,14 @@ try:
 except ImportError:
     DATABASE_AVAILABLE = False
     logging.warning("Database module not available. Install SQLAlchemy to enable database features.")
+
+try:
+    from notify import send_notification
+except ImportError:
+    def send_notification(title: str, body: str, *, severity: str = "warning") -> None:
+        logging.getLogger(__name__).warning(
+            "notify module unavailable; would alert [%s] %s", severity, title,
+        )
 
 
 def _configure_logging(log_dir: str = "logs") -> None:
@@ -467,6 +476,9 @@ def main():
     except Exception as e:
         logging.warning("Failed to fetch initial candles: %s. Will buffer from stream.", e)
 
+    # Last monotonic time we saw a kline for our symbol (partial counts).
+    ws_activity = {"last_mono": time.monotonic(), "stale_alerted": False}
+
     def handle_kline(msg: dict) -> None:
         nonlocal candle_buffer
         if msg.get("e") != "kline":
@@ -494,6 +506,9 @@ def main():
         )
         if kline.get("s") != binance_symbol:
             return
+
+        ws_activity["last_mono"] = time.monotonic()
+        ws_activity["stale_alerted"] = False
         
         # Store closed candles in buffer
         if kline.get("x"):  # Candle is closed
@@ -658,6 +673,37 @@ def main():
                 )
         except Exception as exc:
             logging.exception("websocket cycle failed: %s", exc)
+
+    def _ws_watchdog_loop() -> None:
+        threshold = float(getattr(config, "ws_stale_alert_seconds", 180.0))
+        poll = max(5.0, min(60.0, threshold / 4.0))
+        while not stop_event.wait(poll):
+            if not getattr(config, "ws_watchdog_enabled", True):
+                continue
+            age = time.monotonic() - ws_activity["last_mono"]
+            if age < threshold:
+                ws_activity["stale_alerted"] = False
+                continue
+            if ws_activity["stale_alerted"]:
+                continue
+            ws_activity["stale_alerted"] = True
+            body = (
+                f"No kline for {config.symbol} / {config.timeframe} in {age:.0f}s "
+                f"(threshold {threshold:.0f}s). Check network and Binance stream."
+            )
+            logging.error("WebSocket watchdog: %s", body)
+            send_notification(
+                "Trading bot: kline stream stale",
+                body,
+                severity="critical",
+            )
+
+    watchdog_thread = threading.Thread(
+        target=_ws_watchdog_loop,
+        name="ws-watchdog",
+        daemon=True,
+    )
+    watchdog_thread.start()
 
     twm.start_kline_socket(
         callback=handle_kline,

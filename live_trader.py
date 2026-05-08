@@ -14,8 +14,10 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_DOWN
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Callable, Dict, List, Optional, TYPE_CHECKING
 from enum import Enum
+
+import ccxt
 
 if TYPE_CHECKING:
     from strategy import StrategySignal
@@ -25,6 +27,137 @@ try:
     DATABASE_AVAILABLE = True
 except ImportError:
     DATABASE_AVAILABLE = False
+
+
+# ---------------------------------------------------------------------------
+# Retry / order-status helpers (module-level so they're easy to unit-test)
+# ---------------------------------------------------------------------------
+
+_TRANSIENT_CCXT_ERRORS = (
+    ccxt.NetworkError,
+    ccxt.RequestTimeout,
+    ccxt.ExchangeNotAvailable,
+    ccxt.DDoSProtection,
+)
+
+# Errors that should NEVER be retried — they indicate a permanent rejection
+# (bad credentials, insufficient funds, malformed order).  Listing them
+# explicitly so a future ccxt update doesn't silently widen the retry net.
+_PERMANENT_CCXT_ERRORS = (
+    ccxt.AuthenticationError,
+    ccxt.PermissionDenied,
+    ccxt.AccountSuspended,
+    ccxt.InsufficientFunds,
+    ccxt.InvalidOrder,
+    ccxt.BadSymbol,
+)
+
+_TERMINAL_ORDER_STATUSES = {"closed", "canceled", "expired", "rejected"}
+
+# Persists in ``StrategyConfig`` alongside user strategy keys — internal only.
+_PEAK_PORTFOLIO_EQUITY_KEY = "BOT_INTERNAL_PEAK_PORTFOLIO_EQUITY"
+
+
+def _retry_call(
+    fn: Callable,
+    *args,
+    attempts: int = 3,
+    delay: float = 1.0,
+    backoff: float = 2.0,
+    logger: Optional[logging.Logger] = None,
+    description: str = "exchange call",
+    **kwargs,
+):
+    """
+    Run ``fn(*args, **kwargs)`` retrying on transient ccxt errors only.
+
+    Permanent errors (auth, insufficient funds, invalid order) are re-raised
+    immediately so the caller can surface a clean failure to the operator
+    instead of silently waiting through retries.
+
+    Backoff is exponential: ``delay * backoff**attempt`` capped at the final
+    iteration.  This is the same shape ``BOT_API_RETRY_*`` config implies.
+    """
+    log = logger or logging.getLogger(__name__)
+    last_exc: Optional[Exception] = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn(*args, **kwargs)
+        except _PERMANENT_CCXT_ERRORS as exc:
+            log.error("%s rejected by exchange (permanent): %s", description, exc)
+            raise
+        except _TRANSIENT_CCXT_ERRORS as exc:
+            last_exc = exc
+            if attempt == attempts:
+                log.error(
+                    "%s failed after %d attempts: %s",
+                    description, attempts, exc,
+                )
+                raise
+            sleep_for = delay * (backoff ** (attempt - 1))
+            log.warning(
+                "%s transient error on attempt %d/%d (%s); retrying in %.1fs",
+                description, attempt, attempts, exc, sleep_for,
+            )
+            time.sleep(sleep_for)
+
+    # Defensive — should be unreachable because of the raise inside the loop.
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"{description} failed without a captured exception")
+
+
+def _wait_for_order_terminal(
+    exchange,
+    order_id: str,
+    symbol: str,
+    *,
+    timeout_seconds: float = 10.0,
+    poll_interval: float = 0.5,
+    retry_attempts: int = 3,
+    retry_delay: float = 1.0,
+    logger: Optional[logging.Logger] = None,
+) -> Dict:
+    """
+    Poll ``fetch_order`` until the order reaches a terminal state.
+
+    Market orders on Binance.US usually fill instantly, but the response to
+    ``create_market_*_order`` can return *before* all fills are accounted
+    for, leaving ``filled`` < ``amount`` and ``status='open'``.  This helper
+    waits up to ``timeout_seconds`` for the order to settle so callers always
+    work with the final fill price and amount.
+
+    Returns the final order dict from ccxt.  If the timeout elapses, returns
+    the latest snapshot (the caller decides what to do — partial-fill is a
+    valid live state and must not silently be treated as full).
+    """
+    log = logger or logging.getLogger(__name__)
+    deadline = time.monotonic() + timeout_seconds
+    last_order: Optional[Dict] = None
+
+    while True:
+        last_order = _retry_call(
+            exchange.fetch_order,
+            order_id, symbol,
+            attempts=retry_attempts,
+            delay=retry_delay,
+            logger=log,
+            description=f"fetch_order({order_id})",
+        )
+        status = (last_order or {}).get("status")
+        if status in _TERMINAL_ORDER_STATUSES:
+            return last_order
+        if time.monotonic() >= deadline:
+            log.warning(
+                "Order %s still %s after %.1fs (filled=%.8f / %.8f); "
+                "returning latest snapshot",
+                order_id, status, timeout_seconds,
+                float((last_order or {}).get("filled", 0.0)),
+                float((last_order or {}).get("amount", 0.0)),
+            )
+            return last_order
+        time.sleep(poll_interval)
 
 
 class TradingMode(Enum):
@@ -103,6 +236,8 @@ class LivePosition:
     entry_order_id: Optional[str] = None
     highest_price: float = 0.0
     lowest_price: float = 0.0
+    # Binance STOP_LOSS_LIMIT order id — cancelled before any intentional market sell
+    exchange_stop_order_id: Optional[str] = None
 
 
 class LiveTrader:
@@ -169,9 +304,50 @@ class LiveTrader:
         # Safety flags
         self.trading_enabled: bool = True
         self.emergency_stop: bool = False
-        
+
+        # Retry / partial-fill polling settings (read from config so the
+        # operator can tune them without code changes; sane defaults match
+        # ``BOT_API_RETRY_*`` documented in env.example).
+        self.retry_attempts: int = int(getattr(config, "api_retry_attempts", 3) or 3)
+        self.retry_delay: float = float(getattr(config, "api_retry_delay_seconds", 1.0) or 1.0)
+        self.order_poll_timeout: float = float(getattr(config, "order_poll_timeout_seconds", 10.0) or 10.0)
+        self.order_poll_interval: float = float(getattr(config, "order_poll_interval_seconds", 0.5) or 0.5)
+
+        # DB-row id for the current open position so we can update it as the
+        # trailing stop ratchets and close it cleanly on exit.
+        self.db_position_id: Optional[int] = None
+
+        # When true, ``validate_trade`` rejects new *buys* only (drawdown rule).
+        # Sells that reduce risk remain permitted.
+        self.portfolio_buy_halt: bool = False
+
         self.logger.info(f"LiveTrader initialized in {mode.value} mode")
-    
+
+        # Try to restore an existing open position from the database before
+        # any other startup sync.  This is the source of truth for what the
+        # bot considers "its own" — see ``sync_positions`` for the orphan-
+        # balance guard that depends on this.
+        if self.db_manager:
+            try:
+                self._restore_position_from_db()
+            except Exception as exc:
+                self.logger.warning(
+                    "Could not restore open position from DB: %s", exc,
+                )
+
+        if (
+            self.mode == TradingMode.LIVE
+            and self.open_position
+            and getattr(self.config, "exchange_stop_loss_enabled", True)
+        ):
+            try:
+                self._sync_exchange_protective_stop()
+            except Exception as exc:
+                self.logger.warning(
+                    "Could not re-arm exchange protective stop after startup restore: %s",
+                    exc,
+                )
+
     def _get_daily_reset_time(self) -> datetime:
         """Get the next daily reset time (midnight UTC)"""
         now = datetime.now(timezone.utc)
@@ -296,61 +472,357 @@ class LiveTrader:
     
     def sync_positions(self) -> Optional[LivePosition]:
         """
-        Sync positions from exchange.
-        
-        For spot trading, we infer position from base balance.
-        
-        Returns:
-            LivePosition if we have a position, None otherwise
+        Synchronise the in-memory position with persistent state.
+
+        Source-of-truth order:
+
+        1. If the bot has an open position record in the database, that is
+           the authoritative state — including stop-loss, take-profit and
+           the current trailing-stop level.  We restore it and only verify
+           that the exchange still holds enough base currency to back it.
+        2. If there is **no** DB-tracked open position but the exchange
+           account holds base currency above the minimum order size, we
+           do **not** auto-adopt that balance.  It almost certainly came
+           from outside the bot (manual trade, deposit, another tool) and
+           selling it on a stop-loss could destroy user funds.  We log a
+           loud warning and return ``None``.  An operator who explicitly
+           wants the bot to take ownership can use a dedicated
+           "claim_orphan_balance" flow (not yet implemented) or open a
+           position via the dashboard.
         """
         try:
             self.sync_balances()
-            
-            base_currency = self.config.symbol.split('/')[0]
+            base_currency = self.config.symbol.split("/")[0]
             min_position = self.get_min_order_size()
-            
+
+            # 1. Prefer DB state.
+            db_position = self._restore_position_from_db()
+            if db_position is not None:
+                if self.base_balance + 1e-8 < db_position.amount:
+                    self.logger.error(
+                        "Exchange %s balance (%.8f) is less than the bot's "
+                        "tracked position (%.8f). The position will be "
+                        "trimmed to the available balance to avoid an "
+                        "oversold attempt; investigate immediately.",
+                        base_currency, self.base_balance, db_position.amount,
+                    )
+                    db_position.amount = self.base_balance
+                return db_position
+
+            # 2. No DB record.  Refuse to adopt any pre-existing balance.
             if self.base_balance > min_position:
-                # We have a position - get recent trade to determine entry
-                trades = self.exchange.fetch_my_trades(
-                    self.config.symbol, limit=10
+                self.logger.warning(
+                    "Exchange holds %.8f %s but bot has no recorded position. "
+                    "NOT auto-adopting this balance; trading will only act on "
+                    "positions opened by the bot itself.",
+                    self.base_balance, base_currency,
                 )
-                
-                if trades:
-                    # Find the most recent buy that established position
-                    buy_trades = [t for t in trades if t['side'] == 'buy']
-                    if buy_trades:
-                        last_buy = buy_trades[-1]
-                        entry_price = float(last_buy['price'])
-                        entry_time = last_buy['datetime']
-                        
-                        # Create position record
-                        self.open_position = LivePosition(
-                            side='long',
-                            entry_price=entry_price,
-                            amount=self.base_balance,
-                            entry_time=entry_time,
-                            stop_loss=entry_price * (1 - self.config.stop_loss_pct),
-                            take_profit=entry_price * (1 + self.config.take_profit_pct),
-                            trailing_stop=entry_price * (1 - self.config.trailing_stop_pct),
-                            initial_trailing_stop_pct=self.config.trailing_stop_pct,
-                            entry_order_id=last_buy.get('order'),
-                            highest_price=entry_price,
-                        )
-                        
-                        self.logger.info(
-                            f"Position synced: LONG {self.base_balance:.8f} {base_currency} "
-                            f"@ ${entry_price:.2f}"
-                        )
-                        return self.open_position
-            
-            # No significant position
+
             self.open_position = None
-            self.logger.info("No open position detected")
+            self.db_position_id = None
             return None
-            
+
         except Exception as e:
             self.logger.error(f"Failed to sync positions: {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # Database persistence
+    # ------------------------------------------------------------------
+
+    def _restore_position_from_db(self) -> Optional[LivePosition]:
+        """If the DB has an open position row, hydrate it into ``self``."""
+        if not self.db_manager:
+            return None
+        try:
+            open_positions = self.db_manager.get_open_positions()
+        except Exception as exc:
+            self.logger.error("Failed to read open positions from DB: %s", exc)
+            return None
+
+        if not open_positions:
+            return None
+
+        # Multiple open positions are not supported in spot mode; close all
+        # but the most recent in the DB to converge on a single source of
+        # truth.  This is conservative — we only update flags, not balances.
+        if len(open_positions) > 1:
+            self.logger.warning(
+                "%d open positions in DB; using the most recent and closing "
+                "the others as orphaned.", len(open_positions),
+            )
+            for stale in open_positions[:-1]:
+                try:
+                    self.db_manager.update_position(
+                        stale.id,
+                        {"is_open": False, "exit_reason": "orphan_cleanup"},
+                    )
+                except Exception as exc:
+                    self.logger.error(
+                        "Could not flag stale DB position %s as closed: %s",
+                        stale.id, exc,
+                    )
+
+        db_pos = open_positions[-1]
+        raw_stop_oid = getattr(db_pos, "exchange_stop_order_id", None)
+        stop_oid = raw_stop_oid.strip() if isinstance(raw_stop_oid, str) else raw_stop_oid
+        stop_oid = stop_oid or None
+
+        position = LivePosition(
+            side=db_pos.side or "long",
+            entry_price=float(db_pos.entry_price),
+            amount=float(db_pos.amount),
+            entry_time=db_pos.entry_time.isoformat() if db_pos.entry_time else datetime.now(timezone.utc).isoformat(),
+            stop_loss=float(db_pos.stop_loss) if db_pos.stop_loss else 0.0,
+            take_profit=float(db_pos.take_profit) if db_pos.take_profit else 0.0,
+            trailing_stop=float(db_pos.trailing_stop) if db_pos.trailing_stop else 0.0,
+            initial_trailing_stop_pct=self.config.trailing_stop_pct,
+            entry_order_id=None,
+            highest_price=float(db_pos.highest_price or db_pos.entry_price),
+            lowest_price=float(db_pos.lowest_price or 0.0),
+            exchange_stop_order_id=stop_oid,
+        )
+        self.open_position = position
+        self.db_position_id = db_pos.id
+        self.logger.info(
+            "Restored open position from DB: %s %.8f @ $%.2f "
+            "(SL=$%.2f TP=$%.2f trailing=$%.2f) row_id=%s exchange_stop=%s",
+            position.side, position.amount, position.entry_price,
+            position.stop_loss, position.take_profit, position.trailing_stop,
+            db_pos.id,
+            stop_oid or "none",
+        )
+        return position
+
+    def _save_position_to_db(self, position: LivePosition) -> None:
+        """Insert a new open position row and remember its id."""
+        if not self.db_manager:
+            return
+        try:
+            entry_time = position.entry_time
+            if isinstance(entry_time, str):
+                try:
+                    entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
+                except ValueError:
+                    entry_time = datetime.now(timezone.utc)
+
+            row = self.db_manager.add_position({
+                "side": position.side,
+                "entry_price": position.entry_price,
+                "entry_time": entry_time,
+                "amount": position.amount,
+                "stop_loss": position.stop_loss,
+                "take_profit": position.take_profit,
+                "trailing_stop": position.trailing_stop,
+                "highest_price": position.highest_price,
+                "lowest_price": position.lowest_price,
+                "is_open": True,
+                "strategy_name": "live_trader",
+                "exchange_stop_order_id": position.exchange_stop_order_id,
+            })
+            self.db_position_id = row.id
+            self.logger.debug("Saved open position to DB row %s", row.id)
+        except Exception as exc:
+            # DB failure must not abort a real order that already executed.
+            self.logger.error("Failed to persist open position: %s", exc, exc_info=True)
+
+    def _update_open_position_in_db(self) -> None:
+        """Push current trailing-stop / highest_price back to the DB row."""
+        if not self.db_manager or not self.db_position_id or not self.open_position:
+            return
+        try:
+            self.db_manager.update_position(self.db_position_id, {
+                "trailing_stop": self.open_position.trailing_stop,
+                "highest_price": self.open_position.highest_price,
+                "stop_loss": self.open_position.stop_loss,
+                "take_profit": self.open_position.take_profit,
+                "amount": self.open_position.amount,
+                "exchange_stop_order_id": self.open_position.exchange_stop_order_id,
+            })
+        except Exception as exc:
+            self.logger.error("Failed to update open position in DB: %s", exc)
+
+    def _close_position_in_db(
+        self,
+        exit_price: float,
+        exit_reason: str,
+        pnl: Optional[float],
+    ) -> None:
+        """Mark the DB row closed with exit price + P&L."""
+        if not self.db_manager or not self.db_position_id:
+            return
+        try:
+            entry_cost = 0.0
+            if self.open_position:
+                entry_cost = self.open_position.amount * self.open_position.entry_price
+            pnl_pct = (pnl / entry_cost * 100.0) if (pnl is not None and entry_cost > 0) else None
+
+            self.db_manager.update_position(self.db_position_id, {
+                "exit_price": exit_price,
+                "exit_time": datetime.now(timezone.utc),
+                "exit_reason": exit_reason,
+                "pnl": pnl,
+                "pnl_percent": pnl_pct,
+                "is_open": False,
+                "exchange_stop_order_id": None,
+            })
+        except Exception as exc:
+            self.logger.error("Failed to mark DB position closed: %s", exc)
+        finally:
+            self.db_position_id = None
+
+    # ------------------------------------------------------------------
+    # Exchange-native protective stop (Binance spot STOP_LOSS_LIMIT)
+    # ------------------------------------------------------------------
+
+    def _effective_protective_trigger(self, pos: LivePosition) -> float:
+        """Price level at which a protective sell should trigger (long)."""
+        return max(float(pos.stop_loss), float(pos.trailing_stop))
+
+    def _cancel_exchange_protective_stop(self) -> None:
+        """Cancel the optional STOP_LOSS_LIMIT resting on the exchange."""
+        if not self.open_position or not self.open_position.exchange_stop_order_id:
+            return
+        oid = self.open_position.exchange_stop_order_id
+        sym = self.config.symbol
+        try:
+            _retry_call(
+                self.exchange.cancel_order,
+                oid, sym,
+                attempts=self.retry_attempts,
+                delay=self.retry_delay,
+                logger=self.logger,
+                description=f"cancel_protective_stop({oid})",
+            )
+            self.logger.info("Cancelled exchange protective stop order %s", oid)
+        except Exception as exc:
+            self.logger.warning(
+                "Could not cancel protective stop %s (may already be filled): %s",
+                oid, exc,
+            )
+        finally:
+            self.open_position.exchange_stop_order_id = None
+            self._update_open_position_in_db()
+
+    def _sync_exchange_protective_stop(self) -> None:
+        """
+        Place a STOP_LOSS_LIMIT sell that mirrors the higher of the fixed
+        stop-loss and the trailed stop.  Only in LIVE mode with the feature
+        flag enabled.
+
+        Failure logs a warning but does not unwind the spot position — the
+        in-process ``update_position`` loop remains the last line of defence.
+        """
+        if self.mode != TradingMode.LIVE:
+            return
+        if not getattr(self.config, "exchange_stop_loss_enabled", True):
+            return
+        if not self.open_position or self.open_position.side != "long":
+            return
+
+        pos = self.open_position
+        trigger = self._effective_protective_trigger(pos)
+        trigger = self.round_price(trigger)
+        # Binance requires limit < stop for auction — sell limit slightly
+        # below the trigger so that when the stop fires, the limit rests
+        # inside executable range.
+        limit_px = self.round_price(trigger * 0.998)
+        if limit_px >= trigger:
+            limit_px = self.round_price(trigger * 0.995)
+
+        qty = self.round_amount(pos.amount)
+        if qty <= 0:
+            return
+
+        # Replace existing bracket
+        self._cancel_exchange_protective_stop()
+
+        try:
+            order = _retry_call(
+                self.exchange.create_order,
+                self.config.symbol,
+                "STOP_LOSS_LIMIT",
+                "sell",
+                qty,
+                limit_px,
+                {"stopPrice": trigger, "timeInForce": "GTC"},
+                attempts=self.retry_attempts,
+                delay=self.retry_delay,
+                logger=self.logger,
+                description="STOP_LOSS_LIMIT protective sell",
+            )
+            oid = str(order.get("id", "") or "")
+            if oid:
+                pos.exchange_stop_order_id = oid
+            self._update_open_position_in_db()
+            self.logger.info(
+                "Exchange protective stop armed: qty=%.8f trigger=$%.4f limit=$%.4f order=%s",
+                qty, trigger, limit_px, oid or "?",
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Failed to place exchange protective STOP_LOSS_LIMIT: %s. "
+                "Software stops still active.",
+                exc,
+                exc_info=True,
+            )
+
+    # ------------------------------------------------------------------
+    # Peak portfolio equity → drawdown kill-switch (buys only)
+    # ------------------------------------------------------------------
+
+    def _check_portfolio_peak_drawdown(self, side: str, price: float) -> tuple[bool, str]:
+        if side != "buy":
+            return True, ""
+        if not getattr(self.config, "portfolio_drawdown_kill_enabled", True):
+            return True, ""
+        if not self.db_manager:
+            return True, ""
+        try:
+            row = self.db_manager.get_strategy_config(_PEAK_PORTFOLIO_EQUITY_KEY)
+            peak = float(row.value) if row and row.value else 0.0
+        except Exception as exc:
+            self.logger.debug("Could not read peak equity: %s", exc)
+            return True, ""
+
+        equity = float(self.usdt_balance) + float(self.base_balance) * float(price)
+        if peak <= 0 or equity > peak:
+            peak = max(peak, equity) if peak > 0 else equity
+            try:
+                self.db_manager.set_strategy_config(
+                    _PEAK_PORTFOLIO_EQUITY_KEY,
+                    str(peak),
+                    "float",
+                    "risk",
+                    "Internal: peak portfolio equity (USDT) for drawdown limit",
+                )
+            except Exception as exc:
+                self.logger.warning("Could not persist peak equity: %s", exc)
+
+        if peak <= 0:
+            return True, ""
+        dd = (peak - equity) / peak
+        max_dd = float(self.config.max_portfolio_drawdown)
+        if dd >= max_dd:
+            self.portfolio_buy_halt = True
+            try:
+                from notify import send_notification
+
+                send_notification(
+                    "Portfolio drawdown halt",
+                    f"Peak ${peak:.2f}  current equity ${equity:.2f}  "
+                    f"DD {dd * 100:.2f}% (limit {max_dd * 100:.2f}%). "
+                    f"New buys disabled; sells still allowed.",
+                    severity="critical",
+                )
+            except Exception:
+                pass
+            return (
+                False,
+                f"Portfolio drawdown {dd * 100:.2f}% from peak exceeds "
+                f"{max_dd * 100:.2f}% — new buys disabled",
+            )
+        return True, ""
     
     # =========================================================================
     # Pre-Trade Validation
@@ -380,7 +852,17 @@ class LiveTrader:
         # Check if trading is enabled
         if not self.trading_enabled:
             return False, "Trading is disabled"
-        
+
+        if side == "buy" and self.portfolio_buy_halt:
+            return (
+                False,
+                "New buys halted — portfolio drawdown reached the configured limit earlier",
+            )
+
+        ok_peak, peak_msg = self._check_portfolio_peak_drawdown(side, price)
+        if not ok_peak:
+            return False, peak_msg
+
         # Check daily reset
         self._check_daily_reset()
         
@@ -404,7 +886,33 @@ class LiveTrader:
         min_notional = self.get_min_notional()
         if notional < min_notional:
             return False, f"Notional ${notional:.2f} below minimum ${min_notional:.2f}"
-        
+
+        # Hard cap on single-trade USD size. Documented in env.example as
+        # BOT_MAX_SINGLE_TRADE_USD. Enforced here so that automated signals
+        # cannot ever submit an order larger than the operator-configured
+        # ceiling, even if a strategy mis-sizes a position.
+        max_single_trade_usd = getattr(self.config, "max_single_trade_usd", 0.0) or 0.0
+        if max_single_trade_usd > 0 and notional > max_single_trade_usd:
+            return False, (
+                f"Notional ${notional:.2f} exceeds max single-trade cap "
+                f"${max_single_trade_usd:.2f} (BOT_MAX_SINGLE_TRADE_USD)"
+            )
+
+        # Confirmation gate. In the absence of an interactive confirmation
+        # channel, BOT_REQUIRE_TRADE_CONFIRMATION=true blocks any automated
+        # trade above BOT_CONFIRMATION_THRESHOLD_USD; the operator must
+        # explicitly raise the threshold or disable confirmation before
+        # such a trade can run unattended.
+        require_confirmation = getattr(self.config, "require_trade_confirmation", False)
+        confirmation_threshold = getattr(self.config, "confirmation_threshold_usd", 0.0) or 0.0
+        if require_confirmation and notional > confirmation_threshold:
+            return False, (
+                f"Notional ${notional:.2f} exceeds confirmation threshold "
+                f"${confirmation_threshold:.2f} (BOT_REQUIRE_TRADE_CONFIRMATION=true). "
+                f"Lower position size, raise BOT_CONFIRMATION_THRESHOLD_USD, or set "
+                f"BOT_REQUIRE_TRADE_CONFIRMATION=false."
+            )
+
         # Check balance for buys
         if side == 'buy':
             available = self.get_available_usdt()
@@ -468,31 +976,80 @@ class LiveTrader:
         # LIVE mode - execute real order
         try:
             self.logger.info(f"Executing MARKET BUY: {amount} {symbol}")
-            
-            order = self.exchange.create_market_buy_order(
+
+            order = _retry_call(
+                self.exchange.create_market_buy_order,
                 symbol=symbol,
                 amount=amount,
+                attempts=self.retry_attempts,
+                delay=self.retry_delay,
+                logger=self.logger,
+                description=f"create_market_buy_order({amount} {symbol})",
             )
-            
-            # Track order
+
             order_record = self._parse_order(order)
+
+            # Poll until the order reaches a terminal state so partial fills
+            # are accounted for instead of silently treated as full.
+            order_id = order_record.order_id
+            if order_id:
+                try:
+                    final_order = _wait_for_order_terminal(
+                        self.exchange, order_id, symbol,
+                        timeout_seconds=self.order_poll_timeout,
+                        poll_interval=self.order_poll_interval,
+                        retry_attempts=self.retry_attempts,
+                        retry_delay=self.retry_delay,
+                        logger=self.logger,
+                    )
+                    order = final_order or order
+                    order_record = self._parse_order(order)
+                except Exception as exc:
+                    self.logger.warning(
+                        "Could not poll order %s to terminal state (%s); "
+                        "proceeding with initial response.",
+                        order_id, exc,
+                    )
+
             self.completed_orders.append(order_record)
-            
-            # Update balances
+
+            # Use exchange-reported fills; fall back to requested amount only
+            # if the exchange returned no fill data at all.
+            fill_price = float(order.get("average") or order.get("price") or current_price)
+            filled_amount = float(order.get("filled") or 0.0)
+            requested_amount = amount
+
+            if filled_amount <= 0.0:
+                self.logger.error(
+                    "Market BUY for %s reported zero fills (status=%s). "
+                    "Treating as failed; no position opened.",
+                    symbol, order.get("status"),
+                )
+                # Refresh balances anyway so state isn't stale.
+                try:
+                    self.sync_balances()
+                except Exception:
+                    pass
+                return None
+
+            if filled_amount + 1e-12 < requested_amount:
+                self.logger.warning(
+                    "Partial fill: requested %.8f, got %.8f (%.2f%%). "
+                    "Position opened for the filled amount only.",
+                    requested_amount, filled_amount,
+                    100.0 * filled_amount / requested_amount,
+                )
+
+            # Refresh USDT/BASE balances after the fill.
             self.sync_balances()
-            
-            # Calculate fill price and fees
-            fill_price = float(order.get('average', current_price))
-            filled_amount = float(order.get('filled', amount))
-            fee_info = order.get('fee', {})
-            fee = float(fee_info.get('cost', filled_amount * fill_price * self.config.fee_rate))
-            
+
+            fee_info = order.get("fee") or {}
+            fee = float(fee_info.get("cost") or filled_amount * fill_price * self.config.fee_rate)
             notional = filled_amount * fill_price
             slippage = fill_price - current_price
-            
-            # Create trade record
+
             trade = TradeRecord(
-                side='buy',
+                side="buy",
                 price=fill_price,
                 amount=filled_amount,
                 notional=notional,
@@ -504,26 +1061,29 @@ class LiveTrader:
                 signal=signal.to_dict() if signal else {},
                 order_id=order_record.order_id,
             )
-            
-            # Update position
+
+            # Open + persist position (uses the actual filled amount, not
+            # the requested amount).
             self._open_long_position(fill_price, filled_amount, signal, order_record.order_id)
-            
-            # Update counters
+
+            self._sync_exchange_protective_stop()
+
             self.daily_trades += 1
             self.total_trades += 1
-            
-            # Log trade
             self._log_trade(trade)
-            
+
             self.logger.info(
-                f"BUY executed: {filled_amount} @ ${fill_price:.2f} "
-                f"(fee: ${fee:.4f}, slippage: ${slippage:.4f})"
+                "BUY executed: %.8f @ $%.2f (fee=$%.4f slippage=$%.4f)",
+                filled_amount, fill_price, fee, slippage,
             )
-            
             return trade
-            
+
+        except _PERMANENT_CCXT_ERRORS as exc:
+            # Permanent rejection — surface as a clean failure, not a crash.
+            self.logger.error("Market BUY rejected by exchange: %s", exc)
+            return None
         except Exception as e:
-            self.logger.error(f"Market buy failed: {e}")
+            self.logger.error(f"Market buy failed: {e}", exc_info=True)
             raise
     
     def execute_market_sell(
@@ -573,47 +1133,84 @@ class LiveTrader:
         # LIVE mode - execute real order
         try:
             self.logger.info(f"Executing MARKET SELL: {amount} {symbol} (reason: {exit_reason})")
-            
-            order = self.exchange.create_market_sell_order(
+
+            # Release coins locked by the resting STOP_LOSS_LIMIT before we
+            # submit a market sell for the same asset.
+            self._cancel_exchange_protective_stop()
+
+            order = _retry_call(
+                self.exchange.create_market_sell_order,
                 symbol=symbol,
                 amount=amount,
+                attempts=self.retry_attempts,
+                delay=self.retry_delay,
+                logger=self.logger,
+                description=f"create_market_sell_order({amount} {symbol})",
             )
-            
-            # Track order
+
             order_record = self._parse_order(order)
+
+            # Poll until the order is terminal so we use real fill data.
+            order_id = order_record.order_id
+            if order_id:
+                try:
+                    final_order = _wait_for_order_terminal(
+                        self.exchange, order_id, symbol,
+                        timeout_seconds=self.order_poll_timeout,
+                        poll_interval=self.order_poll_interval,
+                        retry_attempts=self.retry_attempts,
+                        retry_delay=self.retry_delay,
+                        logger=self.logger,
+                    )
+                    order = final_order or order
+                    order_record = self._parse_order(order)
+                except Exception as exc:
+                    self.logger.warning(
+                        "Could not poll sell order %s to terminal state (%s); "
+                        "proceeding with initial response.",
+                        order_id, exc,
+                    )
+
             self.completed_orders.append(order_record)
-            
-            # Calculate P&L before balance sync
+
+            fill_price = float(order.get("average") or order.get("price") or current_price)
+            filled_amount = float(order.get("filled") or 0.0)
+            if filled_amount <= 0.0:
+                self.logger.error(
+                    "Market SELL for %s reported zero fills (status=%s). "
+                    "Position state preserved; investigate before retrying.",
+                    symbol, order.get("status"),
+                )
+                return None
+            if filled_amount + 1e-12 < amount:
+                self.logger.warning(
+                    "Partial sell: requested %.8f, got %.8f (%.2f%%). "
+                    "Open position will be reduced by the filled amount only.",
+                    amount, filled_amount, 100.0 * filled_amount / amount,
+                )
+
+            fee_info = order.get("fee") or {}
+            fee = float(fee_info.get("cost") or filled_amount * fill_price * self.config.fee_rate)
+
+            notional = filled_amount * fill_price
+            slippage = current_price - fill_price
+
+            # Realised P&L on *this fill*'s cost basis only.
             pnl = None
-            if self.open_position and self.open_position.side == 'long':
-                entry_cost = self.open_position.amount * self.open_position.entry_price
-                fill_price = float(order.get('average', current_price))
-                exit_value = float(order.get('filled', amount)) * fill_price
-                fee_info = order.get('fee', {})
-                fee = float(fee_info.get('cost', exit_value * self.config.fee_rate))
-                pnl = exit_value - entry_cost - fee
-                
-                # Update stats
+            if self.open_position and self.open_position.side == "long":
+                cost_basis = self.open_position.entry_price * filled_amount
+                exit_value = filled_amount * fill_price
+                pnl = exit_value - cost_basis - fee
                 self.total_pnl += pnl
                 self.daily_pnl += pnl
                 if pnl > 0:
                     self.winning_trades += 1
-            
-            # Update balances
+
+            # Balances for logging reflect the exchange state post-fill.
             self.sync_balances()
-            
-            # Calculate fill details
-            fill_price = float(order.get('average', current_price))
-            filled_amount = float(order.get('filled', amount))
-            fee_info = order.get('fee', {})
-            fee = float(fee_info.get('cost', filled_amount * fill_price * self.config.fee_rate))
-            
-            notional = filled_amount * fill_price
-            slippage = current_price - fill_price
-            
-            # Create trade record
+
             trade = TradeRecord(
-                side='sell',
+                side="sell",
                 price=fill_price,
                 amount=filled_amount,
                 notional=notional,
@@ -627,26 +1224,36 @@ class LiveTrader:
                 pnl=pnl,
                 order_id=order_record.order_id,
             )
-            
-            # Clear position
-            self.open_position = None
-            
-            # Update counters
+
+            pos = self.open_position
+            is_full_exit = pos is None or filled_amount + 1e-10 >= pos.amount
+
+            if is_full_exit:
+                self._close_position_in_db(fill_price, exit_reason, pnl)
+                self.open_position = None
+            else:
+                if pos:
+                    pos.amount -= filled_amount
+                    pos.amount = self.round_amount(max(pos.amount, 0.0))
+                self._update_open_position_in_db()
+                self._sync_exchange_protective_stop()
+
             self.daily_trades += 1
             self.total_trades += 1
-            
-            # Log trade
             self._log_trade(trade)
-            
+
+            pnl_for_log = pnl if pnl is not None else 0.0
             self.logger.info(
-                f"SELL executed: {filled_amount} @ ${fill_price:.2f} "
-                f"(fee: ${fee:.4f}, P&L: ${pnl:.2f if pnl else 0:.2f})"
+                "SELL executed: %.8f @ $%.2f (fee=$%.4f P&L=$%.2f reason=%s)",
+                filled_amount, fill_price, fee, pnl_for_log, exit_reason,
             )
-            
             return trade
-            
+
+        except _PERMANENT_CCXT_ERRORS as exc:
+            self.logger.error("Market SELL rejected by exchange: %s", exc)
+            return None
         except Exception as e:
-            self.logger.error(f"Market sell failed: {e}")
+            self.logger.error(f"Market sell failed: {e}", exc_info=True)
             raise
     
     # =========================================================================
@@ -726,13 +1333,13 @@ class LiveTrader:
         signal: Optional["StrategySignal"],
         order_id: Optional[str] = None,
     ):
-        """Open a new long position"""
+        """Open a new long position and persist it to the DB."""
         stop_loss = signal.stop_loss if signal and signal.stop_loss > 0 else entry_price * (1 - self.config.stop_loss_pct)
         take_profit = signal.take_profit if signal and signal.take_profit > 0 else entry_price * (1 + self.config.take_profit_pct)
         trailing_stop = entry_price * (1 - self.config.trailing_stop_pct)
-        
+
         self.open_position = LivePosition(
-            side='long',
+            side="long",
             entry_price=entry_price,
             amount=amount,
             entry_time=datetime.now(timezone.utc).isoformat(),
@@ -743,55 +1350,65 @@ class LiveTrader:
             entry_order_id=order_id,
             highest_price=entry_price,
         )
-        
+
+        # Persist immediately so a crash between buy fill and the next
+        # update_position() call does not lose SL/TP/trailing-stop levels.
+        self._save_position_to_db(self.open_position)
+
         self.logger.info(
-            f"Position opened: LONG {amount:.8f} @ ${entry_price:.2f} "
-            f"| SL: ${stop_loss:.2f} | TP: ${take_profit:.2f}"
+            "Position opened: LONG %.8f @ $%.2f | SL=$%.2f TP=$%.2f trailing=$%.2f db_id=%s",
+            amount, entry_price, stop_loss, take_profit, trailing_stop,
+            self.db_position_id,
         )
-    
+
     def update_position(self, current_price: float) -> Optional[TradeRecord]:
         """
-        Update position and check for exit conditions.
-        
-        Args:
-            current_price: Current market price
-            
-        Returns:
-            TradeRecord if position was closed, None otherwise
+        Update the open position and check for exit conditions.
+
+        When the trailing stop ratchets up we also persist the new level so
+        a restart resumes from the protected high-water mark instead of
+        rolling back to the original entry-based level.
         """
         if not self.open_position:
             return None
-        
+
         pos = self.open_position
         exit_reason = None
-        
-        if pos.side == 'long':
-            # Update trailing stop
+        ratcheted = False
+
+        if pos.side == "long":
             if self.config.use_trailing_stop:
                 if current_price > pos.highest_price:
                     pos.highest_price = current_price
                     new_trailing = current_price * (1 - pos.initial_trailing_stop_pct)
                     if new_trailing > pos.trailing_stop:
                         pos.trailing_stop = new_trailing
-                        self.logger.debug(f"Trailing stop updated to ${pos.trailing_stop:.2f}")
-            
-            # Check exit conditions
+                        ratcheted = True
+                        self.logger.debug(
+                            "Trailing stop ratcheted to $%.2f (high $%.2f)",
+                            pos.trailing_stop, pos.highest_price,
+                        )
+
             if current_price <= pos.stop_loss:
                 exit_reason = "stop_loss"
             elif current_price >= pos.take_profit:
                 exit_reason = "take_profit"
             elif self.config.use_trailing_stop and current_price <= pos.trailing_stop:
                 exit_reason = "trailing_stop"
-        
-        # Exit if triggered
+
+        if ratcheted and not exit_reason:
+            self._update_open_position_in_db()
+            if getattr(self.config, "exchange_stop_update_on_trailing", True):
+                self._sync_exchange_protective_stop()
+
         if exit_reason:
-            self.logger.info(f"Exit triggered: {exit_reason} at ${current_price:.2f}")
+            self.logger.info("Exit triggered: %s at $%.2f", exit_reason, current_price)
             return self.execute_market_sell(
                 amount=pos.amount,
                 signal=None,
                 exit_reason=exit_reason,
             )
-        
+
         return None
     
     # =========================================================================
@@ -899,19 +1516,19 @@ class LiveTrader:
         
         # Calculate P&L
         pnl = None
-        if self.open_position and self.open_position.side == 'long':
+        if self.open_position and self.open_position.side == "long":
             entry_cost = self.open_position.amount * self.open_position.entry_price
             pnl = (notional - fee) - entry_cost
             self.total_pnl += pnl
             self.daily_pnl += pnl
             if pnl > 0:
                 self.winning_trades += 1
-        
+
         self.base_balance -= amount
         self.usdt_balance += (notional - fee)
-        
+
         trade = TradeRecord(
-            side='sell',
+            side="sell",
             price=fill_price,
             amount=amount,
             notional=notional,
@@ -924,12 +1541,14 @@ class LiveTrader:
             exit_reason=exit_reason,
             pnl=pnl,
         )
-        
+
+        # Mark the open DB row as closed before clearing the in-memory ref.
+        self._close_position_in_db(fill_price, exit_reason, pnl)
         self.open_position = None
         self.daily_trades += 1
         self.total_trades += 1
         self._log_trade(trade)
-        
+
         return trade
     
     def _create_simulated_trade(

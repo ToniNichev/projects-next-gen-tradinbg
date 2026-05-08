@@ -98,7 +98,14 @@ class MockExchange:
 
 
 def create_test_config():
-    """Create a test configuration"""
+    """Create a test configuration.
+
+    The default safety gates (require_trade_confirmation,
+    confirmation_threshold_usd, max_single_trade_usd) are explicitly
+    relaxed here so legacy tests that submit larger notionals continue to
+    validate the *other* checks. Tests that target the new gates pass
+    their own overrides.
+    """
     return BotConfig(
         binance_api_key="test_key",
         binance_api_secret="test_secret",
@@ -118,6 +125,9 @@ def create_test_config():
         max_trades_per_day=5,
         trading_mode="paper",
         live_trading_enabled=False,
+        require_trade_confirmation=False,
+        confirmation_threshold_usd=0.0,
+        max_single_trade_usd=0.0,
     )
 
 
@@ -221,6 +231,34 @@ class TestPreTradeValidation(unittest.TestCase):
         self.assertFalse(is_valid)
         self.assertIn("Insufficient balance", msg)
 
+    def test_validate_max_single_trade_usd_blocks_oversize(self):
+        """Validation fails when notional exceeds BOT_MAX_SINGLE_TRADE_USD."""
+        self.trader.config.max_single_trade_usd = 100.0
+        is_valid, msg = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertFalse(is_valid)
+        self.assertIn("max single-trade cap", msg)
+
+    def test_validate_max_single_trade_usd_zero_disables_cap(self):
+        """A cap of 0 disables enforcement (legacy / paper-only setups)."""
+        self.trader.config.max_single_trade_usd = 0.0
+        is_valid, _ = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertTrue(is_valid)
+
+    def test_validate_require_confirmation_blocks_above_threshold(self):
+        """Validation fails when confirmation is required and threshold breached."""
+        self.trader.config.require_trade_confirmation = True
+        self.trader.config.confirmation_threshold_usd = 100.0
+        is_valid, msg = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertFalse(is_valid)
+        self.assertIn("confirmation threshold", msg)
+
+    def test_validate_require_confirmation_allows_below_threshold(self):
+        """Trades at or below the threshold pass when confirmation is required."""
+        self.trader.config.require_trade_confirmation = True
+        self.trader.config.confirmation_threshold_usd = 1000.0
+        is_valid, _ = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertTrue(is_valid)
+
 
 class TestOrderExecution(unittest.TestCase):
     """Test order execution in different modes"""
@@ -301,11 +339,15 @@ class TestPositionManagement(unittest.TestCase):
         """Test trailing stop updates on price increase"""
         self.trader.execute_market_buy(0.01)
         initial_trailing = self.trader.open_position.trailing_stop
-        
-        # Simulate price increase
-        self.trader.open_position.highest_price = 52000.0
+        initial_highest = self.trader.open_position.highest_price
+
+        # update_position is responsible for raising both highest_price and
+        # trailing_stop when a new high is observed.  We pass a price strictly
+        # greater than the existing highest_price (the entry price) so the
+        # ratchet must move.
         self.trader.update_position(52000.0)
-        
+
+        self.assertGreater(self.trader.open_position.highest_price, initial_highest)
         self.assertGreater(self.trader.open_position.trailing_stop, initial_trailing)
     
     def test_stop_loss_trigger(self):

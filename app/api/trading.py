@@ -148,10 +148,28 @@ def get_manual_status():
 # Manual buy / sell
 # ---------------------------------------------------------------------------
 
+def _available_usdt(trader) -> float:
+    """USDT available to spend, respecting the live-trader fee reserve."""
+    if hasattr(trader, "get_available_usdt"):
+        try:
+            return float(trader.get_available_usdt())
+        except Exception:
+            pass
+    return float(getattr(trader, "usdt_balance", 0.0))
+
+
 @trading_bp.route("/api/manual/buy", methods=["POST"])
 @require_auth
 @limiter.limit("10 per minute")
 def manual_buy():
+    """
+    Open (or scale into, in paper mode) a long position.
+
+    Request body: ``{"position_size": 0.25}`` — fraction of available USDT.
+    Internally we convert that fraction into a BASE-currency amount and call
+    ``trader.execute_market_buy(amount, signal)`` which is the only public
+    path supported by both PaperTrader and LiveTrader.
+    """
     trader, lock = _get_trader_and_lock()
     if trader is None:
         return jsonify({"error": "Trader not available"}), 503
@@ -160,26 +178,39 @@ def manual_buy():
         from config import BotConfig
         config = BotConfig.load()
         exchange = get_app_state().get_exchange()
-        params = request.get_json() or {}
+        params = request.get_json(silent=True) or {}
         position_size = float(params.get("position_size", config.order_pct))
 
         if position_size < config.min_position_size:
-            return jsonify({"error": f"Position size too small (min: {config.min_position_size * 100}%)"}), 400
+            return jsonify({
+                "error": f"Position size too small (min: {config.min_position_size * 100}%)"
+            }), 400
         if position_size > config.max_position_size:
-            return jsonify({"error": f"Position size too large (max: {config.max_position_size * 100}%)"}), 400
+            return jsonify({
+                "error": f"Position size too large (max: {config.max_position_size * 100}%)"
+            }), 400
 
         with lock:
-            if trader.usdt_balance <= 0:
+            available = _available_usdt(trader)
+            if available <= 0:
                 return jsonify({"error": "Insufficient USDT balance"}), 400
 
             price = _get_current_price(exchange, config.symbol)
+            if price <= 0:
+                return jsonify({"error": "Invalid market price"}), 502
+
+            notional = available * position_size
+            base_amount = notional / price
             signal = _create_manual_signal("bullish", price, position_size, config)
-            trade = trader._buy(price, position_size, signal)
 
+            trade = trader.execute_market_buy(amount=base_amount, signal=signal)
             if not trade:
-                return jsonify({"error": "Trade execution failed"}), 400
+                return jsonify({
+                    "error": "Trade execution failed (see server logs for "
+                             "validation reason; check balance, min notional, "
+                             "daily limits, max single-trade cap)."
+                }), 400
 
-            # Sync ApplicationState
             _sync_state_after_trade(trader)
 
         return jsonify({
@@ -198,6 +229,12 @@ def manual_buy():
 @require_auth
 @limiter.limit("10 per minute")
 def manual_sell():
+    """
+    Close the currently open long position via a market sell.
+
+    Spot trading has no shorting, so a sell with no open position is a
+    deliberate 400 — the dashboard should hide the button in that case.
+    """
     trader, lock = _get_trader_and_lock()
     if trader is None:
         return jsonify({"error": "Trader not available"}), 503
@@ -206,40 +243,38 @@ def manual_sell():
         from config import BotConfig
         config = BotConfig.load()
         exchange = get_app_state().get_exchange()
-        params = request.get_json() or {}
-        position_size = float(params.get("position_size", config.order_pct))
 
         with lock:
-            price = _get_current_price(exchange, config.symbol)
-
-            # Close existing long position
-            if trader.open_position and trader.open_position.side == "long":
-                trade = trader._close_position(price, "manual")
-                if not trade:
-                    return jsonify({"error": "Trade execution failed"}), 400
-                _sync_state_after_trade(trader)
+            position = trader.open_position
+            if not position or getattr(position, "side", None) != "long":
                 return jsonify({
-                    "success": True,
-                    "trade": trade.to_dict(),
-                    "message": "Position closed successfully",
-                    "balances": trader.get_balances(),
-                })
+                    "error": "No open long position to close (spot trading "
+                             "does not support short selling)."
+                }), 400
 
-            # No open long — attempt bearish signal
-            if position_size < config.min_position_size or position_size > config.max_position_size:
-                return jsonify({"error": "Invalid position size"}), 400
+            price = _get_current_price(exchange, config.symbol)
+            if price <= 0:
+                return jsonify({"error": "Invalid market price"}), 502
 
-            signal = _create_manual_signal("bearish", price, position_size, config)
-            trade = trader.handle_signal(signal)
+            signal = _create_manual_signal("bearish", price, config.order_pct, config)
+
+            trade = trader.execute_market_sell(
+                amount=position.amount,
+                signal=signal,
+                exit_reason="manual",
+            )
             if not trade:
-                return jsonify({"error": "No position to close"}), 400
+                return jsonify({
+                    "error": "Trade execution failed (see server logs for "
+                             "validation reason)."
+                }), 400
 
             _sync_state_after_trade(trader)
 
         return jsonify({
             "success": True,
             "trade": trade.to_dict(),
-            "message": "Sell order executed successfully",
+            "message": "Position closed successfully",
             "balances": trader.get_balances(),
         })
 
