@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strategy import StrategySignal
+    from strategies.base_strategy import StrategySignal
 
 try:
     from database import DatabaseManager, Trade as DBTrade, Position as DBPosition
@@ -519,8 +519,9 @@ class PaperTrader:
         return trade
     
     # ------------------------------------------------------------------
-    # Public trading interface (matches LiveTrader's API so that
-    # TradingManager can work with either trader without special-casing)
+    # Public trading interface (matches LiveTrader's API so that the
+    # app/api/trading.py routes can work with either trader without
+    # special-casing)
     # ------------------------------------------------------------------
 
     def execute_market_buy(self, amount: float, signal) -> Optional[TradeRecord]:
@@ -566,7 +567,12 @@ class PaperTrader:
         return self._buy(price, order_pct, signal)
 
     def execute_market_sell(
-        self, amount: float, signal, exit_reason: str = "manual"
+        self,
+        amount: float,
+        signal,
+        exit_reason: str = "manual",
+        is_closing_sell: bool = False,
+        is_emergency_close: bool = False,
     ) -> Optional[TradeRecord]:
         """
         Execute a market sell.
@@ -576,6 +582,11 @@ class PaperTrader:
         so ``amount`` must be approximately equal to the open position's
         size (within 1e-8 to absorb float noise).  Anything else is
         rejected to keep the API honest about its capabilities.
+
+        ``is_closing_sell`` / ``is_emergency_close`` are accepted for
+        interface compatibility with ``LiveTrader.execute_market_sell`` (see
+        its docstring) but unused here — paper mode has no validate_trade
+        -style risk gates to bypass in the first place.
         """
         if not self.open_position:
             logging.info("execute_market_sell: no open position to close")

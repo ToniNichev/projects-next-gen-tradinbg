@@ -89,7 +89,7 @@ def get_history():
 @require_auth
 @limiter.limit("30 per minute")
 def get_candles(timeframe):
-    """Fetch OHLCV candles from Binance for the given timeframe."""
+    """Serve OHLCV candles — local DB first, Binance as fallback."""
     valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
     if timeframe not in valid_timeframes:
         return jsonify({"error": f"Invalid timeframe. Must be one of: {', '.join(valid_timeframes)}"}), 400
@@ -99,9 +99,31 @@ def get_candles(timeframe):
         from config import BotConfig
 
         config = BotConfig.load()
-        limit = min(int(request.args.get("limit", 100)), 500)
-        since = request.args.get("since")
+        limit = min(int(request.args.get("limit", 300)), 1000)
+        since_param = request.args.get("since")
 
+        # Try DB first — fast, no Binance API call on every chart load
+        if DATABASE_AVAILABLE:
+            try:
+                db = get_database()
+                since_dt = None
+                if since_param:
+                    since_dt = datetime.fromtimestamp(int(since_param) / 1000, tz=timezone.utc).replace(tzinfo=None)
+                candles = db.get_candles(config.symbol, timeframe, limit=limit, since=since_dt)
+                if len(candles) >= 50:
+                    return jsonify({
+                        "timeframe": timeframe,
+                        "symbol": config.symbol,
+                        "candles": candles,
+                        "count": len(candles),
+                        "oldest_timestamp": candles[0]["timestamp"] if candles else None,
+                        "newest_timestamp": candles[-1]["timestamp"] if candles else None,
+                        "source": "db",
+                    })
+            except Exception as db_exc:
+                logger.warning("DB candle fetch failed, falling back to Binance: %s", db_exc)
+
+        # Fallback: fetch live from Binance
         exchange = get_app_state().get_exchange()
         if exchange is None:
             exchange = ccxt.binanceus({
@@ -110,9 +132,9 @@ def get_candles(timeframe):
                 "enableRateLimit": True,
             })
 
-        kwargs = {"limit": limit}
-        if since:
-            kwargs["since"] = int(since)
+        kwargs = {"limit": min(limit, 500)}
+        if since_param:
+            kwargs["since"] = int(since_param)
 
         ohlcv = exchange.fetch_ohlcv(config.symbol, timeframe, **kwargs)
 
@@ -131,6 +153,7 @@ def get_candles(timeframe):
             "count": len(candles),
             "oldest_timestamp": candles[0]["timestamp"] if candles else None,
             "newest_timestamp": candles[-1]["timestamp"] if candles else None,
+            "source": "binance",
         })
 
     except Exception as exc:

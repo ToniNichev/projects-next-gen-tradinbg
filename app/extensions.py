@@ -6,11 +6,21 @@ Call ``init_extensions(app)`` from the application factory after the app
 is created.
 """
 
+from flask import request
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+
+
+def _get_real_ip() -> str:
+    # Apache mod_proxy sets X-Forwarded-For to the real client IP.
+    # Take the leftmost entry to guard against spoofing a second hop.
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.remote_addr or "127.0.0.1"
+
 
 limiter = Limiter(
-    key_func=get_remote_address,
+    key_func=_get_real_ip,
     default_limits=["60 per minute"],
     storage_uri="memory://",
 )

@@ -10,6 +10,7 @@ Supports different signal aggregation modes:
 """
 
 import logging
+from collections import deque
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -48,6 +49,14 @@ class StrategyManager:
         self.min_confidence = min_confidence
         self.logger = logging.getLogger(__name__)
         
+        # Per-strategy last signal (keyed by strategy name)
+        self.last_signals: dict = {}
+
+        # Rolling indicator history for sparklines (last 50 candles)
+        self.signal_history: dict = {
+            s.name: deque(maxlen=50) for s in strategies
+        }
+
         # Strategy performance tracking
         self.strategy_stats = {
             strategy.name: {
@@ -87,7 +96,14 @@ class StrategyManager:
             try:
                 signal = strategy.compute_signal(exchange, symbol, timeframe, candle_data)
                 signals.append(signal)
-                
+                self.last_signals[strategy.name] = signal
+                self.signal_history[strategy.name].append({
+                    "t": signal.timestamp.isoformat() if signal.timestamp else None,
+                    "d": signal.direction,
+                    "c": round(signal.confidence, 3),
+                    "i": dict(signal.indicators or {}),
+                })
+
                 # Track stats
                 self.strategy_stats[strategy.name]["signals_generated"] += 1
                 self.strategy_stats[strategy.name]["total_confidence"] += signal.confidence

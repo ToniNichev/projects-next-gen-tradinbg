@@ -71,6 +71,7 @@ class BacktestState:
     current_candle: int = 0
     total_candles: int = 0
     eta_seconds: int = 0
+    started_at: float = 0.0
     results: List[Dict[str, Any]] = field(default_factory=list)
 
 
@@ -255,6 +256,7 @@ class ApplicationState:
                 current_candle=self._backtest_state.current_candle,
                 total_candles=self._backtest_state.total_candles,
                 eta_seconds=self._backtest_state.eta_seconds,
+                started_at=self._backtest_state.started_at,
                 results=self._backtest_state.results.copy()
             )
     
@@ -279,6 +281,7 @@ class ApplicationState:
                 'current_candle': self._backtest_state.current_candle,
                 'total_candles': self._backtest_state.total_candles,
                 'eta_seconds': self._backtest_state.eta_seconds,
+                'started_at': self._backtest_state.started_at,
                 'results': self._backtest_state.results
             }
             

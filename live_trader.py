@@ -20,7 +20,7 @@ from enum import Enum
 import ccxt
 
 if TYPE_CHECKING:
-    from strategy import StrategySignal
+    from strategies.base_strategy import StrategySignal
 
 try:
     from database import DatabaseManager, Trade as DBTrade, Position as DBPosition
@@ -833,25 +833,49 @@ class LiveTrader:
         side: str,
         amount: float,
         price: float,
+        *,
+        is_closing_sell: bool = False,
+        is_emergency_close: bool = False,
     ) -> tuple[bool, str]:
         """
         Validate trade before execution.
-        
+
         Args:
             side: 'buy' or 'sell'
             amount: Amount to trade
             price: Current price
-            
+            is_closing_sell: True for any sell that reduces or closes an
+                existing position — software stop-loss/take-profit/trailing
+                -stop exits, a signal-reversal close, or a manual sell.
+                Bypasses the entry-side risk gates (trading_enabled, daily
+                trade/loss limits, max-single-trade cap, confirmation
+                threshold): those exist to stop *new* risk from being taken,
+                not to trap the risk engine — or the operator — inside a
+                position it is trying to exit. Does NOT bypass
+                emergency_stop; once that is set, only the emergency-stop's
+                own close (``is_emergency_close``) may sell.
+            is_emergency_close: True only for the single closing sell issued
+                by ``trigger_emergency_stop``. Implies ``is_closing_sell``
+                and additionally bypasses ``emergency_stop`` itself — without
+                this the panic button would be a no-op, since it always
+                fires while ``self.emergency_stop`` is already True. Balance
+                and minimum-size checks still apply in all cases since those
+                reflect what the exchange will actually accept.
+
         Returns:
             (is_valid, error_message)
         """
-        # Check emergency stop
-        if self.emergency_stop:
-            return False, "Emergency stop is active"
-        
-        # Check if trading is enabled
-        if not self.trading_enabled:
-            return False, "Trading is disabled"
+        bypass_entry_gates = is_closing_sell or is_emergency_close
+
+        if not is_emergency_close:
+            # Check emergency stop
+            if self.emergency_stop:
+                return False, "Emergency stop is active"
+
+        if not bypass_entry_gates:
+            # Check if trading is enabled
+            if not self.trading_enabled:
+                return False, "Trading is disabled"
 
         if side == "buy" and self.portfolio_buy_halt:
             return (
@@ -865,53 +889,55 @@ class LiveTrader:
 
         # Check daily reset
         self._check_daily_reset()
-        
-        # Check daily trade limit
-        max_trades = getattr(self.config, 'max_trades_per_day', 10)
-        if self.daily_trades >= max_trades:
-            return False, f"Daily trade limit reached ({max_trades})"
-        
-        # Check daily loss limit
-        max_daily_loss = self.config.initial_usdt * self.config.max_portfolio_drawdown
-        if self.daily_pnl < -max_daily_loss:
-            return False, f"Daily loss limit reached (${abs(self.daily_pnl):.2f})"
-        
+
+        if not bypass_entry_gates:
+            # Check daily trade limit
+            max_trades = getattr(self.config, 'max_trades_per_day', 10)
+            if self.daily_trades >= max_trades:
+                return False, f"Daily trade limit reached ({max_trades})"
+
+            # Check daily loss limit
+            max_daily_loss = self.config.initial_usdt * self.config.max_portfolio_drawdown
+            if self.daily_pnl < -max_daily_loss:
+                return False, f"Daily loss limit reached (${abs(self.daily_pnl):.2f})"
+
         # Check minimum order size
         min_amount = self.get_min_order_size()
         if amount < min_amount:
             return False, f"Amount {amount} below minimum {min_amount}"
-        
+
         # Check minimum notional value
         notional = amount * price
         min_notional = self.get_min_notional()
         if notional < min_notional:
             return False, f"Notional ${notional:.2f} below minimum ${min_notional:.2f}"
 
-        # Hard cap on single-trade USD size. Documented in env.example as
-        # BOT_MAX_SINGLE_TRADE_USD. Enforced here so that automated signals
-        # cannot ever submit an order larger than the operator-configured
-        # ceiling, even if a strategy mis-sizes a position.
-        max_single_trade_usd = getattr(self.config, "max_single_trade_usd", 0.0) or 0.0
-        if max_single_trade_usd > 0 and notional > max_single_trade_usd:
-            return False, (
-                f"Notional ${notional:.2f} exceeds max single-trade cap "
-                f"${max_single_trade_usd:.2f} (BOT_MAX_SINGLE_TRADE_USD)"
-            )
+        if not bypass_entry_gates:
+            # Hard cap on single-trade USD size. Documented in env.example as
+            # BOT_MAX_SINGLE_TRADE_USD. Enforced here so that automated signals
+            # cannot ever submit an order larger than the operator-configured
+            # ceiling, even if a strategy mis-sizes a position.
+            max_single_trade_usd = getattr(self.config, "max_single_trade_usd", 0.0) or 0.0
+            if max_single_trade_usd > 0 and notional > max_single_trade_usd:
+                return False, (
+                    f"Notional ${notional:.2f} exceeds max single-trade cap "
+                    f"${max_single_trade_usd:.2f} (BOT_MAX_SINGLE_TRADE_USD)"
+                )
 
-        # Confirmation gate. In the absence of an interactive confirmation
-        # channel, BOT_REQUIRE_TRADE_CONFIRMATION=true blocks any automated
-        # trade above BOT_CONFIRMATION_THRESHOLD_USD; the operator must
-        # explicitly raise the threshold or disable confirmation before
-        # such a trade can run unattended.
-        require_confirmation = getattr(self.config, "require_trade_confirmation", False)
-        confirmation_threshold = getattr(self.config, "confirmation_threshold_usd", 0.0) or 0.0
-        if require_confirmation and notional > confirmation_threshold:
-            return False, (
-                f"Notional ${notional:.2f} exceeds confirmation threshold "
-                f"${confirmation_threshold:.2f} (BOT_REQUIRE_TRADE_CONFIRMATION=true). "
-                f"Lower position size, raise BOT_CONFIRMATION_THRESHOLD_USD, or set "
-                f"BOT_REQUIRE_TRADE_CONFIRMATION=false."
-            )
+            # Confirmation gate. In the absence of an interactive confirmation
+            # channel, BOT_REQUIRE_TRADE_CONFIRMATION=true blocks any automated
+            # trade above BOT_CONFIRMATION_THRESHOLD_USD; the operator must
+            # explicitly raise the threshold or disable confirmation before
+            # such a trade can run unattended.
+            require_confirmation = getattr(self.config, "require_trade_confirmation", False)
+            confirmation_threshold = getattr(self.config, "confirmation_threshold_usd", 0.0) or 0.0
+            if require_confirmation and notional > confirmation_threshold:
+                return False, (
+                    f"Notional ${notional:.2f} exceeds confirmation threshold "
+                    f"${confirmation_threshold:.2f} (BOT_REQUIRE_TRADE_CONFIRMATION=true). "
+                    f"Lower position size, raise BOT_CONFIRMATION_THRESHOLD_USD, or set "
+                    f"BOT_REQUIRE_TRADE_CONFIRMATION=false."
+                )
 
         # Check balance for buys
         if side == 'buy':
@@ -1091,29 +1117,39 @@ class LiveTrader:
         amount: float,
         signal: Optional["StrategySignal"] = None,
         exit_reason: str = "signal",
+        is_closing_sell: bool = False,
+        is_emergency_close: bool = False,
     ) -> Optional[TradeRecord]:
         """
         Execute a market sell order.
-        
+
         Args:
             amount: Amount of base currency to sell
             signal: Optional strategy signal
             exit_reason: Reason for exit (signal, stop_loss, take_profit, etc.)
-            
+            is_closing_sell: True for any sell that reduces/closes an
+                existing position — see ``validate_trade``.
+            is_emergency_close: True only for the closing sell issued by
+                ``trigger_emergency_stop`` — see ``validate_trade``.
+
         Returns:
             TradeRecord if successful, None otherwise
         """
         symbol = self.config.symbol
-        
+
         # Get current price for validation
         ticker = self.exchange.fetch_ticker(symbol)
         current_price = float(ticker['bid'])
-        
+
         # Round amount to exchange precision
         amount = self.round_amount(amount)
-        
+
         # Validate trade
-        is_valid, error_msg = self.validate_trade('sell', amount, current_price)
+        is_valid, error_msg = self.validate_trade(
+            'sell', amount, current_price,
+            is_closing_sell=is_closing_sell,
+            is_emergency_close=is_emergency_close,
+        )
         if not is_valid:
             self.logger.warning(f"Trade validation failed: {error_msg}")
             return None
@@ -1361,6 +1397,33 @@ class LiveTrader:
             self.db_position_id,
         )
 
+    def _alert_protective_exit_failed(self, exit_reason: str, price: float) -> None:
+        """
+        A stop-loss/take-profit/trailing-stop/signal exit was rejected by
+        validate_trade (e.g. insufficient balance) and the position remains
+        open. This should be rare now that closing sells bypass the
+        entry-side risk gates, but it's exactly the moment an operator needs
+        to know about, so alert loudly instead of leaving it as a WARNING
+        buried in the log.
+        """
+        self.logger.critical(
+            "Protective exit (%s) FAILED at $%.2f — position remains open. "
+            "Manual intervention required.",
+            exit_reason, price,
+        )
+        try:
+            from notify import send_notification
+
+            send_notification(
+                f"🚨 Protective exit failed ({exit_reason})",
+                f"{self.config.symbol}: attempted {exit_reason} exit at "
+                f"${price:.2f} but the sell was rejected. Position remains "
+                f"open — manual intervention required.",
+                severity="critical",
+            )
+        except Exception:
+            pass
+
     def update_position(self, current_price: float) -> Optional[TradeRecord]:
         """
         Update the open position and check for exit conditions.
@@ -1403,11 +1466,15 @@ class LiveTrader:
 
         if exit_reason:
             self.logger.info("Exit triggered: %s at $%.2f", exit_reason, current_price)
-            return self.execute_market_sell(
+            trade = self.execute_market_sell(
                 amount=pos.amount,
                 signal=None,
                 exit_reason=exit_reason,
+                is_closing_sell=True,
             )
+            if trade is None:
+                self._alert_protective_exit_failed(exit_reason, current_price)
+            return trade
 
         return None
     
@@ -1440,25 +1507,30 @@ class LiveTrader:
         if self.open_position:
             if (self.open_position.side == 'long' and signal.direction == 'bearish'):
                 self.logger.info("Closing long position on bearish signal")
-                return self.execute_market_sell(
+                trade = self.execute_market_sell(
                     amount=self.open_position.amount,
                     signal=signal,
                     exit_reason="signal",
+                    is_closing_sell=True,
                 )
-        
+                if trade is None:
+                    self._alert_protective_exit_failed("signal", signal.price)
+                return trade
+
         # Open new position
         if signal.direction == 'bullish' and not self.open_position:
             # Calculate buy amount
             available = self.get_available_usdt()
             notional = available * order_pct
             amount = notional / signal.price
-            
+
             return self.execute_market_buy(amount=amount, signal=signal)
-        
+
         elif signal.direction == 'bearish' and self.open_position:
             return self.execute_market_sell(
                 amount=self.open_position.amount,
                 signal=signal,
+                is_closing_sell=True,
                 exit_reason="signal",
             )
         
@@ -1649,17 +1721,47 @@ class LiveTrader:
         self.emergency_stop = True
         self.trading_enabled = False
         self.logger.critical("🚨 EMERGENCY STOP TRIGGERED 🚨")
-        
+
+        try:
+            from notify import send_notification
+            pos_info = (
+                f" Open position: {self.open_position.amount} {self.config.symbol} will be closed."
+                if close_positions and self.open_position else ""
+            )
+            send_notification(
+                "🚨 Emergency stop triggered",
+                f"All trading halted on {self.config.symbol}.{pos_info} Manual reset required.",
+                severity="critical",
+            )
+        except Exception:
+            pass
+
         if close_positions and self.open_position:
             self.logger.info("Closing all positions...")
             try:
-                ticker = self.exchange.fetch_ticker(self.config.symbol)
-                current_price = float(ticker['bid'])
-                self.execute_market_sell(
+                trade = self.execute_market_sell(
                     amount=self.open_position.amount,
                     signal=None,
                     exit_reason="emergency_stop",
+                    is_emergency_close=True,
                 )
+                if trade is None:
+                    self.logger.critical(
+                        "Emergency stop: position close FAILED — manual "
+                        "intervention required. The exchange-side protective "
+                        "stop (if armed) is the only remaining defence."
+                    )
+                    try:
+                        from notify import send_notification
+
+                        send_notification(
+                            "🚨 Emergency stop: close FAILED",
+                            f"Could not close open position on {self.config.symbol} "
+                            f"during emergency stop. Manual intervention required.",
+                            severity="critical",
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 self.logger.error(f"Failed to close position during emergency: {e}")
     

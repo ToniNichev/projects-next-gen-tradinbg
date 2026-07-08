@@ -186,7 +186,8 @@ def enable_strategy(strategy_name):
         
         # Persist to database if available
         if DATABASE_AVAILABLE:
-            config_key = _get_strategy_config_key(strategy_name)
+            from strategies.constants import StrategyNames
+            config_key = StrategyNames.get_config_key(strategy_name)
             if config_key:
                 db = get_database()
                 _batch_save_config({config_key: True}, db)
@@ -212,7 +213,8 @@ def disable_strategy(strategy_name):
         
         # Persist to database if available
         if DATABASE_AVAILABLE:
-            config_key = _get_strategy_config_key(strategy_name)
+            from strategies.constants import StrategyNames
+            config_key = StrategyNames.get_config_key(strategy_name)
             if config_key:
                 db = get_database()
                 _batch_save_config({config_key: False}, db)
@@ -523,4 +525,105 @@ def apply_preset(preset_name):
         })
     except Exception as exc:
         logger.error("apply_preset failed: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy latest signals
+# ---------------------------------------------------------------------------
+
+def _pattern_description(name: str, signal) -> str:
+    """Translate a strategy signal's info dict into a human-readable sentence."""
+    info = signal.info or {}
+    d = signal.direction
+
+    name_lower = name.lower()
+    if "ema" in name_lower:
+        strength = info.get("trend_strength_pct", 0)
+        vol = "volume confirmed" if info.get("volume_confirmed") else "low volume"
+        macd = ", MACD confirmed" if info.get("macd_confirmed") else ""
+        if d == "bullish":
+            return f"Short EMA crossed above Long EMA — trend strength {strength:.0f}%, {vol}{macd}"
+        elif d == "bearish":
+            return f"Short EMA crossed below Long EMA — trend strength {strength:.0f}%, {vol}{macd}"
+        return f"EMAs flat — no crossover signal ({vol})"
+
+    if "rsi" in name_lower:
+        indicators = signal.indicators or {}
+        rsi = indicators.get("rsi", 0)
+        vol = "volume confirmed" if info.get("volume_confirmed") else "low volume"
+        if d == "bullish":
+            parts = []
+            if info.get("rsi_bullish"):
+                parts.append(f"RSI oversold ({rsi:.1f})")
+            if info.get("bb_lower_touch"):
+                parts.append("BB lower band touch")
+            return (", ".join(parts) or "Bullish signal") + f" — {vol}"
+        elif d == "bearish":
+            parts = []
+            if info.get("rsi_bearish"):
+                parts.append(f"RSI overbought ({rsi:.1f})")
+            if info.get("bb_upper_touch"):
+                parts.append("BB upper band touch")
+            return (", ".join(parts) or "Bearish signal") + f" — {vol}"
+        return f"RSI neutral ({rsi:.1f}) — no band touch"
+
+    if "macd" in name_lower:
+        vol = "volume confirmed" if info.get("volume_confirmed") else "low volume"
+        mom = ", momentum confirmed" if info.get("momentum_confirmed") else ""
+        if d == "bullish":
+            if info.get("bullish_crossover") or info.get("recent_bullish_cross"):
+                return f"MACD bullish crossover{mom} — {vol}"
+            if info.get("bullish_divergence"):
+                return f"Bullish divergence detected — {vol}"
+            return f"Bullish signal — {vol}{mom}"
+        elif d == "bearish":
+            if info.get("bearish_crossover") or info.get("recent_bearish_cross"):
+                return f"MACD bearish crossover{mom} — {vol}"
+            if info.get("bearish_divergence"):
+                return f"Bearish divergence detected — {vol}"
+            return f"Bearish signal — {vol}{mom}"
+        return "MACD flat — no crossover"
+
+    if "llm" in name_lower:
+        patterns = info.get("patterns_found", [])
+        if patterns:
+            return "Patterns: " + ", ".join(str(p) for p in patterns[:3])
+        reasoning = info.get("reasoning", "")
+        if reasoning:
+            return reasoning[:120] + ("..." if len(reasoning) > 120 else "")
+        return f"LLM signal: {d}"
+
+    return f"{d.capitalize()} signal"
+
+
+@strategies_bp.route("/api/strategies/signals")
+@require_auth
+@limiter.limit("60 per minute")
+def get_strategy_signals():
+    sm = _get_strategy_manager()
+    if not sm:
+        return jsonify({"error": "Strategy manager not available"}), 503
+    try:
+        result = []
+        for strategy in sm.strategies:
+            sig = sm.last_signals.get(strategy.name)
+            history = list(sm.signal_history.get(strategy.name, []))
+            entry = {
+                "name": strategy.name,
+                "display_name": getattr(strategy, "display_name", strategy.name),
+                "enabled": strategy.is_enabled(),
+                "weight": strategy.get_weight(),
+                "direction": sig.direction if sig else "neutral",
+                "confidence": round(sig.confidence, 3) if sig else 0.0,
+                "price": sig.price if sig else None,
+                "timestamp": sig.timestamp.isoformat() if sig else None,
+                "pattern": _pattern_description(strategy.name, sig) if sig else "No signal yet",
+                "indicators": sig.indicators if sig else {},
+                "history": history,
+            }
+            result.append(entry)
+        return jsonify({"signals": result, "count": len(result)})
+    except Exception as exc:
+        logger.error("get_strategy_signals failed: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500

@@ -262,6 +262,7 @@ def manual_sell():
                 amount=position.amount,
                 signal=signal,
                 exit_reason="manual",
+                is_closing_sell=True,
             )
             if not trade:
                 return jsonify({
@@ -413,25 +414,35 @@ def trigger_emergency_stop():
 
         with lock:
             trader.trigger_emergency_stop(close_positions=close_positions)
+            # Ground truth: both LiveTrader and PaperTrader clear
+            # open_position only when the closing sell actually succeeded, so
+            # don't trust close_positions as a proxy for "it worked".
+            still_open = trader.open_position is not None
+            pos = trader.open_position
 
         get_app_state().update_trading_state(
             trading_enabled=False,
             emergency_stop=True,
-            position_open=False,
-            position_entry_price=0.0,
-            position_amount=0.0,
-            position_side="none",
-            stop_loss=0.0,
-            take_profit=0.0,
-            trailing_stop=0.0,
+            position_open=still_open,
+            position_entry_price=pos.entry_price if still_open else 0.0,
+            position_amount=pos.amount if still_open else 0.0,
+            position_side="long" if still_open else "none",
+            stop_loss=pos.stop_loss if still_open else 0.0,
+            take_profit=pos.take_profit if still_open else 0.0,
+            trailing_stop=pos.trailing_stop if still_open else 0.0,
         )
 
+        close_failed = close_positions and still_open
+        message = "EMERGENCY STOP TRIGGERED"
+        if close_failed:
+            message += " — WARNING: position close FAILED, manual intervention required"
+
         return jsonify({
-            "success": True,
-            "message": "EMERGENCY STOP TRIGGERED",
-            "positions_closed": close_positions,
+            "success": not close_failed,
+            "message": message,
+            "positions_closed": close_positions and not still_open,
             "trading_enabled": False,
-        })
+        }), (200 if not close_failed else 502)
     except Exception as exc:
         logger.error("emergency_stop failed: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500

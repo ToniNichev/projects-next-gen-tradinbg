@@ -93,7 +93,11 @@ class BotConfig:
     strategy_macd_take_profit_pct: float = 0.05
     
     # Strategy: LLM Pattern Analysis (Ollama)
-    strategy_llm_enabled: bool = True
+    # Disabled by default: unvalidated in backtests (produces zero trades,
+    # see docs/LLM_NO_TRADES_ANALYSIS.md) and its Ollama-call timeout only
+    # enforces on the main thread, so a hung local LLM call has no hard
+    # timeout if this strategy runs on a worker thread during live trading.
+    strategy_llm_enabled: bool = False
     strategy_llm_weight: float = 1.0
     llm_ollama_url: str = "http://localhost:11434"
     llm_ollama_model: str = "mistral"  # or llama2, codellama, phi, etc.

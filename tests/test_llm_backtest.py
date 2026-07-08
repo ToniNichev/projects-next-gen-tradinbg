@@ -14,12 +14,16 @@ import logging
 import sys
 from datetime import datetime
 
+import pytest
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+pytestmark = pytest.mark.llm_integration
 
 
 def test_ollama_connection():

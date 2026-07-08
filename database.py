@@ -10,7 +10,7 @@ Provides models for:
 
 import logging
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from sqlalchemy import (
@@ -585,6 +585,30 @@ class DatabaseManager:
                 session.flush()
                 session.refresh(candle)
                 return candle
+
+
+    def get_candles(self, symbol: str, timeframe: str, limit: int = 500, since=None) -> List[Dict]:
+        """Get historical candles from DB, returned oldest-first."""
+        with self.get_session() as session:
+            q = (
+                session.query(Candle)
+                .filter(Candle.symbol == symbol, Candle.timeframe == timeframe)
+            )
+            if since:
+                q = q.filter(Candle.timestamp >= since)
+            rows = q.order_by(Candle.timestamp.desc()).limit(limit).all()
+            rows.reverse()
+            return [
+                {
+                    "timestamp": row.timestamp.replace(tzinfo=timezone.utc).isoformat(),
+                    "open": row.open,
+                    "high": row.high,
+                    "low": row.low,
+                    "close": row.close,
+                    "volume": row.volume,
+                }
+                for row in rows
+            ]
 
     def add_performance_snapshot(self, metrics_data: Dict) -> PerformanceMetrics:
         """Add a performance metrics snapshot"""

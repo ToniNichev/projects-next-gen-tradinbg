@@ -841,3 +841,26 @@
   height: 100%;
   border-radius: 4px;
 }
+
+/* --- Skip LLM toggle --- */
+.backtest-options {
+  margin: 0 0 12px 0;
+}
+.toggle-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-secondary, #aaa);
+}
+.toggle-option input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent-blue, #4a9eff);
+  cursor: pointer;
+}
+.toggle-hint {
+  font-size: 0.8rem;
+  opacity: 0.6;
+}

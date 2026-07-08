@@ -177,17 +177,15 @@ class MACDVolumeStrategy(BaseStrategy):
             # Bullish divergence: price makes lower low, MACD makes higher low
             price_low_idx = lookback_df["close"].idxmin()
             macd_at_price_low = lookback_df.loc[price_low_idx, "macd_line"]
-            recent_macd_low = lookback_df["macd_line"].min()
             
-            if price == lookback_df["close"].min() and macd_line > recent_macd_low * 1.1:
+            if price <= lookback_df["close"].min() * 1.005 and macd_line > macd_at_price_low:
                 bullish_divergence = True
             
             # Bearish divergence: price makes higher high, MACD makes lower high
             price_high_idx = lookback_df["close"].idxmax()
             macd_at_price_high = lookback_df.loc[price_high_idx, "macd_line"]
-            recent_macd_high = lookback_df["macd_line"].max()
             
-            if price == lookback_df["close"].max() and macd_line < recent_macd_high * 0.9:
+            if price >= lookback_df["close"].max() * 0.995 and macd_line < macd_at_price_high:
                 bearish_divergence = True
         
         # ═══════════════════════════════════════════════════════════════
@@ -208,7 +206,7 @@ class MACDVolumeStrategy(BaseStrategy):
             macd_strength = min(1.0, abs(histogram) / (atr_value * 0.01)) if atr_value > 0 else 0.5
             
             # Histogram acceleration bonus
-            accel_bonus = 0.1 if histogram_change > prev_histogram * 0.1 else 0.0
+            accel_bonus = 0.1 if abs(histogram_change) > abs(prev_histogram) * 0.1 else 0.0
             
             confidence = macd_strength * 0.6 + accel_bonus
             

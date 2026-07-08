@@ -41,12 +41,15 @@ class BacktestManager:
         self.app_state = app_state
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self._cancel_requested = False
     
     def run_backtest(
         self,
         days_back: int = 30,
         config_overrides: Optional[Dict[str, Any]] = None,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        backtest_id: Optional[str] = None,
+        skip_llm: bool = True
     ) -> Dict[str, Any]:
         """
         Run backtest with parameters and progress tracking.
@@ -89,11 +92,14 @@ class BacktestManager:
             self.logger.info(f"Starting backtest for {days_back} days")
             
             # Initialize backtest state
+            self._cancel_requested = False
+            import time as _time
             self.update_progress(
                 running=True,
                 progress=0.0,
                 total_analyses=0,
-                completed_analyses=0
+                completed_analyses=0,
+                started_at=_time.time()
             )
             
             # Import backtest module
@@ -132,6 +138,10 @@ class BacktestManager:
                     eta_seconds=eta_seconds,
                 )
 
+                # Abort if cancellation was requested
+                if self._cancel_requested:
+                    raise InterruptedError("Backtest cancelled by user")
+
                 # Call user callback if provided
                 if progress_callback:
                     try:
@@ -144,15 +154,21 @@ class BacktestManager:
                         self.logger.warning(f"Progress callback error: {e}")
             
             # Execute backtest with wrapped callback
+            # Build config overrides, disabling LLM strategy if skip_llm=True
+            effective_overrides = dict(config_overrides or {})
+            if skip_llm:
+                effective_overrides["strategy_llm_enabled"] = False
+
             result = execute_backtest(
                 days_back=days_back,
-                use_database=False,  # Don't use separate backtest database
-                config_overrides=config_overrides,
+                use_database=False,
+                config_overrides=effective_overrides if effective_overrides else None,
                 progress_callback=wrapped_progress_callback
             )
             
-            # Generate unique ID and timestamp
-            backtest_id = str(uuid.uuid4())
+            # Use pre-generated ID if provided, otherwise generate new one
+            if backtest_id is None:
+                backtest_id = str(uuid.uuid4())
             timestamp = datetime.utcnow()
             
             # Create configuration snapshot
@@ -238,6 +254,10 @@ class BacktestManager:
                 "data": backtest_result
             }
             
+        except InterruptedError:
+            self.logger.info("Backtest cancelled by user")
+            self.update_progress(running=False, progress=0.0)
+            return {"success": False, "error": "cancelled"}
         except Exception as e:
             self.logger.error(f"Backtest execution failed: {e}", exc_info=True)
             
@@ -357,6 +377,15 @@ class BacktestManager:
             "cleared": count
         }
     
+
+    def cancel_backtest(self) -> bool:
+        """Signal the running backtest to stop at the next progress checkpoint."""
+        if not self.app_state.get_backtest_state().running:
+            return False
+        self._cancel_requested = True
+        self.logger.info("Backtest cancellation requested")
+        return True
+
     def update_progress(self, **kwargs) -> None:
         """
         Update backtest progress in application state.

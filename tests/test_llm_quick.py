@@ -6,7 +6,12 @@ This minimal test checks if your LLM setup can produce buy/sell signals.
 """
 
 import logging
+import pytest
+
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+pytestmark = pytest.mark.llm_integration
+
 
 def test_llm_signal():
     """Test if LLM generates actionable signals"""

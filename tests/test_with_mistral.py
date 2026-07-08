@@ -10,7 +10,12 @@ Mistral is generally:
 """
 
 import logging
+import pytest
+
 logging.basicConfig(level=logging.WARNING)
+
+pytestmark = pytest.mark.llm_integration
+
 
 def test_mistral():
     try:

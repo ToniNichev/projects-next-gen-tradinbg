@@ -30,7 +30,6 @@ except ImportError:
         return f
 
 from app.core.state import get_app_state
-from app.services.trading_manager import TradingManager
 from app.services.config_service import ConfigService
 from app.services.backtest_manager import BacktestManager
 
@@ -38,19 +37,16 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
-_trading_manager: TradingManager = None  # type: ignore[assignment]
 _config_service: ConfigService = None     # type: ignore[assignment]
 _backtest_manager: BacktestManager = None  # type: ignore[assignment]
 
 
 def init_api_services(
-    trading_manager: TradingManager,
     config_service: ConfigService,
     backtest_manager: BacktestManager,
 ) -> None:
     """Inject service dependencies.  Called once from the app factory."""
-    global _trading_manager, _config_service, _backtest_manager
-    _trading_manager = trading_manager
+    global _config_service, _backtest_manager
     _config_service = config_service
     _backtest_manager = backtest_manager
     logger.info("API services initialised")
@@ -88,7 +84,6 @@ def health_check():
             "trading_enabled": ts.trading_enabled,
             "emergency_stop": ts.emergency_stop,
             "services": {
-                "trading_manager": _trading_manager is not None,
                 "config_service": _config_service is not None,
                 "backtest_manager": _backtest_manager is not None,
             },
@@ -99,6 +94,15 @@ def health_check():
 
 
 # ---------------------------------------------------------------------------
+def _get_trading_mode() -> str:
+    """Return the current trading mode string (paper / dry_run / live)."""
+    try:
+        from config import BotConfig
+        return BotConfig.load().trading_mode
+    except Exception:
+        return "unknown"
+
+
 # Structured state (new-API format — different from the legacy /state endpoint
 # in market_bp which the existing UI templates use directly)
 # ---------------------------------------------------------------------------
@@ -123,6 +127,7 @@ def get_api_state():
             "trading_enabled": ts.trading_enabled,
             "emergency_stop": ts.emergency_stop,
             "last_update": ts.last_update.isoformat(),
+            "trading_mode": _get_trading_mode(),
         }))
     except Exception as exc:
         logger.error("Failed to get API state: %s", exc)
@@ -138,31 +143,38 @@ def get_api_state():
 def run_backtest():
     if _backtest_manager is None:
         return jsonify(create_response(success=False, error="Backtest manager not initialised")), 503
+    # Reject if already running
+    if _backtest_manager.get_backtest_status().get("running"):
+        return jsonify(create_response(success=False, error="Backtest already running")), 409
     try:
+        import threading
+        import uuid
         data = request.get_json() or {}
         days_back = int(data.get("days_back", 30))
         if days_back <= 0:
             return jsonify(create_response(success=False, error="days_back must be > 0")), 400
 
-        result = _backtest_manager.run_backtest(
-            days_back=days_back,
-            config_overrides=data.get("config_overrides"),
-        )
-        
-        # Add backtest_id to response for frontend polling
-        if result.get("success") and result.get("data"):
-            response = {
-                "success": True,
-                "backtest_id": result["data"]["id"],
-                "data": result["data"]
-            }
-            return jsonify(response), 200
-        
-        return jsonify(result), 200 if result.get("success") else 400
+        # Pre-generate ID so frontend can start polling before the backtest finishes
+        backtest_id = str(uuid.uuid4())
+        config_overrides = data.get("config_overrides")
+        skip_llm = bool(data.get("skip_llm", True))
+
+        def _run():
+            _backtest_manager.run_backtest(
+                days_back=days_back,
+                config_overrides=config_overrides,
+                backtest_id=backtest_id,
+                skip_llm=skip_llm,
+            )
+
+        t = threading.Thread(target=_run, name=f"backtest-{backtest_id[:8]}", daemon=True)
+        t.start()
+
+        return jsonify({"success": True, "backtest_id": backtest_id, "status": "started"}), 202
     except ValueError as exc:
         return jsonify(create_response(success=False, error=str(exc))), 400
     except Exception as exc:
-        logger.error("Backtest run failed: %s", exc, exc_info=True)
+        logger.error("Backtest start failed: %s", exc, exc_info=True)
         return jsonify(create_response(success=False, error=str(exc))), 500
 
 
@@ -172,7 +184,12 @@ def get_backtest_status():
     if _backtest_manager is None:
         return jsonify(create_response(success=False, error="Backtest manager not initialised")), 503
     try:
-        return jsonify(create_response(success=True, data=_backtest_manager.get_backtest_status()))
+        status = _backtest_manager.get_backtest_status()
+        # Expose started_at so clients can compute accurate elapsed time after navigation
+        backtest_state = _backtest_manager.app_state.get_backtest_state()
+        if backtest_state.started_at:
+            status["started_at_ms"] = int(backtest_state.started_at * 1000)
+        return jsonify(create_response(success=True, data=status))
     except Exception as exc:
         return jsonify(create_response(success=False, error=str(exc))), 500
 
@@ -203,6 +220,21 @@ def get_backtest_result(backtest_id):
     except Exception as exc:
         return jsonify(create_response(success=False, error=str(exc))), 500
 
+
+
+@api_bp.route("/backtest/cancel", methods=["POST"])
+@require_auth
+def cancel_backtest():
+    if _backtest_manager is None:
+        return jsonify(create_response(success=False, error="Backtest manager not initialised")), 503
+    try:
+        cancelled = _backtest_manager.cancel_backtest()
+        if cancelled:
+            return jsonify({"success": True, "message": "Backtest cancelled"}), 200
+        return jsonify({"success": False, "message": "No backtest is running"}), 200
+    except Exception as exc:
+        logger.error("Backtest cancel failed: %s", exc, exc_info=True)
+        return jsonify(create_response(success=False, error=str(exc))), 500
 
 @api_bp.route("/backtest/clear", methods=["POST", "DELETE"])
 @require_auth

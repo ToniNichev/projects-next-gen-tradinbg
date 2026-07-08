@@ -231,6 +231,20 @@ class TestPreTradeValidation(unittest.TestCase):
         self.assertFalse(is_valid)
         self.assertIn("Insufficient balance", msg)
 
+    def test_validate_daily_loss_limit(self):
+        """Test validation fails once today's realised loss exceeds
+        initial_usdt * max_portfolio_drawdown (config: $1000 * 10% = $100)."""
+        self.trader.daily_pnl = -150.0
+        is_valid, msg = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertFalse(is_valid)
+        self.assertIn("Daily loss limit", msg)
+
+    def test_validate_daily_loss_limit_allows_below_threshold(self):
+        """A loss that hasn't yet reached the daily cap should not block trading."""
+        self.trader.daily_pnl = -50.0
+        is_valid, _ = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertTrue(is_valid)
+
     def test_validate_max_single_trade_usd_blocks_oversize(self):
         """Validation fails when notional exceeds BOT_MAX_SINGLE_TRADE_USD."""
         self.trader.config.max_single_trade_usd = 100.0
@@ -369,9 +383,92 @@ class TestPositionManagement(unittest.TestCase):
         take_profit = entry_price * 1.05  # Above take profit
         
         trade = self.trader.update_position(take_profit)
-        
+
         self.assertIsNotNone(trade)
         self.assertEqual(trade.exit_reason, 'take_profit')
+
+
+class TestProtectiveExitsBypassEntryGates(unittest.TestCase):
+    """
+    Regression coverage for the sibling of the emergency-stop bug: closing
+    sells (stop-loss / take-profit / trailing-stop exits, a signal-reversal
+    close, and manual sell) must not be blocked by the entry-side risk gates
+    (trading_enabled, daily trade/loss limits). Those gates exist to stop
+    *new* risk from being taken; applying them to an exit that's already in
+    flight would silently trap a losing position open with no software
+    protection. emergency_stop is the one exception that must still block
+    everything except the emergency-stop's own close.
+    """
+
+    def setUp(self):
+        self.exchange = MockExchange()
+        self.config = create_test_config()
+        self.trader = LiveTrader(self.exchange, self.config, mode=TradingMode.PAPER)
+        self.trader.usdt_balance = 1000.0
+
+    def test_stop_loss_fires_when_trading_disabled(self):
+        self.trader.execute_market_buy(0.01)
+        entry_price = self.trader.open_position.entry_price
+        self.trader.trading_enabled = False
+
+        trade = self.trader.update_position(entry_price * 0.95)
+
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade.exit_reason, 'stop_loss')
+        self.assertIsNone(self.trader.open_position)
+
+    def test_stop_loss_fires_when_daily_trade_limit_hit(self):
+        self.trader.execute_market_buy(0.01)
+        entry_price = self.trader.open_position.entry_price
+        self.trader.daily_trades = self.config.max_trades_per_day
+
+        trade = self.trader.update_position(entry_price * 0.95)
+
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade.exit_reason, 'stop_loss')
+        self.assertIsNone(self.trader.open_position)
+
+    def test_stop_loss_fires_when_daily_loss_limit_hit(self):
+        self.trader.execute_market_buy(0.01)
+        entry_price = self.trader.open_position.entry_price
+        self.trader.daily_pnl = -(self.config.initial_usdt * self.config.max_portfolio_drawdown) - 1.0
+
+        trade = self.trader.update_position(entry_price * 0.95)
+
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade.exit_reason, 'stop_loss')
+        self.assertIsNone(self.trader.open_position)
+
+    def test_signal_reversal_close_fires_when_trading_disabled(self):
+        from strategies.base_strategy import StrategySignal
+
+        self.trader.execute_market_buy(0.01)
+        self.trader.trading_enabled = False
+
+        signal = StrategySignal(
+            direction="bearish",
+            price=self.exchange._ticker["bid"],
+            confidence=1.0,
+            timestamp=datetime.now(timezone.utc),
+            strategy_name="test",
+        )
+        trade = self.trader.handle_signal(signal)
+
+        self.assertIsNotNone(trade)
+        self.assertIsNone(self.trader.open_position)
+
+    def test_closing_sell_still_blocked_by_emergency_stop(self):
+        """is_closing_sell must NOT bypass emergency_stop itself."""
+        self.trader.execute_market_buy(0.01)
+        self.trader.emergency_stop = True
+
+        is_valid, msg = self.trader.validate_trade(
+            'sell', self.trader.open_position.amount,
+            self.trader.open_position.entry_price,
+            is_closing_sell=True,
+        )
+        self.assertFalse(is_valid)
+        self.assertIn("Emergency stop", msg)
 
 
 class TestSafetyControls(unittest.TestCase):
@@ -401,10 +498,81 @@ class TestSafetyControls(unittest.TestCase):
         """Test emergency stop reset"""
         self.trader.trigger_emergency_stop(close_positions=False)
         self.trader.reset_emergency_stop()
-        
+
         self.assertFalse(self.trader.emergency_stop)
         # Trading should still be disabled until explicitly enabled
         self.assertFalse(self.trader.trading_enabled)
+
+
+class TestEmergencyStopClosesPosition(unittest.TestCase):
+    """
+    Regression coverage for trigger_emergency_stop(close_positions=True).
+
+    Previously, trigger_emergency_stop set self.emergency_stop = True and
+    then called execute_market_sell() to flatten the position — but
+    execute_market_sell() calls validate_trade(), whose very first check
+    was `if self.emergency_stop: return False, ...`. That made the panic
+    button a no-op: the closing sell was always rejected by the trader's
+    own validation, silently, with no exception raised. Uses LIVE mode so
+    the real order-placement path (not the paper simulator) is exercised.
+    """
+
+    def setUp(self):
+        self.exchange = MockExchange()
+        self.config = create_test_config()
+        self.trader = LiveTrader(self.exchange, self.config, mode=TradingMode.LIVE)
+        self.trader.usdt_balance = 1000.0
+        self.trader.base_balance = 0.01
+        self.trader.open_position = LivePosition(
+            side="long",
+            entry_price=50000.0,
+            amount=0.01,
+            entry_time=datetime.now(timezone.utc).isoformat(),
+            stop_loss=49000.0,
+            take_profit=52000.0,
+            trailing_stop=49500.0,
+            initial_trailing_stop_pct=0.015,
+        )
+
+    def test_emergency_stop_actually_closes_the_position(self):
+        self.trader.trigger_emergency_stop(close_positions=True)
+
+        self.assertTrue(self.trader.emergency_stop)
+        self.assertFalse(self.trader.trading_enabled)
+        self.assertIsNone(
+            self.trader.open_position,
+            "trigger_emergency_stop(close_positions=True) must actually sell "
+            "and clear the position, not just flip flags",
+        )
+        self.assertEqual(self.trader.base_balance, 0.0)
+
+    def test_emergency_close_bypasses_daily_trade_limit(self):
+        """An emergency close must not be blocked by a maxed-out daily trade count."""
+        self.trader.daily_trades = self.config.max_trades_per_day
+        self.trader.trigger_emergency_stop(close_positions=True)
+        self.assertIsNone(self.trader.open_position)
+
+    def test_emergency_close_bypasses_confirmation_gate(self):
+        """An emergency close must not be blocked by the manual-confirmation gate."""
+        self.trader.config.require_trade_confirmation = True
+        self.trader.config.confirmation_threshold_usd = 1.0
+        self.trader.trigger_emergency_stop(close_positions=True)
+        self.assertIsNone(self.trader.open_position)
+
+    def test_emergency_close_bypasses_max_single_trade_cap(self):
+        """An emergency close must not be blocked by BOT_MAX_SINGLE_TRADE_USD."""
+        self.trader.config.max_single_trade_usd = 1.0
+        self.trader.trigger_emergency_stop(close_positions=True)
+        self.assertIsNone(self.trader.open_position)
+
+    def test_non_emergency_sell_still_blocked_once_emergency_stop_is_set(self):
+        """The bypass must be scoped to the emergency close only — once
+        emergency_stop is set, any *other* attempt to sell must still be
+        rejected by validate_trade."""
+        self.trader.emergency_stop = True
+        is_valid, msg = self.trader.validate_trade("sell", 0.01, 50000.0)
+        self.assertFalse(is_valid)
+        self.assertIn("Emergency stop", msg)
 
 
 class TestStatistics(unittest.TestCase):
@@ -437,6 +605,82 @@ class TestStatistics(unittest.TestCase):
         
         for field in required_fields:
             self.assertIn(field, stats)
+
+
+class FakeDBManager:
+    """Minimal in-memory stand-in for DatabaseManager's strategy-config API.
+
+    ``_check_portfolio_peak_drawdown`` is a no-op without a ``db_manager``
+    (see live_trader.py), which is why the drawdown kill switch had no test
+    coverage previously. This fake implements just enough of
+    ``get_strategy_config``/``set_strategy_config`` (matching database.py's
+    signatures and return shape) to drive it directly.
+    """
+
+    class _Row:
+        def __init__(self, value):
+            self.value = value
+
+    def __init__(self):
+        self._store = {}
+
+    def get_strategy_config(self, key):
+        value = self._store.get(key)
+        return self._Row(value) if value is not None else None
+
+    def set_strategy_config(self, key, value, value_type, category="general", description=""):
+        self._store[key] = value
+        return self._Row(value)
+
+
+class TestPortfolioDrawdownKillSwitch(unittest.TestCase):
+    """Test the all-time peak-equity drawdown kill switch (buys only)."""
+
+    def setUp(self):
+        self.exchange = MockExchange()
+        self.config = create_test_config()  # max_portfolio_drawdown=0.10
+        self.db_manager = FakeDBManager()
+        self.trader = LiveTrader(self.exchange, self.config, db_manager=self.db_manager)
+        self.trader.usdt_balance = 1000.0
+        self.trader.base_balance = 0.0
+
+    def test_records_peak_and_allows_trade_at_peak(self):
+        """First buy at the current equity establishes the peak; 0% drawdown passes."""
+        is_valid, msg = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertTrue(is_valid, msg)
+        self.assertFalse(self.trader.portfolio_buy_halt)
+
+    def test_halts_new_buys_after_drawdown_exceeds_limit(self):
+        """Equity dropping >10% from the recorded peak blocks further buys."""
+        # Establish a $1000 peak.
+        self.trader.validate_trade('buy', 0.01, 50000.0)
+
+        # Equity falls to $850 (15% drawdown from the $1000 peak).
+        self.trader.usdt_balance = 850.0
+        is_valid, msg = self.trader.validate_trade('buy', 0.01, 50000.0)
+
+        self.assertFalse(is_valid)
+        self.assertIn("drawdown", msg.lower())
+        self.assertTrue(self.trader.portfolio_buy_halt)
+
+    def test_halt_does_not_block_sells(self):
+        """The drawdown halt is a buy-only safety brake; sells must still work."""
+        self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.trader.usdt_balance = 850.0
+        self.trader.validate_trade('buy', 0.01, 50000.0)  # trips the halt
+        self.assertTrue(self.trader.portfolio_buy_halt)
+
+        self.trader.base_balance = 0.01
+        is_valid, msg = self.trader.validate_trade('sell', 0.01, 50000.0)
+        self.assertTrue(is_valid, msg)
+
+    def test_within_limit_drawdown_does_not_halt(self):
+        """A drawdown under the configured limit should not trip the halt."""
+        self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.trader.usdt_balance = 950.0  # 5% drawdown, limit is 10%
+        is_valid, _ = self.trader.validate_trade('buy', 0.01, 50000.0)
+        self.assertTrue(is_valid)
+        self.assertFalse(self.trader.portfolio_buy_halt)
 
 
 if __name__ == '__main__':

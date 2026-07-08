@@ -1,26 +1,23 @@
+import json
 import logging
-from datetime import datetime, timedelta
+import math
+import os
+import statistics
+import subprocess
+from datetime import datetime, timedelta, timezone
 import ccxt
 from config import BotConfig
 from paper_trader import PaperTrader
 
-# Import multi-strategy system with fallback to legacy
-try:
-    from strategies import (
-        EMACrossoverStrategy,
-        RSIBollingerBandsStrategy,
-        MACDVolumeStrategy,
-        LLMPatternStrategy,
-        StrategyManager,
-        SignalAggregationMode,
-        LLM_AVAILABLE,
-    )
-    MULTI_STRATEGY_AVAILABLE = True
-except ImportError:
-    MULTI_STRATEGY_AVAILABLE = False
-    LLM_AVAILABLE = False
-    from strategy import compute_signal
-    logging.warning("Multi-strategy system not available. Using legacy single strategy for backtest.")
+from strategies import (
+    EMACrossoverStrategy,
+    RSIBollingerBandsStrategy,
+    MACDVolumeStrategy,
+    LLMPatternStrategy,
+    StrategyManager,
+    SignalAggregationMode,
+    LLM_AVAILABLE,
+)
 
 try:
     from database import initialize_database
@@ -28,8 +25,115 @@ try:
 except ImportError:
     DATABASE_AVAILABLE = False
 
+# Candle duration in hours, used to annualize the Sharpe ratio for whatever
+# timeframe the bot is configured for.
+_TIMEFRAME_HOURS = {
+    "1m": 1 / 60, "3m": 1 / 20, "5m": 1 / 12, "15m": 1 / 4, "30m": 0.5,
+    "1h": 1, "2h": 2, "4h": 4, "6h": 6, "8h": 8, "12h": 12, "1d": 24,
+}
 
-def run_backtest(days_back: int = 30, use_database: bool = False, config_overrides: dict = None, progress_callback=None):
+
+def _compute_risk_metrics(portfolio_values: list, timeframe: str) -> dict:
+    """
+    Compute max drawdown and an annualized Sharpe ratio from an equity curve.
+
+    ``portfolio_values`` is the full (untrimmed) series of
+    ``{"timestamp", "value"}`` dicts recorded once per candle. Neither
+    metric existed before this function — the backtest previously reported
+    return (P&L, win rate) with no measure of risk.
+    """
+    values = [pv["value"] for pv in portfolio_values]
+    if len(values) < 2:
+        return {"max_drawdown_pct": 0.0, "sharpe_ratio": 0.0}
+
+    peak = values[0]
+    max_drawdown_pct = 0.0
+    for v in values:
+        if v > peak:
+            peak = v
+        if peak > 0:
+            drawdown_pct = (peak - v) / peak * 100.0
+            max_drawdown_pct = max(max_drawdown_pct, drawdown_pct)
+
+    returns = [
+        (values[i] - values[i - 1]) / values[i - 1]
+        for i in range(1, len(values))
+        if values[i - 1] != 0
+    ]
+    if len(returns) >= 2 and statistics.pstdev(returns) > 0:
+        hours_per_candle = _TIMEFRAME_HOURS.get(timeframe, 1)
+        periods_per_year = (365 * 24) / hours_per_candle
+        sharpe_ratio = (
+            statistics.mean(returns) / statistics.pstdev(returns)
+        ) * math.sqrt(periods_per_year)
+    else:
+        sharpe_ratio = 0.0
+
+    return {
+        "max_drawdown_pct": max_drawdown_pct,
+        "sharpe_ratio": sharpe_ratio,
+    }
+
+
+def _git_commit_hash() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=os.path.dirname(os.path.abspath(__file__)),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+
+def _save_backtest_report(result: dict, config: "BotConfig", days_back: int) -> str:
+    """Persist a dated go/no-go report to docs/backtest_reports/ as JSON."""
+    report_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "backtest_reports")
+    os.makedirs(report_dir, exist_ok=True)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe_timeframe = config.timeframe.replace("/", "-")
+    filename = f"backtest_{timestamp}_{days_back}d_{safe_timeframe}.json"
+    path = os.path.join(report_dir, filename)
+
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "git_commit": _git_commit_hash(),
+        "days_back": days_back,
+        "symbol": config.symbol,
+        "timeframe": config.timeframe,
+        "metrics": {
+            "trades": result["trades"],
+            "final_value": result["final_value"],
+            "pnl": result["pnl"],
+            "pnl_pct": result["pnl_pct"],
+            "buy_hold_pct": result["buy_hold_pct"],
+            "max_drawdown_pct": result["max_drawdown_pct"],
+            "sharpe_ratio": result["sharpe_ratio"],
+        },
+        "strategy_config": {
+            "aggregation_mode": config.strategy_aggregation_mode,
+            "min_signal_confidence": config.min_signal_confidence,
+            "ema_crossover": {"enabled": config.strategy_ema_enabled, "weight": config.strategy_ema_weight},
+            "rsi_bb": {"enabled": config.strategy_rsi_bb_enabled, "weight": config.strategy_rsi_bb_weight},
+            "macd_volume": {"enabled": config.strategy_macd_enabled, "weight": config.strategy_macd_weight},
+            "llm_pattern": {"enabled": config.strategy_llm_enabled, "weight": config.strategy_llm_weight},
+        },
+        "risk_config": {
+            "stop_loss_pct": config.stop_loss_pct,
+            "take_profit_pct": config.take_profit_pct,
+            "trailing_stop_pct": config.trailing_stop_pct,
+            "max_portfolio_drawdown": config.max_portfolio_drawdown,
+            "order_pct": config.order_pct,
+        },
+    }
+
+    with open(path, "w") as f:
+        json.dump(report, f, indent=2)
+
+    return path
+
+
+def run_backtest(days_back: int = 30, use_database: bool = False, config_overrides: dict = None, progress_callback=None, save_report: bool = False):
     """
     Run accelerated backtest on historical data with multi-strategy support.
     
@@ -38,6 +142,8 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         use_database: Whether to store results in database
         config_overrides: Optional dict of config parameters to override (for presets/testing)
         progress_callback: Optional callback function for progress updates (for UI)
+        save_report: If True, persist a dated JSON report (metrics + strategy/risk
+            config snapshot + git commit) under docs/backtest_reports/
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     
@@ -106,7 +212,7 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     
     # Initialize strategy system
     strategy_manager = None
-    if config.use_multi_strategy and MULTI_STRATEGY_AVAILABLE:
+    if config.use_multi_strategy:
         logging.info("=" * 80)
         logging.info("MULTI-STRATEGY BACKTEST MODE")
         logging.info("=" * 80)
@@ -491,6 +597,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     # Advanced metrics
     win_rate = (trader.winning_trades / trader.total_trades * 100) if trader.total_trades > 0 else 0
     avg_pnl_per_trade = trader.total_pnl / trader.total_trades if trader.total_trades > 0 else 0
+
+    # Risk metrics (computed from the full, untrimmed equity curve).
+    risk_metrics = _compute_risk_metrics(chart_data["portfolio_values"], config.timeframe)
+    max_drawdown_pct = risk_metrics["max_drawdown_pct"]
+    sharpe_ratio = risk_metrics["sharpe_ratio"]
     
     logging.info("\n" + "=" * 80)
     if strategy_manager:
@@ -513,6 +624,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     logging.info(f"Losing trades: {trader.total_trades - trader.winning_trades}")
     logging.info(f"Win rate: {win_rate:.1f}%")
     logging.info(f"Average P&L per trade: ${avg_pnl_per_trade:.2f}")
+    logging.info("-" * 80)
+    logging.info("RISK METRICS")
+    logging.info("-" * 80)
+    logging.info(f"Max drawdown: {max_drawdown_pct:.2f}%")
+    logging.info(f"Sharpe ratio (annualized): {sharpe_ratio:.2f}")
     logging.info("-" * 80)
     logging.info("CAPITAL & RETURNS")
     logging.info("-" * 80)
@@ -569,19 +685,27 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         # All trades will be displayed regardless of candle limit
         # chart_data["trades"] remains unchanged
     
-    return {
+    result = {
         "trades": trade_count,
         "final_value": total_value,
         "pnl": pnl,
         "pnl_pct": pnl_pct,
         "buy_hold_pct": buy_hold_pct,
+        "max_drawdown_pct": max_drawdown_pct,
+        "sharpe_ratio": sharpe_ratio,
         "chart_data": chart_data,
     }
+
+    if save_report:
+        report_path = _save_backtest_report(result, config, days_back)
+        logging.info(f"Backtest report saved to: {report_path}")
+
+    return result
 
 
 if __name__ == "__main__":
     import sys
-    
+
     # Allow days_back to be passed as command line argument
     days = 30
     if len(sys.argv) > 1:
@@ -590,6 +714,6 @@ if __name__ == "__main__":
         except ValueError:
             print(f"Usage: python backtest.py [days_back]")
             print(f"Using default: {days} days")
-    
-    run_backtest(days_back=days)
+
+    run_backtest(days_back=days, save_report=True)
 

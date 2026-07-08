@@ -9,6 +9,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
+from database import initialize_database
 from live_trader import LiveTrader, TradingMode
 
 from tests.test_live_trader_batch_c import _PollableExchange, _make_config

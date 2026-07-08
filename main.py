@@ -7,8 +7,9 @@ import threading
 import time
 from datetime import datetime, timezone
 
+import json
+import websocket
 import ccxt
-from binance import ThreadedWebsocketManager
 
 from config import BotConfig
 from app import create_app, init_services, start_app
@@ -23,20 +24,13 @@ except ImportError:
     LIVE_TRADER_AVAILABLE = False
     logging.warning("LiveTrader module not available. Only paper trading supported.")
 
-# Import strategies (with fallback to legacy single strategy)
-try:
-    from strategies import (
-        EMACrossoverStrategy,
-        RSIBollingerBandsStrategy,
-        MACDVolumeStrategy,
-        StrategyManager,
-        SignalAggregationMode,
-    )
-    MULTI_STRATEGY_AVAILABLE = True
-except ImportError:
-    MULTI_STRATEGY_AVAILABLE = False
-    from strategy import compute_signal
-    logging.warning("Multi-strategy system not available. Using legacy single strategy.")
+from strategies import (
+    EMACrossoverStrategy,
+    RSIBollingerBandsStrategy,
+    MACDVolumeStrategy,
+    StrategyManager,
+    SignalAggregationMode,
+)
 
 try:
     from database import initialize_database
@@ -44,6 +38,12 @@ try:
 except ImportError:
     DATABASE_AVAILABLE = False
     logging.warning("Database module not available. Install SQLAlchemy to enable database features.")
+
+try:
+    from seed_history import seed_candle_history
+    SEED_HISTORY_AVAILABLE = True
+except ImportError:
+    SEED_HISTORY_AVAILABLE = False
 
 try:
     from notify import send_notification
@@ -129,6 +129,9 @@ def main():
     
     # Now load config (will read from database if available)
     config = BotConfig.load()
+
+    from auth import enforce_production_auth
+    enforce_production_auth(config)
 
     if not config.binance_api_key or not config.binance_api_secret:
         logging.warning(
@@ -220,7 +223,7 @@ def main():
     
     # Initialize strategy system
     strategy_manager = None
-    if config.use_multi_strategy and MULTI_STRATEGY_AVAILABLE:
+    if config.use_multi_strategy:
         # Create ALL strategies (regardless of enabled state)
         # This allows toggling via dashboard without restart
         strategies = []
@@ -303,10 +306,7 @@ def main():
         if enabled_count == 0:
             logging.warning("⚠️ No strategies are currently enabled! Enable at least one in the dashboard.")
     else:
-        if not config.use_multi_strategy:
-            logging.info("Multi-strategy disabled in config. Using legacy single strategy.")
-        else:
-            logging.warning("Multi-strategy not available. Using legacy single strategy.")
+        logging.warning("\u26a0\ufe0f No strategies enabled. Enable at least one in the dashboard.")
     
     # Create trader lock before starting app
     trader_lock = threading.Lock()
@@ -317,12 +317,6 @@ def main():
     flask_app = create_app()
     app_state = init_services(trader, trader_lock, exchange, strategy_manager, config)
     start_app(flask_app, config.dashboard_host, config.dashboard_port)
-
-    # Also register the trader with the legacy dashboard globals so that the
-    # existing UI routes (/state, /history, /api/manual/buy, etc.) keep
-    # working while the migration to the new architecture is in progress.
-    from dashboard import set_trader as _legacy_set_trader
-    _legacy_set_trader(trader, trader_lock, exchange, strategy_manager)
 
     logging.info("Application started — dashboard + service layer ready")
     if strategy_manager:
@@ -344,25 +338,62 @@ def main():
     )
 
     binance_symbol = config.symbol.replace("/", "").upper()
-    twm = ThreadedWebsocketManager(
-        api_key=config.binance_api_key,
-        api_secret=config.binance_api_secret,
-        tld="us",
-    )
-    twm.daemon = True  # Run as daemon thread
-    
-    # Try to start websocket manager with custom port to avoid conflict with dashboard (port 3010)
-    # The websocket manager uses a local server, so we need to ensure it doesn't conflict
-    try:
-        twm.start()
-    except OSError as e:
-        if "Address already in use" in str(e):
-            logging.warning("Default websocket port in use, this is expected if dashboard is on same port")
-            # The websocket will still work, it just won't be able to start its local server
-        else:
-            raise
-    
-    # Buffer to store candles from websocket (avoids fetch_ohlcv calls)
+
+    # Mutable holder so the watchdog can swap in a fresh WebSocketApp on reconnect.
+    ws_holder: dict = {"ws": None, "thread": None}
+
+    def _start_ws() -> None:
+        old_wsa = ws_holder["ws"]
+        if old_wsa is not None:
+            try:
+                old_wsa.close()
+            except Exception:
+                pass
+        old_thread = ws_holder["thread"]
+        if old_thread is not None and old_thread.is_alive():
+            old_thread.join(timeout=5.0)
+
+        url = (
+            f"wss://stream.binance.us:9443/ws/"
+            f"{binance_symbol.lower()}@kline_{config.timeframe}"
+        )
+
+        def on_message(ws, raw):
+            try:
+                handle_kline(json.loads(raw))
+            except Exception as exc:
+                logging.error("WS on_message error: %s", exc)
+
+        def on_error(ws, error):
+            logging.error("WebSocket error: %s", error)
+            ws_activity["last_mono"] = 0  # force stale detection
+
+        def on_close(ws, code, msg):
+            logging.warning("WebSocket closed: %s %s", code, msg)
+
+        def on_open(ws):
+            ws_activity["last_mono"] = time.monotonic()
+            ws_activity["stale_alerted"] = False
+            logging.info("WebSocket stream started for %s / %s", config.symbol, config.timeframe)
+
+        wsa = websocket.WebSocketApp(
+            url,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+            on_open=on_open,
+        )
+        ws_holder["ws"] = wsa
+
+        t = threading.Thread(
+            target=wsa.run_forever,
+            kwargs={"ping_interval": 30, "ping_timeout": 10},
+            name="ws-kline",
+            daemon=True,
+        )
+        t.start()
+        ws_holder["thread"] = t
+
     candle_buffer = []
     max_buffer_size = max(config.long_window * 2, 120)
     
@@ -370,7 +401,7 @@ def main():
     try:
         logging.info("Fetching initial candle history...")
         initial_candles = exchange.fetch_ohlcv(
-            config.symbol, config.timeframe, limit=max_buffer_size
+            config.symbol, config.timeframe, limit=500
         )
         candle_buffer = initial_candles
         logging.info("Loaded %d initial candles", len(candle_buffer))
@@ -378,10 +409,8 @@ def main():
         # Compute initial signal and populate dashboard with historical data
         if len(candle_buffer) >= config.long_window:
             try:
-                # Populate both the legacy dashboard history and ApplicationState
-                # so that all routes (old and new) return chart data on first load.
-                from dashboard import _record_history
-                for candle in candle_buffer[-100:]:
+                # Populate ApplicationState history so chart has data on first load.
+                for candle in candle_buffer[-500:]:
                     ts = datetime.fromtimestamp(candle[0] / 1000, tz=timezone.utc).isoformat()
                     ohlc = {
                         "open": float(candle[1]),
@@ -389,13 +418,6 @@ def main():
                         "low": float(candle[3]),
                         "close": float(candle[4]),
                     }
-                    _record_history(
-                        timestamp=ts,
-                        price=float(candle[4]),
-                        signal_direction="neutral",
-                        trade_side=None,
-                        ohlc=ohlc,
-                    )
                     app_state.add_history_record({
                         "timestamp": ts,
                         "price": float(candle[4]),
@@ -412,75 +434,48 @@ def main():
                         config.timeframe,
                         candle_data=candle_buffer,
                     )
-                else:
-                    initial_signal = compute_signal(
-                        exchange,
-                        config.symbol,
-                        config.timeframe,
-                        short_window=config.short_window,
-                        long_window=config.long_window,
-                        candle_data=candle_buffer,
-                        min_trend_strength=config.min_trend_strength,
-                        rsi_period=config.rsi_period,
-                        rsi_oversold=config.rsi_oversold,
-                        rsi_overbought=config.rsi_overbought,
-                        atr_period=config.atr_period,
-                        atr_stop_multiplier=config.atr_stop_multiplier,
-                        use_atr_stops=config.use_atr_stops,
-                        stop_loss_pct=config.stop_loss_pct,
-                        take_profit_pct=config.take_profit_pct,
-                        macd_fast=config.macd_fast,
-                        macd_slow=config.macd_slow,
-                        macd_signal=config.macd_signal,
-                        require_macd_confirmation=config.require_macd_confirmation,
-                        require_volume_confirmation=config.require_volume_confirmation,
-                        volume_threshold=config.volume_threshold,
-                        use_dynamic_sizing=config.use_dynamic_sizing,
-                        min_position_size=config.min_position_size,
-                        max_position_size=config.max_position_size,
-                    )
-                from dashboard import update_state as _legacy_update_state
-                _legacy_update_state(
-                    balances=trader.get_balances(),
-                    last_signal=initial_signal.to_dict(),
-                    last_trade=None,
-                    price=initial_signal.price,
-                    signal_direction=initial_signal.direction,
-                    timestamp=initial_signal.timestamp.isoformat(),
-                    trade_side=None,
-                    ohlc={
-                        "open": candle_buffer[-1][1],
-                        "high": candle_buffer[-1][2],
-                        "low": candle_buffer[-1][3],
-                        "close": candle_buffer[-1][4],
-                    },
-                )
-                # Mirror into ApplicationState for the new blueprint routes.
-                try:
                     balances = trader.get_balances()
                     app_state.update_trading_state(
                         usdt_balance=balances.get("USDT", 0.0),
                         base_balance=balances.get("BASE", 0.0),
                         current_price=initial_signal.price,
                     )
-                except Exception as _e:
-                    logging.debug("ApplicationState initial update skipped: %s", _e)
-                logging.info(
-                    "Initial signal computed: %s at price %.2f (populated %d historical candles)",
-                    initial_signal.direction,
-                    initial_signal.price,
-                    min(100, len(candle_buffer)),
-                )
+                    logging.info(
+                        "Initial signal computed: %s at price %.2f (populated %d historical candles)",
+                        initial_signal.direction,
+                        initial_signal.price,
+                        min(100, len(candle_buffer)),
+                    )
             except Exception as e:
                 logging.warning("Failed to compute initial signal: %s", e)
     except Exception as e:
         logging.warning("Failed to fetch initial candles: %s. Will buffer from stream.", e)
+
+    # Seed historical candle data in background (30 days → SQLite)
+    if SEED_HISTORY_AVAILABLE and DATABASE_AVAILABLE:
+        try:
+            from database import get_database
+            _seed_db = get_database()
+            if _seed_db is not None:
+                def _do_seed():
+                    try:
+                        seed_candle_history(exchange, _seed_db, config.symbol, config.timeframe, days_back=30)
+                    except Exception as _e:
+                        logging.warning("Candle history seed failed: %s", _e)
+                threading.Thread(target=_do_seed, name="candle-seeder", daemon=True).start()
+                logging.info("Candle history seeder started in background")
+        except Exception as e:
+            logging.warning("Could not start candle seeder: %s", e)
 
     # Last monotonic time we saw a kline for our symbol (partial counts).
     ws_activity = {"last_mono": time.monotonic(), "stale_alerted": False}
 
     def handle_kline(msg: dict) -> None:
         nonlocal candle_buffer
+        if msg.get("e") == "error":
+            logging.error("WebSocket error message: %s", msg.get("m", msg))
+            ws_activity["last_mono"] = 0  # force stale detection immediately
+            return
         if msg.get("e") != "kline":
             return
         kline = msg.get("k", {})
@@ -553,40 +548,15 @@ def main():
                         exit_trade.pnl or 0.0,
                     )
                 
-                if strategy_manager:
-                    signal_obj = strategy_manager.compute_aggregate_signal(
-                        exchange,
-                        config.symbol,
-                        config.timeframe,
-                        candle_data=candle_buffer,
-                    )
-                else:
-                    signal_obj = compute_signal(
-                        exchange,
-                        config.symbol,
-                        config.timeframe,
-                        short_window=config.short_window,
-                        long_window=config.long_window,
-                        candle_data=candle_buffer,
-                        min_trend_strength=config.min_trend_strength,
-                        rsi_period=config.rsi_period,
-                        rsi_oversold=config.rsi_oversold,
-                        rsi_overbought=config.rsi_overbought,
-                        atr_period=config.atr_period,
-                        atr_stop_multiplier=config.atr_stop_multiplier,
-                        use_atr_stops=config.use_atr_stops,
-                        stop_loss_pct=config.stop_loss_pct,
-                        take_profit_pct=config.take_profit_pct,
-                        macd_fast=config.macd_fast,
-                        macd_slow=config.macd_slow,
-                        macd_signal=config.macd_signal,
-                        require_macd_confirmation=config.require_macd_confirmation,
-                        require_volume_confirmation=config.require_volume_confirmation,
-                        volume_threshold=config.volume_threshold,
-                        use_dynamic_sizing=config.use_dynamic_sizing,
-                        min_position_size=config.min_position_size,
-                        max_position_size=config.max_position_size,
-                    )
+                if strategy_manager is None:
+                    logging.debug("No strategy manager configured; skipping signal computation.")
+                    return
+                signal_obj = strategy_manager.compute_aggregate_signal(
+                    exchange,
+                    config.symbol,
+                    config.timeframe,
+                    candle_data=candle_buffer,
+                )
                 trade = trader.handle_signal(signal_obj)
 
                 balances = trader.get_balances()
@@ -597,43 +567,26 @@ def main():
                     "close": float(kline.get("c", 0.0)),
                 }
 
-                # Update legacy dashboard globals (keeps the existing UI working).
-                from dashboard import update_state as _legacy_update_state
-                _legacy_update_state(
-                    balances=balances,
-                    last_signal=signal_obj.to_dict(),
-                    last_trade=trade.to_dict() if trade else None,
-                    price=signal_obj.price,
-                    signal_direction=signal_obj.direction,
-                    timestamp=signal_obj.timestamp.isoformat(),
-                    trade_side=trade.side if trade else None,
-                    ohlc=ohlc,
+                pos = trader.open_position
+                app_state.update_trading_state(
+                    usdt_balance=balances.get("USDT", 0.0),
+                    base_balance=balances.get("BASE", 0.0),
+                    current_price=signal_obj.price,
+                    position_open=pos is not None,
+                    position_entry_price=pos.entry_price if pos else 0.0,
+                    position_amount=pos.amount if pos else 0.0,
+                    position_side="long" if pos else "none",
+                    stop_loss=pos.stop_loss if pos else 0.0,
+                    take_profit=pos.take_profit if pos else 0.0,
+                    trailing_stop=pos.trailing_stop if pos else 0.0,
                 )
-
-                # Mirror into ApplicationState for the new blueprint routes.
-                try:
-                    pos = trader.open_position
-                    app_state.update_trading_state(
-                        usdt_balance=balances.get("USDT", 0.0),
-                        base_balance=balances.get("BASE", 0.0),
-                        current_price=signal_obj.price,
-                        position_open=pos is not None,
-                        position_entry_price=pos.entry_price if pos else 0.0,
-                        position_amount=pos.amount if pos else 0.0,
-                        position_side="long" if pos else "none",
-                        stop_loss=pos.stop_loss if pos else 0.0,
-                        take_profit=pos.take_profit if pos else 0.0,
-                        trailing_stop=pos.trailing_stop if pos else 0.0,
-                    )
-                    app_state.add_history_record({
-                        "timestamp": signal_obj.timestamp.isoformat(),
-                        "price": signal_obj.price,
-                        "signal_direction": signal_obj.direction,
-                        "trade_side": trade.side if trade else None,
-                        **ohlc,
-                    })
-                except Exception as _e:
-                    logging.debug("ApplicationState kline update skipped: %s", _e)
+                app_state.add_history_record({
+                    "timestamp": signal_obj.timestamp.isoformat(),
+                    "price": signal_obj.price,
+                    "signal_direction": signal_obj.direction,
+                    "trade_side": trade.side if trade else None,
+                    **ohlc,
+                })
 
             # Log signal with strategy info
             if strategy_manager and hasattr(signal_obj, 'info') and 'strategies_used' in signal_obj.info:
@@ -677,26 +630,51 @@ def main():
     def _ws_watchdog_loop() -> None:
         threshold = float(getattr(config, "ws_stale_alert_seconds", 180.0))
         poll = max(5.0, min(60.0, threshold / 4.0))
+        reconnect_attempts = 0
+
         while not stop_event.wait(poll):
             if not getattr(config, "ws_watchdog_enabled", True):
                 continue
             age = time.monotonic() - ws_activity["last_mono"]
             if age < threshold:
                 ws_activity["stale_alerted"] = False
+                reconnect_attempts = 0
                 continue
-            if ws_activity["stale_alerted"]:
-                continue
-            ws_activity["stale_alerted"] = True
-            body = (
-                f"No kline for {config.symbol} / {config.timeframe} in {age:.0f}s "
-                f"(threshold {threshold:.0f}s). Check network and Binance stream."
+
+            # Alert once when the stream first goes stale.
+            if not ws_activity["stale_alerted"]:
+                ws_activity["stale_alerted"] = True
+                body = (
+                    f"No kline for {config.symbol} / {config.timeframe} in {age:.0f}s "
+                    f"(threshold {threshold:.0f}s). Attempting reconnect..."
+                )
+                logging.error("WebSocket watchdog: %s", body)
+                send_notification(
+                    "Trading bot: kline stream stale",
+                    body,
+                    severity="critical",
+                )
+
+            # Exponential backoff: 10s, 20s, 40s, 80s … capped at 5 min.
+            backoff = min(300.0, 10.0 * (2 ** reconnect_attempts))
+            reconnect_attempts += 1
+            logging.warning(
+                "WebSocket reconnect attempt #%d (waiting %.0fs)",
+                reconnect_attempts,
+                backoff,
             )
-            logging.error("WebSocket watchdog: %s", body)
-            send_notification(
-                "Trading bot: kline stream stale",
-                body,
-                severity="critical",
-            )
+            if stop_event.wait(backoff):
+                break
+
+            try:
+                _start_ws()
+                logging.info(
+                    "WebSocket reconnected successfully on attempt #%d",
+                    reconnect_attempts,
+                )
+                reconnect_attempts = 0
+            except Exception as exc:
+                logging.error("WebSocket reconnect failed: %s", exc)
 
     watchdog_thread = threading.Thread(
         target=_ws_watchdog_loop,
@@ -705,17 +683,14 @@ def main():
     )
     watchdog_thread.start()
 
-    twm.start_kline_socket(
-        callback=handle_kline,
-        symbol=binance_symbol,
-        interval=config.timeframe,
-    )
+    _start_ws()
 
     try:
         stop_event.wait()
     finally:
         logging.info("Shutting down websocket stream.")
-        twm.stop()
+        if ws_holder["ws"]:
+            ws_holder["ws"].close()
         
         # Stop LLM scheduler if running
         if 'llm_scheduler' in locals() and llm_scheduler:

@@ -34,9 +34,6 @@ def create_app(config=None):
     Create and return the configured Flask application.
 
     All route Blueprints are registered here at their canonical URL paths.
-    The old ``dashboard.py`` is no longer used as the server; it is kept
-    only for its helper functions (``_record_history``, ``set_trader``, etc.)
-    that ``main.py`` still calls during the transition.
     """
     from flask import Flask
 
@@ -112,7 +109,6 @@ def init_services(trader, lock, exchange, strategy_manager, config) -> "Applicat
     Returns the populated :class:`ApplicationState` singleton.
     """
     from app.core.state import get_app_state
-    from app.services.trading_manager import TradingManager
     from app.services.config_service import ConfigService
     from app.services.backtest_manager import BacktestManager
     from app.api.routes import init_api_services
@@ -130,13 +126,12 @@ def init_services(trader, lock, exchange, strategy_manager, config) -> "Applicat
     except Exception as exc:
         logger.warning("Could not seed ApplicationState balances: %s", exc)
 
-    trading_manager = TradingManager(app_state, config)
     config_service = ConfigService()
     backtest_manager = BacktestManager(app_state, config)
 
-    init_api_services(trading_manager, config_service, backtest_manager)
+    init_api_services(config_service, backtest_manager)
 
-    logger.info("Service layer ready: TradingManager, ConfigService, BacktestManager")
+    logger.info("Service layer ready: ConfigService, BacktestManager")
     return app_state
 
 

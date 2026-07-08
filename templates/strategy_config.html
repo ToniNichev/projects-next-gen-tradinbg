@@ -328,6 +328,105 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   }
   
+
+
+  /* Compact status bar */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    padding: 0.6rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+  .status-bar strong { color: var(--text-primary); }
+  .status-bar .sep { color: var(--border-color); }
+
+  /* Inline toggle header inside each strategy tab panel */
+  .strategy-tab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .strategy-tab-header .strat-title { font-size: 1.05rem; font-weight: 700; }
+  .strategy-tab-header .strat-type  { font-size: 0.78rem; color: var(--text-secondary); margin-left: 0.4rem; }
+  .tab-toggle-btn {
+    font-size: 0.78rem;
+    padding: 0.35rem 0.9rem;
+    white-space: nowrap;
+  }
+  .tab-toggle-btn.enable  { background: var(--accent-green); color: #000; border: none; }
+  .tab-toggle-btn.disable { background: rgba(231,76,60,0.15); color: #e74c3c; border: 1px solid #e74c3c; }
+
+  /* Configure link on overview cards */
+  .configure-tab-link {
+    display: inline-block;
+    margin-top: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--accent-blue);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .configure-tab-link:hover { text-decoration: underline; }
+
+  /* Strategy Tab Switcher */
+  .strategy-tabs {
+    display: flex;
+    gap: 0;
+    margin: 2rem 0 0 0;
+    border-bottom: 2px solid var(--border-color);
+  }
+  .strategy-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+    position: relative;
+    bottom: -2px;
+  }
+  .strategy-tab:first-child { border-radius: 0.5rem 0 0 0; }
+  .strategy-tab:last-child  { border-radius: 0 0.5rem 0 0; }
+  .strategy-tab:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+  .strategy-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-weight: 600;
+    border-bottom: 2px solid var(--bg-primary);
+  }
+  .strategy-tab.active.tab-ema    { border-top: 3px solid var(--accent-green); color: var(--accent-green); }
+  .strategy-tab.active.tab-rsi    { border-top: 3px solid var(--accent-blue);  color: var(--accent-blue);  }
+  .strategy-tab.active.tab-macd   { border-top: 3px solid #f39c12;             color: #f39c12;             }
+  .strategy-tab.active.tab-llm    { border-top: 3px solid #9b59b6;             color: #9b59b6;             }
+  .strategy-tab .tab-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent-red);
+    flex-shrink: 0;
+  }
+  .strategy-tab .tab-dot.on { background: var(--accent-green); }
+  .strategy-tab-panel { display: none; padding-top: 1rem; }
+  .strategy-tab-panel.active { display: block; }
+
   .strategy-section.disabled h3 {
     text-decoration: line-through;
   }
@@ -826,27 +925,16 @@
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- SYSTEM STATUS OVERVIEW -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<div class="status-grid">
-  <div class="status-card">
-    <h4>System Status</h4>
-    <p class="value" id="systemStatus"><i class="fas fa-spinner fa-spin"></i></p>
-  </div>
-  <div class="status-card">
-    <h4>Aggregation Mode</h4>
-    <p class="value" id="systemAggMode">-</p>
-  </div>
-  <div class="status-card">
-    <h4>Active Strategies</h4>
-    <p class="value" id="activeCount">-</p>
-  </div>
-  <div class="status-card">
-    <h4>Min Confidence</h4>
-    <p class="value" id="systemMinConf">-</p>
-  </div>
-  <div class="status-card">
-    <h4>Total Signals</h4>
-    <p class="value" id="totalSignals">-</p>
-  </div>
+<div class="status-bar">
+  <span id="systemStatus"><i class="fas fa-spinner fa-spin"></i></span>
+  <span class="sep">·</span>
+  <span>Mode: <strong id="systemAggMode">-</strong></span>
+  <span class="sep">·</span>
+  <span>Active: <strong id="activeCount">-</strong></span>
+  <span class="sep">·</span>
+  <span>Min Confidence: <strong id="systemMinConf">-</strong></span>
+  <span class="sep">·</span>
+  <span>Signals Generated: <strong id="totalSignals">-</strong></span>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -864,15 +952,7 @@
     </div>
   </div>
   
-  <!-- Performance Charts -->
-  <div class="charts-grid">
-    <div class="chart-container">
-      <canvas id="generationChart"></canvas>
-    </div>
-    <div class="chart-container">
-      <canvas id="usageChart"></canvas>
-    </div>
-  </div>
+
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1344,38 +1424,38 @@
   </div>
   
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <!-- INDIVIDUAL STRATEGY OVERRIDES SEPARATOR -->
-  <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div style="margin: 3rem 0 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, rgba(88, 214, 141, 0.1) 0%, rgba(83, 155, 245, 0.1) 100%); border: 2px solid var(--accent-blue); border-radius: 0.75rem; position: relative;">
-    <div style="position: absolute; top: -14px; left: 20px; background: var(--bg-primary); padding: 0 10px;">
-      <span style="color: var(--accent-blue); font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em;">
-        ⚙️ Individual Strategy Overrides
-      </span>
+  <!-- STRATEGY TAB SWITCHER -->
+  <div style="margin-top: 2.5rem;">
+    <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.75rem;">
+      Strategy-Specific Parameters <span style="color: var(--text-secondary); font-weight: 400;">&mdash; overrides global settings for each strategy</span>
     </div>
-    <h3 style="margin: 0 0 0.75rem 0; color: var(--accent-blue); font-size: 1.1rem;">
-      🎯 Strategy-Specific Parameters
-    </h3>
-    <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">
-      The sections below allow each strategy to <strong style="color: var(--text-primary);">override the global settings</strong> configured above. 
-      For example, mean-reversion strategies typically use tighter stop losses than trend-following strategies. 
-      If a strategy doesn't have specific overrides, it will use the global Risk Management and Position Sizing settings.
-    </p>
-    <div style="margin-top: 0.75rem; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border-radius: 0.5rem; border-left: 3px solid var(--accent-green);">
-      <strong style="color: var(--accent-green); font-size: 0.875rem;">💡 Tip:</strong>
-      <span style="color: var(--text-secondary); font-size: 0.875rem;">
-        Strategy-specific Stop Loss and Take Profit settings will override the global Risk Management values for trades from that strategy only.
-      </span>
+    <div class="strategy-tabs" id="strategyTabBar">
+      <div class="strategy-tab tab-ema active" onclick="switchStrategyTab('ema')" id="tab-btn-ema">
+        <span class="tab-dot on" id="tab-dot-ema"></span> 📈 EMA
+      </div>
+      <div class="strategy-tab tab-rsi" onclick="switchStrategyTab('rsi')" id="tab-btn-rsi">
+        <span class="tab-dot on" id="tab-dot-rsi"></span> 🌊 RSI+BB
+      </div>
+      <div class="strategy-tab tab-macd" onclick="switchStrategyTab('macd')" id="tab-btn-macd">
+        <span class="tab-dot on" id="tab-dot-macd"></span> 📊 MACD
+      </div>
+      <div class="strategy-tab tab-llm" onclick="switchStrategyTab('llm')" id="tab-btn-llm">
+        <span class="tab-dot" id="tab-dot-llm"></span> 🤖 LLM
+      </div>
     </div>
   </div>
-  
+
+  <!-- Tab panels — each wraps one strategy-section; IDs inside are preserved -->
+  <div class="strategy-tab-panel active" id="tab-panel-ema">
   <!-- EMA Crossover Strategy -->
   <div class="strategy-section" id="strategy-ema" data-strategy-name="EMA_Crossover">
-    <h3>📈 EMA Crossover Strategy (Trend Following)</h3>
-    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
-      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
-    </p>
-    <div class="alert alert-info" style="margin-bottom: 1rem; padding: 0.75rem; font-size: 0.875rem;">
-      ℹ️ This strategy uses the <strong>global Risk Management</strong> settings (Stop Loss, Take Profit, Trailing Stop) configured above. No strategy-specific overrides.
+    <div class="strategy-tab-header">
+      <div>
+        <span class="strat-title" style="color: var(--accent-green);">📈 EMA Crossover</span>
+        <span class="strat-type">Trend Following</span>
+      </div>
+      <button class="tab-toggle-btn" id="tab-toggle-EMA_Crossover"
+              onclick="toggleStrategyFromTab('EMA_Crossover','ema')">…</button>
     </div>
     
     <div class="form-grid" id="strategy-ema-settings">
@@ -1439,12 +1519,19 @@
     </div>
   </div>
 
+  </div><!-- /tab-panel-ema -->
+
+  <div class="strategy-tab-panel" id="tab-panel-rsi">
   <!-- RSI + Bollinger Bands Strategy -->
   <div class="strategy-section" id="strategy-rsi-bb" data-strategy-name="RSI_BB_MeanReversion">
-    <h3>🌊 RSI + Bollinger Bands Strategy (Mean Reversion)</h3>
-    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
-      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
-    </p>
+    <div class="strategy-tab-header">
+      <div>
+        <span class="strat-title" style="color: var(--accent-blue);">🌊 RSI + Bollinger Bands</span>
+        <span class="strat-type">Mean Reversion</span>
+      </div>
+      <button class="tab-toggle-btn" id="tab-toggle-RSI_BB_MeanReversion"
+              onclick="toggleStrategyFromTab('RSI_BB_MeanReversion','rsi')">…</button>
+    </div>
     
     <div class="form-grid" id="strategy-rsi-bb-settings">
       <div class="form-group">
@@ -1565,12 +1652,19 @@
     </div>
   </div>
 
+  </div><!-- /tab-panel-rsi -->
+
+  <div class="strategy-tab-panel" id="tab-panel-macd">
   <!-- MACD + Volume Strategy -->
   <div class="strategy-section" id="strategy-macd" data-strategy-name="MACD_Volume_Momentum" style="border-left-color: #f39c12;">
-    <h3 style="color: #f39c12;">📊 MACD + Volume Strategy (Momentum Breakout)</h3>
-    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
-      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
-    </p>
+    <div class="strategy-tab-header">
+      <div>
+        <span class="strat-title" style="color: #f39c12;">📊 MACD + Volume</span>
+        <span class="strat-type">Momentum Breakout</span>
+      </div>
+      <button class="tab-toggle-btn" id="tab-toggle-MACD_Volume_Momentum"
+              onclick="toggleStrategyFromTab('MACD_Volume_Momentum','macd')">…</button>
+    </div>
     
     <div class="form-grid" id="strategy-macd-settings">
       <div class="form-group">
@@ -1736,14 +1830,19 @@
     </div>
   </div>
 
+  </div><!-- /tab-panel-macd -->
+
+  <div class="strategy-tab-panel" id="tab-panel-llm">
   <!-- LLM Pattern Analysis Strategy -->
   <div class="strategy-section" id="strategy-llm" data-strategy-name="llm_pattern" style="border-left-color: #9b59b6;">
-    <h3 style="color: #9b59b6;">🤖 LLM Pattern Analysis Strategy (AI-Powered)</h3>
-    <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
-      💡 <strong>Enable/disable this strategy</strong> using the toggle button in the Strategy Overview section above.
-      <br>
-      <span style="color: #e74c3c;">⚠️ Requires Ollama installed and running.</span> See <a href="/static/LLM_SETUP.md" target="_blank" style="color: var(--accent-blue);">LLM Setup Guide</a>
-    </p>
+    <div class="strategy-tab-header">
+      <div>
+        <span class="strat-title" style="color: #9b59b6;">🤖 LLM Pattern Analysis</span>
+        <span class="strat-type">AI-Powered · <span style="color:#e74c3c;">⚠️ Requires Ollama</span></span>
+      </div>
+      <button class="tab-toggle-btn" id="tab-toggle-llm_pattern"
+              onclick="toggleStrategyFromTab('llm_pattern','llm')">…</button>
+    </div>
     
     <div class="form-grid" id="strategy-llm-settings">
       <div class="form-group">
@@ -2068,6 +2167,7 @@
       <strong>Requires restart:</strong> Symbol and Timeframe changes only.
     </small>
   </div>
+  </div><!-- /tab-panel-llm -->
 </form>
 
 <!-- Preview Modal -->
@@ -2556,8 +2656,6 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
   // ═══════════════════════════════════════════════════════════════
   // STRATEGY OVERVIEW & MONITORING
   // ═══════════════════════════════════════════════════════════════
-  let generationChart = null;
-  let usageChart = null;
 
   async function loadStrategyOverview() {
     try {
@@ -2687,6 +2785,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
                 <div class="value" id="conf-${strategy.name}">-</div>
               </div>
             </div>
+            <a class="configure-tab-link" onclick="goConfigureStrategy('${strategy.name}')">⚙️ Configure parameters →</a>
           </div>
         `;
       }).join('');
@@ -2737,10 +2836,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         }
       });
 
-      // Update charts only if we have valid data
-      if (data.stats && Object.keys(data.stats).length > 0) {
-        updateCharts(data.stats);
-      }
+
 
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -2749,92 +2845,6 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     }
   }
 
-  function updateCharts(stats) {
-    const labels = Object.keys(stats);
-    const generationData = labels.map(name => stats[name].signals_generated);
-    const usageData = labels.map(name => stats[name].signals_used);
-    const colors = ['rgba(83, 155, 245, 0.8)', 'rgba(88, 214, 141, 0.8)', 'rgba(255, 193, 7, 0.8)'];
-
-    // Generation Chart with error handling
-    const genCtx = document.getElementById('generationChart');
-    if (genCtx) {
-      try {
-        if (generationChart) {
-          generationChart.destroy();
-        }
-        generationChart = new Chart(genCtx.getContext('2d'), {
-          type: 'doughnut',
-          data: {
-            labels: labels,
-            datasets: [{
-              data: generationData,
-              backgroundColor: colors,
-              borderWidth: 0
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { 
-                position: 'bottom',
-                labels: { color: '#e1e8ff' }
-              },
-              title: {
-                display: true,
-                text: 'Signal Generation',
-                color: '#e1e8ff'
-              }
-            }
-          }
-        });
-      } catch (error) {
-        console.warn('Failed to update generation chart:', error);
-        // Reset chart reference to allow retry on next update
-        generationChart = null;
-      }
-    }
-
-    // Usage Chart with error handling
-    const useCtx = document.getElementById('usageChart');
-    if (useCtx) {
-      try {
-        if (usageChart) {
-          usageChart.destroy();
-        }
-        usageChart = new Chart(useCtx.getContext('2d'), {
-          type: 'doughnut',
-          data: {
-            labels: labels,
-            datasets: [{
-              data: usageData,
-              backgroundColor: colors,
-              borderWidth: 0
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { 
-                position: 'bottom',
-                labels: { color: '#e1e8ff' }
-              },
-              title: {
-                display: true,
-                text: 'Signal Usage',
-                color: '#e1e8ff'
-              }
-            }
-          }
-        });
-      } catch (error) {
-        console.warn('Failed to update usage chart:', error);
-        // Reset chart reference to allow retry on next update
-        usageChart = null;
-      }
-    }
-  }
 
   // Debounce map to prevent rapid clicks
   let toggleDebounce = {};
@@ -2941,6 +2951,85 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
   
   // Note: Strategy enable/disable is now ONLY handled via the Overview toggle buttons
   // The Configuration section no longer has enable/disable checkboxes (removed for cleaner UX)
+
+  // ═══════════════════════════════════════════════════════════════
+  // STRATEGY TAB SWITCHER
+  // ═══════════════════════════════════════════════════════════════
+  const TAB_IDS = ['ema', 'rsi', 'macd', 'llm'];
+
+  function switchStrategyTab(tab) {
+    TAB_IDS.forEach(t => {
+      document.getElementById('tab-panel-' + t)?.classList.toggle('active', t === tab);
+      document.getElementById('tab-btn-' + t)?.classList.toggle('active', t === tab);
+    });
+  }
+
+  // Map strategy API names → tab IDs for dot updates
+  const STRATEGY_TAB_MAP = {
+    'EMA_Crossover':        'ema',
+    'RSI_BB_MeanReversion': 'rsi',
+    'MACD_Volume_Momentum': 'macd',
+    'llm_pattern':          'llm'
+  };
+
+  function updateTabDot(strategyName, enabled) {
+    const tabId = STRATEGY_TAB_MAP[strategyName];
+    if (!tabId) return;
+    const dot = document.getElementById('tab-dot-' + tabId);
+    if (dot) dot.classList.toggle('on', enabled);
+  }
+
+
+  // Map strategy names → tab IDs (used by multiple helpers)
+  const STRATEGY_TO_TAB = {
+    'EMA_Crossover':        'ema',
+    'RSI_BB_MeanReversion': 'rsi',
+    'MACD_Volume_Momentum': 'macd',
+    'llm_pattern':          'llm'
+  };
+
+  // Called by inline tab toggle buttons — delegates to the existing toggleStrategy logic
+  function toggleStrategyFromTab(strategyName, tabId) {
+    const dot = document.getElementById('tab-dot-' + tabId);
+    const currentlyEnabled = dot && dot.classList.contains('on');
+    toggleStrategy(strategyName, currentlyEnabled);
+  }
+
+  // Sync the inline tab toggle button label/style
+  function updateTabToggleBtn(strategyName, enabled) {
+    const btn = document.getElementById('tab-toggle-' + strategyName);
+    if (!btn) return;
+    if (enabled) {
+      btn.textContent = '🔴 Disable';
+      btn.className = 'tab-toggle-btn disable';
+    } else {
+      btn.textContent = '🟢 Enable';
+      btn.className = 'tab-toggle-btn enable';
+    }
+  }
+
+  // Scroll to Strategy Configuration section and open the right tab
+  function goConfigureStrategy(strategyName) {
+    const tabId = STRATEGY_TO_TAB[strategyName];
+    if (!tabId) return;
+    // Expand Strategy Settings if collapsed
+    const strategySettings = document.getElementById('strategySettings');
+    if (strategySettings && !strategySettings.classList.contains('expanded')) {
+      const header = strategySettings.previousElementSibling;
+      strategySettings.classList.add('expanded');
+      strategySettings.style.maxHeight = strategySettings.scrollHeight + 'px';
+      strategySettings.style.opacity = '1';
+      if (header) header.classList.add('expanded');
+    }
+    // Switch tab
+    switchStrategyTab(tabId);
+    // Scroll to tab bar
+    setTimeout(() => {
+      const tabBar = document.getElementById('strategyTabBar');
+      if (tabBar) tabBar.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+  }
+
   function syncConfigCheckbox(strategyName, enabled) {
     // Map strategy names to their parameter section IDs
     // Strategy names from API: EMA_Crossover, RSI_BB_MeanReversion, MACD_Volume_Momentum, llm_pattern
@@ -2962,7 +3051,10 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
           section.classList.add('disabled');
         }
       }
-    } else {
+    }
+    updateTabDot(strategyName, enabled);
+    updateTabToggleBtn(strategyName, enabled);
+    if (!sectionId) {
       console.warn('Unknown strategy name:', strategyName, 'Available mappings:', Object.keys(strategyMapping));
     }
   }
@@ -2995,6 +3087,11 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       setTimeout(() => {
         const targetElement = document.querySelector(hash);
         if (targetElement) {
+          // Switch to the right strategy tab if navigating to a strategy section
+          const tabMapping = { 'strategy-ema': 'ema', 'strategy-rsi-bb': 'rsi', 'strategy-macd': 'macd', 'strategy-llm': 'llm' };
+          const hashKey = hash.replace('#', '');
+          if (tabMapping[hashKey]) switchStrategyTab(tabMapping[hashKey]);
+
           // Scroll to element with offset for sticky header
           const yOffset = -100;
           const y = targetElement.getBoundingClientRect().top + window.pageYOffset + yOffset;

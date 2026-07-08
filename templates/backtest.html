@@ -85,6 +85,9 @@
     <button id="run-current-btn" class="success btn-run" data-action="run-backtest">
       <span id="run-current-text">🚀 Run Backtest</span>
     </button>
+    <button id="cancel-backtest-btn" class="danger btn-cancel" style="display:none" data-action="cancel-backtest">
+      ✕ Cancel
+    </button>
     <button class="secondary btn-config" data-action="view-config">
       ℹ️ View Config
     </button>
@@ -244,6 +247,7 @@
 
   const actions = {
     'run-backtest': Runner.runQuickBacktest,
+    'cancel-backtest': Runner.cancelBacktest,
     'view-config': StrategyConfig.loadCurrentPresetInfo,
     'compare-selected': Results.compareSelected,
     'clear-results': Results.clearResults,
@@ -273,6 +277,7 @@
     StrategyConfig.loadCurrentStrategyConfig();
     Timing.restoreDaysBackSelection();
     Results.loadResults();
+    Runner.resumeIfRunning();
 
     const daysBackDropdown = document.getElementById('days_back');
     if (daysBackDropdown) {

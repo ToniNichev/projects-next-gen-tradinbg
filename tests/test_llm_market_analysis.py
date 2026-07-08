@@ -8,11 +8,14 @@ instead of requiring trading history.
 
 import logging
 import ccxt
+import pytest
 from config import BotConfig
 from strategies import LLMPatternStrategy
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+pytestmark = pytest.mark.llm_integration
 
 
 def test_llm_market_analysis():

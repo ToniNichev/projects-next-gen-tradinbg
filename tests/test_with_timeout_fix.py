@@ -9,7 +9,12 @@ This tests with:
 """
 
 import logging
+import pytest
+
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+pytestmark = pytest.mark.llm_integration
+
 
 def test_with_fixes():
     try:

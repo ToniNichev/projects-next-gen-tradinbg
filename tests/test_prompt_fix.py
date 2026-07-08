@@ -6,7 +6,12 @@ This quickly tests if the less conservative prompt generates signals.
 """
 
 import logging
+import pytest
+
 logging.basicConfig(level=logging.WARNING)  # Quiet output
+
+pytestmark = pytest.mark.llm_integration
+
 
 def test_new_prompt():
     try:

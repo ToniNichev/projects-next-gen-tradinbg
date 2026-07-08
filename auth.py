@@ -178,6 +178,41 @@ def is_auth_enabled() -> bool:
     return config.enabled
 
 
+def enforce_production_auth(bot_config) -> None:
+    """
+    Refuse to start in a non-paper trading mode without real dashboard auth.
+
+    Paper mode keeps today's permissive, dev-friendly defaults (auth may be
+    disabled; a missing password silently becomes "changeme"). Once the bot
+    can log real signals against a live account (dry_run) or place real
+    orders (live), those soft defaults would leave manual-trade and
+    emergency-stop endpoints unauthenticated or behind a well-known
+    password, so this raises a hard, fail-closed error instead.
+    """
+    trading_mode = getattr(bot_config, "trading_mode", "paper")
+    if trading_mode == "paper":
+        return
+
+    auth_config = get_auth_config()
+
+    if not auth_config.enabled:
+        logger.critical(
+            "Refusing to start in '%s' mode: DASHBOARD_AUTH_ENABLED is disabled. "
+            "Set DASHBOARD_AUTH_ENABLED=true before running non-paper trading modes.",
+            trading_mode,
+        )
+        raise SystemExit(1)
+
+    if not auth_config.password or auth_config.password == "changeme":
+        logger.critical(
+            "Refusing to start in '%s' mode: DASHBOARD_PASSWORD is unset or left at "
+            "the default 'changeme'. Set a real DASHBOARD_PASSWORD before running "
+            "non-paper trading modes.",
+            trading_mode,
+        )
+        raise SystemExit(1)
+
+
 # Log authentication status on module import
 config = get_auth_config()
 if config.enabled:

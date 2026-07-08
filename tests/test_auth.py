@@ -202,10 +202,10 @@ def test_dashboard_integration():
     
     logger.info("\n1. Testing dashboard module import...")
     try:
-        from dashboard import app
+        from app import create_app; app = create_app()
         logger.info("✅ Dashboard module imported successfully")
     except Exception as e:
-        logger.error(f"❌ Failed to import dashboard module: {e}")
+        logger.error(f"❌ Failed to create Flask app: {e}")
         return False
     
     logger.info("\n2. Checking protected routes...")
@@ -227,7 +227,7 @@ def test_dashboard_integration():
     
     logger.info("\n3. Testing Flask-Limiter initialization...")
     try:
-        from dashboard import limiter
+        from app.extensions import limiter
         logger.info(f"✅ Rate limiter initialized: {limiter}")
     except Exception as e:
         logger.error(f"❌ Rate limiter initialization failed: {e}")
@@ -235,7 +235,7 @@ def test_dashboard_integration():
     
     logger.info("\n4. Testing CORS initialization...")
     try:
-        from dashboard import cors
+        from app.extensions import cors
         logger.info(f"✅ CORS initialized (will be configured on start)")
     except Exception as e:
         logger.error(f"❌ CORS initialization failed: {e}")
