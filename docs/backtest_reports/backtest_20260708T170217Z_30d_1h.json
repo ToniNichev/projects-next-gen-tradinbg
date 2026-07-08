@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-07-08T17:02:17.976497+00:00",
+  "git_commit": "35a1c8269740062d177324900ec1f200fd176adb",
+  "days_back": 30,
+  "symbol": "BTC/USDT",
+  "timeframe": "1h",
+  "metrics": {
+    "trades": 72,
+    "final_value": 994.3089207379076,
+    "pnl": -5.691079262092444,
+    "pnl_pct": -0.5691079262092444,
+    "buy_hold_pct": -1.1799925909329319,
+    "max_drawdown_pct": 3.797334799002912,
+    "sharpe_ratio": -0.5643819757963161
+  },
+  "strategy_config": {
+    "aggregation_mode": "weighted_voting",
+    "min_signal_confidence": 0.2,
+    "ema_crossover": {
+      "enabled": true,
+      "weight": 1.0
+    },
+    "rsi_bb": {
+      "enabled": true,
+      "weight": 1.0
+    },
+    "macd_volume": {
+      "enabled": true,
+      "weight": 1.0
+    },
+    "llm_pattern": {
+      "enabled": false,
+      "weight": 1.0
+    }
+  },
+  "risk_config": {
+    "stop_loss_pct": 0.04,
+    "take_profit_pct": 0.08,
+    "trailing_stop_pct": 0.025,
+    "max_portfolio_drawdown": 0.1,
+    "order_pct": 0.4
+  }
+}
