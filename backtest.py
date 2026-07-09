@@ -5,6 +5,7 @@ import os
 import statistics
 import subprocess
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 import ccxt
 from config import BotConfig
 from paper_trader import PaperTrader
@@ -85,20 +86,31 @@ def _git_commit_hash() -> str:
         return "unknown"
 
 
-def _save_backtest_report(result: dict, config: "BotConfig", days_back: int) -> str:
+def _save_backtest_report(
+    result: dict,
+    config: "BotConfig",
+    days_back: int,
+    window_start: Optional[datetime] = None,
+    window_end: Optional[datetime] = None,
+) -> str:
     """Persist a dated go/no-go report to docs/backtest_reports/ as JSON."""
     report_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "backtest_reports")
     os.makedirs(report_dir, exist_ok=True)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_timeframe = config.timeframe.replace("/", "-")
-    filename = f"backtest_{timestamp}_{days_back}d_{safe_timeframe}.json"
+    # Anchor tag distinguishes non-overlapping walk-forward windows from the
+    # default "ending now" backtest; omitted (as before) for the common case.
+    anchor_tag = f"_end{window_end.strftime('%Y%m%d')}" if window_end is not None else ""
+    filename = f"backtest_{timestamp}_{days_back}d_{safe_timeframe}{anchor_tag}.json"
     path = os.path.join(report_dir, filename)
 
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_commit": _git_commit_hash(),
         "days_back": days_back,
+        "window_start": window_start.isoformat() if window_start is not None else None,
+        "window_end": window_end.isoformat() if window_end is not None else None,
         "symbol": config.symbol,
         "timeframe": config.timeframe,
         "metrics": {
@@ -133,10 +145,17 @@ def _save_backtest_report(result: dict, config: "BotConfig", days_back: int) -> 
     return path
 
 
-def run_backtest(days_back: int = 30, use_database: bool = False, config_overrides: dict = None, progress_callback=None, save_report: bool = False):
+def run_backtest(
+    days_back: int = 30,
+    use_database: bool = False,
+    config_overrides: dict = None,
+    progress_callback=None,
+    save_report: bool = False,
+    end_date: Optional[datetime] = None,
+):
     """
     Run accelerated backtest on historical data with multi-strategy support.
-    
+
     Args:
         days_back: Number of days of historical data to backtest
         use_database: Whether to store results in database
@@ -144,6 +163,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
         progress_callback: Optional callback function for progress updates (for UI)
         save_report: If True, persist a dated JSON report (metrics + strategy/risk
             config snapshot + git commit) under docs/backtest_reports/
+        end_date: Optional UTC datetime to anchor the window's end instead of "now".
+            Combined with days_back, this carves out an arbitrary historical
+            window (e.g. end_date=90 days ago, days_back=30 -> the 90-60 days-ago
+            window) for walk-forward validation across non-overlapping periods.
+            Defaults to None, which preserves the original "ending now" behavior.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     
@@ -314,16 +338,26 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     )
     
     # Fetch historical data with pagination to respect the full time period
-    logging.info(f"Fetching {days_back} days of {config.timeframe} candles for {config.symbol}...")
-    since = exchange.parse8601(
-        (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%dT00:00:00Z")
-    )
-    
+    window_end = end_date if end_date is not None else datetime.utcnow()
+    window_start = window_end - timedelta(days=days_back)
+    if end_date is not None:
+        logging.info(
+            f"Fetching {days_back} days of {config.timeframe} candles for {config.symbol} "
+            f"ending {window_end.strftime('%Y-%m-%d')} (walk-forward window)..."
+        )
+    else:
+        logging.info(f"Fetching {days_back} days of {config.timeframe} candles for {config.symbol}...")
+    since = exchange.parse8601(window_start.strftime("%Y-%m-%dT00:00:00Z"))
+
     # Fetch candles in batches (exchange limit is typically 1000-1500 per request)
     all_candles = []
     batch_size = 1000
     current_since = since
-    target_end_time = exchange.milliseconds()
+    target_end_time = (
+        exchange.parse8601(window_end.strftime("%Y-%m-%dT00:00:00Z"))
+        if end_date is not None
+        else exchange.milliseconds()
+    )
     
     logging.info(f"Fetching candles in batches of {batch_size}...")
     batch_count = 0
@@ -373,6 +407,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
                 logging.info(f"Continuing with {len(all_candles)} candles fetched so far")
                 break
     
+    if end_date is not None:
+        # Batches paginate by `since` only, so the final batch can overrun a
+        # historical window's end boundary; trim it back for walk-forward runs.
+        all_candles = [c for c in all_candles if c[0] <= target_end_time]
+
     logging.info(f"✓ Loaded {len(all_candles)} candles across {batch_count} batch(es). Starting backtest...")
     
     # Show actual time period covered
@@ -697,7 +736,11 @@ def run_backtest(days_back: int = 30, use_database: bool = False, config_overrid
     }
 
     if save_report:
-        report_path = _save_backtest_report(result, config, days_back)
+        report_path = _save_backtest_report(
+            result, config, days_back,
+            window_start=window_start if end_date is not None else None,
+            window_end=window_end if end_date is not None else None,
+        )
         logging.info(f"Backtest report saved to: {report_path}")
 
     return result
