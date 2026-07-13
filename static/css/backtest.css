@@ -19,6 +19,40 @@
   margin-bottom: 1rem;
 }
 
+/* --- Strategy Override Panel --- */
+
+.strategy-override-panel {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+}
+
+.strategy-override-panel > label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.strategy-override-controls {
+  margin-top: 0.75rem;
+  padding-left: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.strategy-override-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  cursor: pointer;
+}
+
 /* --- Config Section --- */
 
 .config-section {

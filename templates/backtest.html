@@ -56,8 +56,8 @@
     </div>
   </div>
 
-  <div class="form-group" style="margin-top:1rem;">
-    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;">
+  <div class="strategy-override-panel">
+    <label for="override_strategies">
       <input type="checkbox" id="override_strategies">
       Override strategies for this run only
       <span class="info-icon">i
@@ -68,16 +68,10 @@
         </span>
       </span>
     </label>
-    <div id="strategy-override-controls" style="display:none;margin-top:0.5rem;padding-left:1.5rem;">
-      <label style="display:block;font-weight:normal;">
-        <input type="checkbox" id="override_ema" checked> EMA Crossover
-      </label>
-      <label style="display:block;font-weight:normal;">
-        <input type="checkbox" id="override_rsi_bb"> RSI + Bollinger Bands
-      </label>
-      <label style="display:block;font-weight:normal;">
-        <input type="checkbox" id="override_macd"> MACD + Volume
-      </label>
+    <div id="strategy-override-controls" class="strategy-override-controls" style="display:none;">
+      <label><input type="checkbox" id="override_ema" checked> EMA Crossover</label>
+      <label><input type="checkbox" id="override_rsi_bb"> RSI + Bollinger Bands</label>
+      <label><input type="checkbox" id="override_macd"> MACD + Volume</label>
     </div>
   </div>
 
