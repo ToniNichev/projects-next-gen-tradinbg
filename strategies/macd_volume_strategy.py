@@ -36,7 +36,14 @@ class MACDVolumeStrategy(BaseStrategy):
         self.macd_signal_period = config.get("macd_signal_period", 9)
         
         # Signal thresholds
-        self.histogram_threshold = config.get("histogram_threshold", 0.0)  # Min histogram value
+        # Expressed as |histogram| / price, matching EMACrossoverStrategy's
+        # min_trend_strength convention, so it stays meaningful regardless of
+        # BTC's price level (a flat dollar threshold would not). Empirically,
+        # |histogram|/price on BTC/USDT 1h has median ~0.00085 and 25th
+        # percentile ~0.00043 (1000-candle sample); 0.0003 filters the
+        # weakest/noisiest quarter of readings — mostly the near-zero values
+        # right at a fresh crossover — without blocking real momentum moves.
+        self.histogram_threshold = config.get("histogram_threshold", 0.0003)
         self.require_zero_cross = config.get("require_zero_cross", False)  # MACD must cross 0-line
         self.signal_lookback = config.get("signal_lookback", 3)  # Bars to confirm crossover
         
@@ -197,8 +204,10 @@ class MACDVolumeStrategy(BaseStrategy):
         # 4. (Optional) MACD above zero line
         # 5. (Optional) Bullish divergence boost
         
+        histogram_pct = histogram / price if price else 0.0
+
         macd_bullish = bullish_crossover or (recent_bullish_cross and histogram > 0)
-        histogram_bullish = histogram > self.histogram_threshold and histogram_change > 0
+        histogram_bullish = histogram_pct > self.histogram_threshold and histogram_change > 0
         zero_line_bullish = macd_line > 0 if self.require_zero_cross else True
         
         if macd_bullish and histogram_bullish and zero_line_bullish:
@@ -249,7 +258,7 @@ class MACDVolumeStrategy(BaseStrategy):
         # 5. (Optional) Bearish divergence boost
         
         macd_bearish = bearish_crossover or (recent_bearish_cross and histogram < 0)
-        histogram_bearish = histogram < -self.histogram_threshold and histogram_change < 0
+        histogram_bearish = histogram_pct < -self.histogram_threshold and histogram_change < 0
         zero_line_bearish = macd_line < 0 if self.require_zero_cross else True
         
         if direction == "neutral" and macd_bearish and histogram_bearish and zero_line_bearish:

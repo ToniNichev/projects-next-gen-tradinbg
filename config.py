@@ -89,6 +89,12 @@ class BotConfig:
     strategy_macd_signal_period: int = 9
     strategy_macd_volume_multiplier: float = 1.3
     strategy_macd_require_zero_cross: bool = False
+    # |histogram| / price minimum to count as a confirmed signal (not a raw
+    # dollar value — see strategies/macd_volume_strategy.py comment). Used to
+    # be stuck at the code default of 0.0 because it was never read here,
+    # which let every fresh crossover's near-zero histogram count as
+    # "confirmed" and caused overtrading (docs/backtest_reports, 2026-07-08).
+    strategy_macd_histogram_threshold: float = 0.0003
     strategy_macd_stop_loss_pct: float = 0.025
     strategy_macd_take_profit_pct: float = 0.05
     
@@ -267,6 +273,7 @@ class BotConfig:
             strategy_macd_signal_period=get_val("strategy_macd_signal_period", "BOT_STRATEGY_MACD_SIGNAL_PERIOD", 9, int),
             strategy_macd_volume_multiplier=get_val("strategy_macd_volume_multiplier", "BOT_STRATEGY_MACD_VOLUME_MULTIPLIER", 1.3, float),
             strategy_macd_require_zero_cross=get_val("strategy_macd_require_zero_cross", "BOT_STRATEGY_MACD_REQUIRE_ZERO_CROSS", False, bool),
+            strategy_macd_histogram_threshold=get_val("strategy_macd_histogram_threshold", "BOT_STRATEGY_MACD_HISTOGRAM_THRESHOLD", 0.0003, float),
             strategy_macd_stop_loss_pct=get_val("strategy_macd_stop_loss_pct", "BOT_STRATEGY_MACD_STOP_LOSS_PCT", 0.025, float),
             strategy_macd_take_profit_pct=get_val("strategy_macd_take_profit_pct", "BOT_STRATEGY_MACD_TAKE_PROFIT_PCT", 0.05, float),
             # LLM Pattern Strategy (can be overridden by database)
@@ -364,6 +371,7 @@ class BotConfig:
                 "macd_signal_period": self.strategy_macd_signal_period,
                 "volume_multiplier": self.strategy_macd_volume_multiplier,
                 "require_zero_cross": self.strategy_macd_require_zero_cross,
+                "histogram_threshold": self.strategy_macd_histogram_threshold,
                 "atr_period": self.atr_period,
                 "atr_stop_multiplier": self.atr_stop_multiplier,
                 "use_atr_stops": self.use_atr_stops,
