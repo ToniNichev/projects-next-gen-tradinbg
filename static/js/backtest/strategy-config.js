@@ -7,6 +7,29 @@ export function navigateToStrategy(url) {
   window.location.href = url;
 }
 
+/**
+ * Fetch the dashboard's currently-configured enabled/disabled state for
+ * each strategy, keyed by the short names used by the backtest override
+ * checkboxes. Used to seed those checkboxes with real current state
+ * instead of an arbitrary default when "Override strategies" is toggled on.
+ */
+export async function getCurrentStrategyEnabledMap() {
+  const map = { ema: true, rsi_bb: false, macd: false };
+  try {
+    const response = await fetch('/api/strategies');
+    if (!response.ok) return map;
+    const data = await response.json();
+    for (const s of data.strategies || []) {
+      if (s.name === 'EMA_Crossover') map.ema = !!s.enabled;
+      else if (s.name === 'RSI_BB_MeanReversion') map.rsi_bb = !!s.enabled;
+      else if (s.name === 'MACD_Volume_Momentum') map.macd = !!s.enabled;
+    }
+  } catch (error) {
+    console.error('Error loading strategy enabled map:', error);
+  }
+  return map;
+}
+
 export async function loadCurrentStrategyConfig() {
   try {
     const response = await fetch('/api/strategies');
@@ -155,7 +178,7 @@ export async function loadCurrentPresetInfo() {
   }
 }
 
-export async function populateProgressInfo(daysBack) {
+export async function populateProgressInfo(daysBack, endDate) {
   try {
     const [configResponse, stratResponse] = await Promise.all([
       fetch('/api/config/debug'),
@@ -171,7 +194,14 @@ export async function populateProgressInfo(daysBack) {
       document.getElementById('progress-timeframe').textContent = config.timeframe || '1h';
     }
 
-    document.getElementById('progress-period').textContent = `${daysBack} days`;
+    if (endDate) {
+      const end = new Date(`${endDate}T00:00:00Z`);
+      const start = new Date(end.getTime() - daysBack * 86400000);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      document.getElementById('progress-period').textContent = `${fmt(start)} → ${fmt(end)}`;
+    } else {
+      document.getElementById('progress-period').textContent = `${daysBack} days`;
+    }
 
     if (stratData.strategies) {
       const enabled = stratData.strategies.filter(s => s.enabled);

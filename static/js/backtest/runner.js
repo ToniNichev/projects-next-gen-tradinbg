@@ -73,6 +73,17 @@ export async function runQuickBacktest() {
   const els = getElements();
   const daysBack = parseInt(document.getElementById('days_back').value);
   const skipLlm = document.getElementById('skip_llm')?.checked ?? true;
+  const endDate = document.getElementById('end_date')?.value || null;
+
+  let configOverrides = null;
+  if (document.getElementById('override_strategies')?.checked) {
+    configOverrides = {
+      strategy_ema_enabled: document.getElementById('override_ema').checked,
+      strategy_rsi_bb_enabled: document.getElementById('override_rsi_bb').checked,
+      strategy_macd_enabled: document.getElementById('override_macd').checked,
+    };
+  }
+
   const estimatedDuration = getEstimatedDuration(daysBack);
   const startTime = Date.now();
 
@@ -81,7 +92,7 @@ export async function runQuickBacktest() {
   els.progressDiv.style.display = 'block';
   els.status.innerHTML = '';
 
-  await populateProgressInfo(daysBack);
+  await populateProgressInfo(daysBack, endDate);
 
   updateProgressBar(els, 0, 'Initializing backtest...', `~${Math.round(estimatedDuration)}s estimated`);
 
@@ -105,7 +116,12 @@ export async function runQuickBacktest() {
     const response = await fetch('/api/backtest/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ days_back: daysBack, skip_llm: skipLlm }),
+      body: JSON.stringify({
+        days_back: daysBack,
+        skip_llm: skipLlm,
+        end_date: endDate,
+        config_overrides: configOverrides,
+      }),
       signal,
     });
 

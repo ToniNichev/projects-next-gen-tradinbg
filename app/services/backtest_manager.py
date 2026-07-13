@@ -10,7 +10,7 @@ This module provides business logic for backtesting operations, including:
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional, Callable, Any, List
 
 from config import BotConfig
@@ -49,20 +49,25 @@ class BacktestManager:
         config_overrides: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[Callable] = None,
         backtest_id: Optional[str] = None,
-        skip_llm: bool = True
+        skip_llm: bool = True,
+        end_date: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """
         Run backtest with parameters and progress tracking.
-        
+
         This method executes a backtest for the specified period with optional
         configuration overrides. Progress updates are sent via callback if provided.
         Results are stored in ApplicationState with a unique ID and timestamp.
-        
+
         Args:
             days_back: Number of days to backtest (default: 30)
             config_overrides: Optional configuration overrides
             progress_callback: Optional callback for progress updates
                              Signature: callback(progress: float, completed: int, total: int)
+            end_date: Optional UTC datetime anchoring the days_back window in
+                the past instead of ending now — enables walk-forward testing
+                across non-overlapping historical windows (see backtest.py's
+                own end_date parameter, which this forwards to).
         
         Returns:
             Dict containing:
@@ -163,16 +168,29 @@ class BacktestManager:
                 days_back=days_back,
                 use_database=False,
                 config_overrides=effective_overrides if effective_overrides else None,
-                progress_callback=wrapped_progress_callback
+                progress_callback=wrapped_progress_callback,
+                end_date=end_date,
             )
-            
+
             # Use pre-generated ID if provided, otherwise generate new one
             if backtest_id is None:
                 backtest_id = str(uuid.uuid4())
             timestamp = datetime.utcnow()
-            
+
             # Create configuration snapshot
             config_snapshot = self._create_config_snapshot(config_overrides)
+
+            # Surface the walk-forward window in the result's "parameters" so
+            # it shows up in the dashboard's existing "Custom Parameters"
+            # display without needing new UI plumbing. Only added when an
+            # explicit anchor was used — a plain "last N days" run doesn't
+            # need a window echoed back to it.
+            display_parameters = dict(config_overrides or {})
+            if end_date is not None:
+                window_end = end_date
+                window_start = window_end - timedelta(days=days_back)
+                display_parameters["window_start"] = window_start.strftime("%Y-%m-%d")
+                display_parameters["window_end"] = window_end.strftime("%Y-%m-%d")
             
             # Extract strategy information
             strategies_used = self._extract_strategies_used()
@@ -223,7 +241,7 @@ class BacktestManager:
                 "timestamp": timestamp.isoformat() + "Z",
                 "days_back": days_back,
                 "status": "completed",
-                "parameters": config_overrides or {},
+                "parameters": display_parameters,
                 "result": {
                     "trades": total_trades,
                     "winning_trades": winning_trades,

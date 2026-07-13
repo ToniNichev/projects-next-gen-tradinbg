@@ -38,6 +38,47 @@
         <option value="90">90 days</option>
       </select>
     </div>
+
+    <div class="form-group">
+      <label for="end_date">
+        End Date (optional)
+        <span class="info-icon">i
+          <span class="info-tooltip">
+            Anchors the "Days of History" window to end on this date instead of now —
+            for walk-forward testing against a specific historical period (e.g. a past
+            rally or crash) instead of always re-testing the most recent data.
+            <hr>
+            Leave blank for the normal "N days ending today" behavior.
+          </span>
+        </span>
+      </label>
+      <input type="date" id="end_date">
+    </div>
+  </div>
+
+  <div class="form-group" style="margin-top:1rem;">
+    <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;">
+      <input type="checkbox" id="override_strategies">
+      Override strategies for this run only
+      <span class="info-icon">i
+        <span class="info-tooltip">
+          Test a different strategy combination without changing your saved dashboard
+          configuration in Strategy Center. Unchecked (default) uses whatever is
+          currently enabled there.
+        </span>
+      </span>
+    </label>
+    <div id="strategy-override-controls" style="display:none;margin-top:0.5rem;padding-left:1.5rem;">
+      <label style="display:block;font-weight:normal;">
+        <input type="checkbox" id="override_ema" checked> EMA Crossover
+      </label>
+      <label style="display:block;font-weight:normal;">
+        <input type="checkbox" id="override_rsi_bb"> RSI + Bollinger Bands
+      </label>
+      <label style="display:block;font-weight:normal;">
+        <input type="checkbox" id="override_macd"> MACD + Volume
+      </label>
+    </div>
   </div>
 
   <div class="config-section">
@@ -283,6 +324,20 @@
     if (daysBackDropdown) {
       daysBackDropdown.addEventListener('change', () => {
         Timing.saveDaysBackSelection(daysBackDropdown.value);
+      });
+    }
+
+    const overrideToggle = document.getElementById('override_strategies');
+    const overrideControls = document.getElementById('strategy-override-controls');
+    if (overrideToggle && overrideControls) {
+      overrideToggle.addEventListener('change', async () => {
+        overrideControls.style.display = overrideToggle.checked ? 'block' : 'none';
+        if (overrideToggle.checked) {
+          const current = await StrategyConfig.getCurrentStrategyEnabledMap();
+          document.getElementById('override_ema').checked = current.ema;
+          document.getElementById('override_rsi_bb').checked = current.rsi_bb;
+          document.getElementById('override_macd').checked = current.macd;
+        }
       });
     }
 

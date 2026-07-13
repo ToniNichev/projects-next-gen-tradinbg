@@ -9,7 +9,13 @@ Routes
 GET  /api/health                  Health check (no auth required)
 GET  /api/state                   Structured trading state (new API format)
 
-GET  /api/backtest/run      POST  Run a backtest (delegated to BacktestManager)
+GET  /api/backtest/run      POST  Run a backtest (delegated to BacktestManager).
+                                   Body: days_back, skip_llm, config_overrides
+                                   (dict of BotConfig field overrides, e.g.
+                                   strategy_rsi_bb_enabled), end_date
+                                   (optional "YYYY-MM-DD" to anchor a
+                                   days_back window in the past instead of
+                                   ending now — for walk-forward testing).
 GET  /api/backtest/status         Current running status & progress
 GET  /api/backtest/results        All stored results
 GET  /api/backtest/results/<id>   Single result by ID
@@ -154,6 +160,20 @@ def run_backtest():
         if days_back <= 0:
             return jsonify(create_response(success=False, error="days_back must be > 0")), 400
 
+        # Optional walk-forward anchor: "YYYY-MM-DD" (or full ISO). Absent =
+        # the original "days_back ending now" behavior.
+        end_date = None
+        end_date_raw = data.get("end_date")
+        if end_date_raw:
+            try:
+                end_date = datetime.fromisoformat(str(end_date_raw).replace("Z", "+00:00"))
+                if end_date.tzinfo is None:
+                    end_date = end_date.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return jsonify(create_response(
+                    success=False, error=f"Invalid end_date {end_date_raw!r}; expected YYYY-MM-DD"
+                )), 400
+
         # Pre-generate ID so frontend can start polling before the backtest finishes
         backtest_id = str(uuid.uuid4())
         config_overrides = data.get("config_overrides")
@@ -165,6 +185,7 @@ def run_backtest():
                 config_overrides=config_overrides,
                 backtest_id=backtest_id,
                 skip_llm=skip_llm,
+                end_date=end_date,
             )
 
         t = threading.Thread(target=_run, name=f"backtest-{backtest_id[:8]}", daemon=True)
