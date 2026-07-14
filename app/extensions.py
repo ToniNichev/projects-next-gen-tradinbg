@@ -19,9 +19,16 @@ def _get_real_ip() -> str:
     return request.remote_addr or "127.0.0.1"
 
 
+def _default_rate_limit() -> str:
+    # Evaluated per-request so DASHBOARD_RATE_LIMIT_PER_MINUTE takes effect
+    # without needing the limiter to be reconstructed.
+    from config import BotConfig
+    return f"{BotConfig.load().rate_limit_per_minute} per minute"
+
+
 limiter = Limiter(
     key_func=_get_real_ip,
-    default_limits=["60 per minute"],
+    default_limits=[_default_rate_limit],
     storage_uri="memory://",
 )
 

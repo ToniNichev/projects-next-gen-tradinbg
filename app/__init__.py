@@ -183,8 +183,6 @@ def _configure_security(app) -> None:
 
         if not config.enable_rate_limiting:
             limiter.enabled = False
-        else:
-            limiter.limit(f"{config.rate_limit_per_minute} per minute")
 
         if config.dashboard_auth_enabled:
             logger.info("Auth: ENABLED (user: %s)", config.dashboard_username)
