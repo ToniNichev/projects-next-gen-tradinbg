@@ -393,6 +393,7 @@
     <nav>
       <div class="container">
         <a href="/ui" class="logo">Trading Bot</a>
+        <span id="trading-status-badge" class="status info">● Loading…</span>
         <ul>
           <li><a href="/ui" class="{% if request.path == '/ui' %}active{% endif %}">Dashboard</a></li>
           <li><a href="/strategy-config" class="{% if request.path == '/strategy-config' or request.path == '/strategies' %}active{% endif %}">Strategies</a></li>
@@ -408,6 +409,39 @@
     </main>
     
     {% block scripts %}{% endblock %}
+
+    <script>
+      (function () {
+        const badge = document.getElementById('trading-status-badge');
+        if (!badge) return;
+
+        async function refreshTradingStatus() {
+          try {
+            const resp = await fetch('/api/trading/mode', { credentials: 'include' });
+            if (!resp.ok) throw new Error('status ' + resp.status);
+            const data = await resp.json();
+            const mode = (data.actual_mode || data.configured_mode || 'unknown').toUpperCase();
+
+            if (data.emergency_stop) {
+              badge.className = 'status danger';
+              badge.textContent = `🚨 ${mode} · EMERGENCY STOP`;
+            } else if (data.trading_enabled === false) {
+              badge.className = 'status neutral';
+              badge.textContent = `⏸ ${mode} · Trading Disabled`;
+            } else {
+              badge.className = 'status success';
+              badge.textContent = `● ${mode} · Trading Active`;
+            }
+          } catch (err) {
+            badge.className = 'status neutral';
+            badge.textContent = '⚠ Status unavailable';
+          }
+        }
+
+        refreshTradingStatus();
+        setInterval(refreshTradingStatus, 15000);
+      })();
+    </script>
   </body>
 </html>
 

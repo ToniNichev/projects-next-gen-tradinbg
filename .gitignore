@@ -12,6 +12,7 @@ dist/
 
 # Logs and data
 *.log
+logs/
 data/
 .env
 .env.*
