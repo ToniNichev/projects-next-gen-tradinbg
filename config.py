@@ -80,7 +80,13 @@ class BotConfig:
     strategy_rsi_bb_bb_std_dev: float = 2.0
     strategy_rsi_bb_stop_loss_pct: float = 0.02
     strategy_rsi_bb_take_profit_pct: float = 0.03
-    
+    strategy_rsi_bb_rsi_extreme_oversold: float = 20
+    strategy_rsi_bb_rsi_extreme_overbought: float = 80
+    strategy_rsi_bb_bb_touch_threshold: float = 0.995
+    strategy_rsi_bb_require_both_signals: bool = True
+    strategy_rsi_bb_use_volume_filter: bool = True
+    strategy_rsi_bb_volume_threshold: float = 1.0
+
     # Strategy: MACD + Volume Momentum
     strategy_macd_enabled: bool = True
     strategy_macd_weight: float = 1.0
@@ -97,6 +103,13 @@ class BotConfig:
     strategy_macd_histogram_threshold: float = 0.0003
     strategy_macd_stop_loss_pct: float = 0.025
     strategy_macd_take_profit_pct: float = 0.05
+    strategy_macd_signal_lookback: int = 3
+    strategy_macd_volume_ma_period: int = 20
+    strategy_macd_use_momentum_filter: bool = True
+    strategy_macd_momentum_period: int = 10
+    strategy_macd_min_momentum: float = 0.005
+    strategy_macd_detect_divergence: bool = True
+    strategy_macd_divergence_lookback: int = 14
     
     # Strategy: LLM Pattern Analysis (Ollama)
     # Disabled by default: unvalidated in backtests (produces zero trades,
@@ -265,6 +278,12 @@ class BotConfig:
             strategy_rsi_bb_bb_std_dev=get_val("strategy_rsi_bb_bb_std_dev", "BOT_STRATEGY_RSI_BB_BB_STD_DEV", 2.0, float),
             strategy_rsi_bb_stop_loss_pct=get_val("strategy_rsi_bb_stop_loss_pct", "BOT_STRATEGY_RSI_BB_STOP_LOSS_PCT", 0.02, float),
             strategy_rsi_bb_take_profit_pct=get_val("strategy_rsi_bb_take_profit_pct", "BOT_STRATEGY_RSI_BB_TAKE_PROFIT_PCT", 0.03, float),
+            strategy_rsi_bb_rsi_extreme_oversold=get_val("strategy_rsi_bb_rsi_extreme_oversold", "BOT_STRATEGY_RSI_BB_RSI_EXTREME_OVERSOLD", 20.0, float),
+            strategy_rsi_bb_rsi_extreme_overbought=get_val("strategy_rsi_bb_rsi_extreme_overbought", "BOT_STRATEGY_RSI_BB_RSI_EXTREME_OVERBOUGHT", 80.0, float),
+            strategy_rsi_bb_bb_touch_threshold=get_val("strategy_rsi_bb_bb_touch_threshold", "BOT_STRATEGY_RSI_BB_BB_TOUCH_THRESHOLD", 0.995, float),
+            strategy_rsi_bb_require_both_signals=get_val("strategy_rsi_bb_require_both_signals", "BOT_STRATEGY_RSI_BB_REQUIRE_BOTH_SIGNALS", True, bool),
+            strategy_rsi_bb_use_volume_filter=get_val("strategy_rsi_bb_use_volume_filter", "BOT_STRATEGY_RSI_BB_USE_VOLUME_FILTER", True, bool),
+            strategy_rsi_bb_volume_threshold=get_val("strategy_rsi_bb_volume_threshold", "BOT_STRATEGY_RSI_BB_VOLUME_THRESHOLD", 1.0, float),
             # MACD+Volume Strategy (can be overridden by database)
             strategy_macd_enabled=get_val("strategy_macd_enabled", "BOT_STRATEGY_MACD_ENABLED", True, bool),
             strategy_macd_weight=get_val("strategy_macd_weight", "BOT_STRATEGY_MACD_WEIGHT", 1.0, float),
@@ -276,6 +295,13 @@ class BotConfig:
             strategy_macd_histogram_threshold=get_val("strategy_macd_histogram_threshold", "BOT_STRATEGY_MACD_HISTOGRAM_THRESHOLD", 0.0003, float),
             strategy_macd_stop_loss_pct=get_val("strategy_macd_stop_loss_pct", "BOT_STRATEGY_MACD_STOP_LOSS_PCT", 0.025, float),
             strategy_macd_take_profit_pct=get_val("strategy_macd_take_profit_pct", "BOT_STRATEGY_MACD_TAKE_PROFIT_PCT", 0.05, float),
+            strategy_macd_signal_lookback=get_val("strategy_macd_signal_lookback", "BOT_STRATEGY_MACD_SIGNAL_LOOKBACK", 3, int),
+            strategy_macd_volume_ma_period=get_val("strategy_macd_volume_ma_period", "BOT_STRATEGY_MACD_VOLUME_MA_PERIOD", 20, int),
+            strategy_macd_use_momentum_filter=get_val("strategy_macd_use_momentum_filter", "BOT_STRATEGY_MACD_USE_MOMENTUM_FILTER", True, bool),
+            strategy_macd_momentum_period=get_val("strategy_macd_momentum_period", "BOT_STRATEGY_MACD_MOMENTUM_PERIOD", 10, int),
+            strategy_macd_min_momentum=get_val("strategy_macd_min_momentum", "BOT_STRATEGY_MACD_MIN_MOMENTUM", 0.005, float),
+            strategy_macd_detect_divergence=get_val("strategy_macd_detect_divergence", "BOT_STRATEGY_MACD_DETECT_DIVERGENCE", True, bool),
+            strategy_macd_divergence_lookback=get_val("strategy_macd_divergence_lookback", "BOT_STRATEGY_MACD_DIVERGENCE_LOOKBACK", 14, int),
             # LLM Pattern Strategy (can be overridden by database)
             strategy_llm_enabled=get_val("strategy_llm_enabled", "BOT_STRATEGY_LLM_ENABLED", True, bool),
             strategy_llm_weight=get_val("strategy_llm_weight", "BOT_STRATEGY_LLM_WEIGHT", 1.0, float),
@@ -359,6 +385,12 @@ class BotConfig:
                 "use_atr_stops": self.use_atr_stops,
                 "stop_loss_pct": self.strategy_rsi_bb_stop_loss_pct,
                 "take_profit_pct": self.strategy_rsi_bb_take_profit_pct,
+                "rsi_extreme_oversold": self.strategy_rsi_bb_rsi_extreme_oversold,
+                "rsi_extreme_overbought": self.strategy_rsi_bb_rsi_extreme_overbought,
+                "bb_touch_threshold": self.strategy_rsi_bb_bb_touch_threshold,
+                "require_both_signals": self.strategy_rsi_bb_require_both_signals,
+                "use_volume_filter": self.strategy_rsi_bb_use_volume_filter,
+                "volume_threshold": self.strategy_rsi_bb_volume_threshold,
                 "use_dynamic_sizing": self.use_dynamic_sizing,
                 "min_position_size": self.min_position_size,
                 "max_position_size": self.max_position_size,
@@ -377,11 +409,17 @@ class BotConfig:
                 "use_atr_stops": self.use_atr_stops,
                 "stop_loss_pct": self.strategy_macd_stop_loss_pct,
                 "take_profit_pct": self.strategy_macd_take_profit_pct,
+                "signal_lookback": self.strategy_macd_signal_lookback,
+                "volume_ma_period": self.strategy_macd_volume_ma_period,
+                "use_momentum_filter": self.strategy_macd_use_momentum_filter,
+                "momentum_period": self.strategy_macd_momentum_period,
+                "min_momentum": self.strategy_macd_min_momentum,
+                "detect_divergence": self.strategy_macd_detect_divergence,
+                "divergence_lookback": self.strategy_macd_divergence_lookback,
                 "use_dynamic_sizing": self.use_dynamic_sizing,
                 "min_position_size": self.min_position_size,
                 "max_position_size": self.max_position_size,
                 "use_volume_filter": self.require_volume_confirmation,
-                "volume_threshold": self.volume_threshold,
             },
             "llm_pattern": {
                 "enabled": self.strategy_llm_enabled,
