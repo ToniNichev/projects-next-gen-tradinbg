@@ -2,67 +2,48 @@
 
 ## 🎯 Overview
 
-The Next-Gen Trading Bot now supports **multiple concurrent trading strategies** that work together to generate better trading signals. Instead of relying on a single algorithm, the bot can:
+The bot supports **four concurrent trading strategies** that can run together, each producing an independent signal that gets combined by an aggregation mode:
 
 - Run multiple strategies simultaneously
-- Aggregate signals intelligently
-- Track individual strategy performance
-- Enable/disable strategies dynamically
+- Aggregate signals intelligently (5 aggregation modes)
+- Track individual strategy performance (signals generated/used, confidence, acceptance rate)
+- Enable/disable strategies dynamically via API, no restart needed
 - Configure strategy weights for voting
 
 ## 🚀 Quick Start
 
-### Enable Multi-Strategy Mode
-
-Edit your `.env` file:
+Edit your `.env` file (or set the equivalent keys via the Configuration page / `strategy_config` database table):
 
 ```bash
-# Enable multi-strategy system
 BOT_USE_MULTI_STRATEGY=true
-
-# Choose aggregation mode
 BOT_STRATEGY_AGGREGATION_MODE=weighted_voting
-
-# Minimum confidence threshold (0.0 to 1.0)
 BOT_MIN_SIGNAL_CONFIDENCE=0.3
 
-# Enable individual strategies
 BOT_STRATEGY_EMA_ENABLED=true
 BOT_STRATEGY_EMA_WEIGHT=1.0
 
 BOT_STRATEGY_RSI_BB_ENABLED=true
 BOT_STRATEGY_RSI_BB_WEIGHT=1.0
+
+BOT_STRATEGY_MACD_ENABLED=true
+BOT_STRATEGY_MACD_WEIGHT=1.0
+
+BOT_STRATEGY_LLM_ENABLED=false   # off by default — see LLM_SETUP.md before enabling
+BOT_STRATEGY_LLM_WEIGHT=1.0
 ```
 
-Then restart the bot:
-
-```bash
-./restart.sh
-```
+Then restart the bot (`./restart.sh`), or apply via the Configuration page's "Apply Configuration" button for a hot reload without restart.
 
 ## 📊 Available Strategies
 
-### 1. **EMA Crossover Strategy** (Trend Following)
+### 1. EMA Crossover (Trend Following)
 
-**Best for:** Trending markets, capturing momentum moves
+**Best for:** trending markets, capturing momentum moves.
 
-**How it works:**
-- Uses 12/26 EMA crossover to detect trend changes
-- Filters signals with RSI (avoids extremes)
-- MACD confirmation (optional)
-- Volume confirmation (requires above-average volume)
-- ATR-based stop losses (volatility-adjusted)
+- 12/26 EMA crossover to detect trend changes
+- RSI filter (avoids extremes), optional MACD confirmation, optional volume confirmation
+- ATR-based, volatility-adjusted stop losses
 
-**Strengths:**
-- ✅ Excellent in trending markets
-- ✅ Catches big moves early
-- ✅ Well-tested and reliable
-
-**Weaknesses:**
-- ❌ Generates false signals in ranging markets
-- ❌ Can lag during rapid reversals
-
-**Configuration:**
 ```bash
 BOT_STRATEGY_EMA_ENABLED=true
 BOT_STRATEGY_EMA_WEIGHT=1.0
@@ -70,27 +51,16 @@ BOT_SHORT_WINDOW=12
 BOT_LONG_WINDOW=26
 ```
 
-### 2. **RSI + Bollinger Bands Strategy** (Mean Reversion)
+**Strengths:** reliable, catches sustained moves early. **Weaknesses:** false signals in ranging markets, lags on rapid reversals.
 
-**Best for:** Ranging markets, oversold/overbought reversals
+### 2. RSI + Bollinger Bands (Mean Reversion)
 
-**How it works:**
-- Detects oversold conditions (RSI < 30 + price at lower BB)
-- Detects overbought conditions (RSI > 70 + price at upper BB)
-- Looks for divergences (price vs RSI)
-- Targets mean reversion to BB middle band
-- Tighter stop losses for mean reversion
+**Best for:** ranging markets, oversold/overbought reversals.
 
-**Strengths:**
-- ✅ Excellent in ranging/sideways markets
-- ✅ High win rate on reversals
-- ✅ Catches oversold bounces
+- Oversold: RSI < threshold + price at lower BB. Overbought: RSI > threshold + price at upper BB
+- Looks for price/RSI divergence, targets mean reversion to the BB middle band
+- Tighter stops than trend-following, since the thesis is a smaller reversion move
 
-**Weaknesses:**
-- ❌ Can fail in strong trends
-- ❌ Multiple false signals during trending moves
-
-**Configuration:**
 ```bash
 BOT_STRATEGY_RSI_BB_ENABLED=true
 BOT_STRATEGY_RSI_BB_WEIGHT=1.0
@@ -100,461 +70,184 @@ BOT_STRATEGY_RSI_BB_BB_PERIOD=20
 BOT_STRATEGY_RSI_BB_BB_STD_DEV=2.0
 ```
 
+**Strengths:** high win rate on genuine reversals. **Weaknesses:** repeated false signals in a strong trend.
+
+### 3. MACD + Volume (Momentum Breakout)
+
+**Best for:** breakouts and momentum moves confirmed by volume.
+
+- MACD line/signal crossover for momentum direction
+- Volume multiplier filter — requires current volume above `strategy_macd_volume_multiplier` × average to confirm a breakout isn't a low-liquidity fakeout
+- `strategy_macd_histogram_threshold` filters out the noisy near-zero histogram right at a fresh crossover
+- Optional zero-line-cross requirement for stricter entries
+
+```bash
+BOT_STRATEGY_MACD_ENABLED=true
+BOT_STRATEGY_MACD_WEIGHT=1.0
+BOT_STRATEGY_MACD_FAST_PERIOD=12
+BOT_STRATEGY_MACD_SLOW_PERIOD=26
+BOT_STRATEGY_MACD_SIGNAL_PERIOD=9
+BOT_STRATEGY_MACD_VOLUME_MULTIPLIER=1.3
+BOT_STRATEGY_MACD_REQUIRE_ZERO_CROSS=false
+BOT_STRATEGY_MACD_HISTOGRAM_THRESHOLD=0.0003
+```
+
+**Strengths:** catches explosive volume-confirmed moves. **Weaknesses:** whipsaws in choppy, low-volume conditions.
+
+### 4. LLM Pattern Analysis
+
+**Best for:** an additional, reasoning-based signal layered on top of the technical strategies above. **Disabled by default** (`strategy_llm_enabled: bool = False` in `config.py`) — requires a local Ollama install and its own setup pass.
+
+- Analyzes live market data (RSI, MACD, SMAs, volume ratio, support/resistance) rather than just trade history, so it works from the first candle
+- Optionally folds in trade history as extra context if you have some
+- Returns direction, confidence, natural-language reasoning, detected patterns, and suggested risk parameters
+
+```bash
+BOT_STRATEGY_LLM_ENABLED=false
+BOT_STRATEGY_LLM_WEIGHT=1.0
+```
+
+Full setup, prompt structure, sampling behavior for backtests, and troubleshooting: see **[LLM_SETUP.md](LLM_SETUP.md)**.
+
 ## 🔄 Signal Aggregation Modes
 
-### 1. **Weighted Voting** (Default, Recommended)
+Set via `BOT_STRATEGY_AGGREGATION_MODE` (`strategies/strategy_manager.py`, `SignalAggregationMode`):
 
-Strategies vote with weighted confidence scores. The direction with the highest weighted confidence wins (must be >50% of total weight).
+| Mode | Behavior | Use when |
+|---|---|---|
+| `weighted_voting` (default) | Direction with highest weighted-confidence score wins (must exceed 50% of total weight) | Want balanced signals and to weight strategies differently |
+| `voting` | Each enabled strategy gets one vote; majority (>50%) wins | Want simple, equal-say democratic voting |
+| `unanimous` | All enabled strategies must agree | Want maximum confidence, fewer but higher-quality signals |
+| `any` | Any strategy can trigger; uses the most confident signal | Want maximum trading opportunities |
+| `best` | Uses whichever signal has the highest confidence, regardless of agreement | Want dynamic strategy selection without requiring consensus |
 
-**Use when:**
-- ✅ You want balanced, high-confidence signals
-- ✅ Strategies have different strengths
-- ✅ You want to weight strategies differently
+Example (`weighted_voting`): EMA says BULLISH at confidence 0.7 (weight 1.0) → weighted score 0.7; RSI+BB says NEUTRAL at confidence 0.3 (weight 1.0) → weighted score 0.0. Result: BULLISH, since 0.7 of the (weighted) total exceeds the 50% threshold.
 
-**Configuration:**
-```bash
-BOT_STRATEGY_AGGREGATION_MODE=weighted_voting
-BOT_STRATEGY_EMA_WEIGHT=1.0
-BOT_STRATEGY_RSI_BB_WEIGHT=1.0
-```
+## 📈 Recommended Starting Points
 
-**Example:**
-```
-EMA Strategy: BULLISH (confidence: 0.7, weight: 1.0) → weighted score: 0.7
-RSI+BB Strategy: NEUTRAL (confidence: 0.3, weight: 1.0) → weighted score: 0.0
----
-Result: BULLISH (0.7 / 0.7 = 100% > 50% threshold)
-```
+**Conservative** — `unanimous` mode, `BOT_MIN_SIGNAL_CONFIDENCE=0.5`, all technical strategies enabled at equal weight. Only trades when everything agrees.
 
-### 2. **Simple Voting** (Majority Rules)
+**Balanced (recommended default)** — `weighted_voting`, `BOT_MIN_SIGNAL_CONFIDENCE=0.3`, weight the strategy that fits current conditions slightly higher (e.g. EMA 1.2 in a trending market).
 
-Each strategy gets one vote. Direction with >50% votes wins.
+**Active/aggressive** — `any` mode, `BOT_MIN_SIGNAL_CONFIDENCE=0.25`. Maximizes trading opportunities; either strategy can trigger.
 
-**Use when:**
-- ✅ All strategies should have equal say
-- ✅ You want simple democratic voting
-- ✅ You don't want to tune confidence weights
+**Single-regime focus** — disable strategies that don't fit the current regime rather than tuning weights around them: disable RSI+BB in a strong trend, disable EMA/MACD in a ranging market.
 
-**Configuration:**
-```bash
-BOT_STRATEGY_AGGREGATION_MODE=voting
-```
-
-**Example:**
-```
-EMA Strategy: BULLISH
-RSI+BB Strategy: BULLISH
----
-Result: BULLISH (2/2 = 100% agreement)
-```
-
-### 3. **Unanimous** (Ultra Conservative)
-
-ALL enabled strategies must agree. Very conservative but high accuracy.
-
-**Use when:**
-- ✅ You want maximum confidence
-- ✅ You prefer fewer, higher-quality signals
-- ✅ You want to avoid false signals
-
-**Configuration:**
-```bash
-BOT_STRATEGY_AGGREGATION_MODE=unanimous
-```
-
-**Example:**
-```
-EMA Strategy: BULLISH
-RSI+BB Strategy: NEUTRAL
----
-Result: NEUTRAL (not unanimous)
-```
-
-### 4. **Any** (Aggressive)
-
-Any strategy can trigger a trade. Uses the most confident signal.
-
-**Use when:**
-- ✅ You want maximum trading opportunities
-- ✅ You trust individual strategies
-- ✅ You want to capture all potential moves
-
-**Configuration:**
-```bash
-BOT_STRATEGY_AGGREGATION_MODE=any
-```
-
-**Example:**
-```
-EMA Strategy: NEUTRAL (confidence: 0.2)
-RSI+BB Strategy: BULLISH (confidence: 0.8)
----
-Result: BULLISH (highest confidence)
-```
-
-### 5. **Best** (Pick Strongest Signal)
-
-Uses the signal with highest confidence, regardless of agreement.
-
-**Use when:**
-- ✅ You want the most confident signal
-- ✅ Different strategies excel in different conditions
-- ✅ You want dynamic strategy selection
-
-**Configuration:**
-```bash
-BOT_STRATEGY_AGGREGATION_MODE=best
-```
-
-## 📈 Recommended Configurations
-
-### For Beginners (Conservative)
-
-```bash
-BOT_USE_MULTI_STRATEGY=true
-BOT_STRATEGY_AGGREGATION_MODE=unanimous
-BOT_MIN_SIGNAL_CONFIDENCE=0.5
-
-# Both strategies enabled with equal weight
-BOT_STRATEGY_EMA_ENABLED=true
-BOT_STRATEGY_EMA_WEIGHT=1.0
-BOT_STRATEGY_RSI_BB_ENABLED=true
-BOT_STRATEGY_RSI_BB_WEIGHT=1.0
-```
-
-**Why:** Only trades when both strategies agree, reducing false signals.
-
-### For Balanced Trading (Recommended)
-
-```bash
-BOT_USE_MULTI_STRATEGY=true
-BOT_STRATEGY_AGGREGATION_MODE=weighted_voting
-BOT_MIN_SIGNAL_CONFIDENCE=0.3
-
-# EMA weighted higher for trend detection
-BOT_STRATEGY_EMA_ENABLED=true
-BOT_STRATEGY_EMA_WEIGHT=1.2
-BOT_STRATEGY_RSI_BB_ENABLED=true
-BOT_STRATEGY_RSI_BB_WEIGHT=1.0
-```
-
-**Why:** Balances signal frequency with accuracy. Slightly favors trend-following.
-
-### For Active Trading (Aggressive)
-
-```bash
-BOT_USE_MULTI_STRATEGY=true
-BOT_STRATEGY_AGGREGATION_MODE=any
-BOT_MIN_SIGNAL_CONFIDENCE=0.25
-
-# Both strategies enabled
-BOT_STRATEGY_EMA_ENABLED=true
-BOT_STRATEGY_EMA_WEIGHT=1.0
-BOT_STRATEGY_RSI_BB_ENABLED=true
-BOT_STRATEGY_RSI_BB_WEIGHT=1.0
-```
-
-**Why:** Maximizes trading opportunities. Either strategy can trigger.
-
-### For Trending Markets Only
-
-```bash
-BOT_USE_MULTI_STRATEGY=false  # Or disable RSI+BB strategy
-BOT_STRATEGY_EMA_ENABLED=true
-BOT_STRATEGY_RSI_BB_ENABLED=false
-```
-
-**Why:** Mean reversion performs poorly in strong trends.
-
-### For Ranging Markets Only
-
-```bash
-BOT_USE_MULTI_STRATEGY=false  # Or disable EMA strategy
-BOT_STRATEGY_EMA_ENABLED=false
-BOT_STRATEGY_RSI_BB_ENABLED=true
-```
-
-**Why:** Trend-following generates many false signals in ranging markets.
+Note: walk-forward testing across 6 non-overlapping 30-day windows (see `docs/backtest_reports/` and the `walk_forward_*_only.py` scripts) found no standalone edge for EMA-only, RSI+BB-only, or MACD-only against recent BTC/USDT 1h data — treat any of these starting points as a hypothesis to validate with your own backtests, not an assumed edge.
 
 ## 📊 Dashboard & Monitoring
 
-### View Strategy Performance
+```bash
+# List strategies and their enabled/weight state
+curl -u admin:password http://localhost:8000/api/strategies
 
-Access the dashboard at `http://localhost:8000` and navigate to:
+# Per-strategy signal/acceptance stats
+curl -u admin:password http://localhost:8000/api/strategies/stats
 
-**API Endpoints:**
-
-1. **List Strategies:**
-   ```bash
-   curl -u admin:password http://localhost:8000/api/strategies
-   ```
-   
-   Returns:
-   ```json
-   {
-     "multi_strategy_enabled": true,
-     "aggregation_mode": "weighted_voting",
-     "strategies": [
-       {
-         "name": "EMA_Crossover",
-         "description": "EMA Crossover (12/26) with RSI, MACD, and Volume filters",
-         "enabled": true,
-         "weight": 1.0
-       },
-       {
-         "name": "RSI_BB_MeanReversion",
-         "description": "RSI (14) + Bollinger Bands (20, 2σ) Mean Reversion",
-         "enabled": true,
-         "weight": 1.0
-       }
-     ]
-   }
-   ```
-
-2. **Strategy Statistics:**
-   ```bash
-   curl -u admin:password http://localhost:8000/api/strategies/stats
-   ```
-   
-   Returns:
-   ```json
-   {
-     "multi_strategy_enabled": true,
-     "total_signals_generated": 150,
-     "total_signals_used": 75,
-     "stats": {
-       "EMA_Crossover": {
-         "signals_generated": 80,
-         "signals_used": 45,
-         "avg_confidence": 0.65,
-         "generation_rate": 53.3,
-         "usage_rate": 60.0,
-         "acceptance_rate": 56.25
-       },
-       "RSI_BB_MeanReversion": {
-         "signals_generated": 70,
-         "signals_used": 30,
-         "avg_confidence": 0.58,
-         "generation_rate": 46.7,
-         "usage_rate": 40.0,
-         "acceptance_rate": 42.86
-       }
-     }
-   }
-   ```
-
-### Interpret Strategy Stats
-
-- **signals_generated**: Total signals produced by strategy
-- **signals_used**: Signals that resulted in trades (passed aggregation)
-- **avg_confidence**: Average confidence score (0.0 to 1.0)
-- **generation_rate**: % of all signals generated by this strategy
-- **usage_rate**: % of all trades attributed to this strategy
-- **acceptance_rate**: % of this strategy's signals that passed aggregation
-
-**Good acceptance rate:** 40-70% indicates good signal quality
-**Low acceptance rate:** <30% suggests strategy not compatible with current market or aggregation mode
-**High acceptance rate:** >80% indicates strategy dominance or over-fitting
-
-## 🔍 Database Schema Updates
-
-Trades now include strategy attribution:
-
-```sql
-SELECT 
-  timestamp,
-  side,
-  price,
-  pnl,
-  strategy_name,
-  signal_confidence
-FROM trades
-WHERE strategy_name = 'EMA_Crossover'
-ORDER BY timestamp DESC
-LIMIT 10;
+# Enable / disable / toggle a strategy at runtime (persists to the database)
+curl -X POST -u admin:password http://localhost:8000/api/strategies/EMA_Crossover/enable
+curl -X POST -u admin:password http://localhost:8000/api/strategies/EMA_Crossover/disable
+curl -X POST -u admin:password http://localhost:8000/api/strategies/EMA_Crossover/toggle
 ```
 
-Query strategy performance:
+`/api/strategies/stats` returns, per strategy: `signals_generated`, `signals_used`, `avg_confidence`, `generation_rate`, `usage_rate`, `acceptance_rate`.
+
+| Acceptance rate | Meaning |
+|---|---|
+| >70% | Strategy dominates aggregation — consider whether its weight is too high |
+| 40-70% | Healthy contribution |
+| 20-40% | Normal for strict aggregation modes (`unanimous`) |
+| <20% | Too filtered — check aggregation mode, confidence threshold, or whether this strategy fits current market conditions |
+
+## 🔍 Database Schema
+
+Trades carry strategy attribution:
 
 ```sql
-SELECT 
-  strategy_name,
-  COUNT(*) as trades,
-  SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as winning_trades,
-  AVG(pnl) as avg_pnl,
-  SUM(pnl) as total_pnl
-FROM trades
-WHERE strategy_name IS NOT NULL
+SELECT timestamp, side, price, pnl, strategy_name, signal_confidence
+FROM trades WHERE strategy_name = 'EMA_Crossover'
+ORDER BY timestamp DESC LIMIT 10;
+
+SELECT strategy_name, COUNT(*) AS trades,
+       SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS winning_trades,
+       AVG(pnl) AS avg_pnl, SUM(pnl) AS total_pnl
+FROM trades WHERE strategy_name IS NOT NULL
 GROUP BY strategy_name;
 ```
 
-## 🛠️ Advanced Usage
+## 🛠️ Adding a New Strategy
 
-### Create Your Own Strategy
-
-1. **Create a new strategy file:**
-
+1. Create `strategies/my_strategy.py`:
    ```python
-   # strategies/my_strategy.py
    from .base_strategy import BaseStrategy, StrategySignal
-   
+
    class MyCustomStrategy(BaseStrategy):
        def __init__(self, config: dict):
            super().__init__("MyCustom", config)
-           # Initialize parameters from config
-           
+
        def compute_signal(self, exchange, symbol, timeframe, candle_data=None):
-           # Your strategy logic here
-           # Return StrategySignal object
+           # strategy logic here; return a StrategySignal
            pass
-       
-       def get_description(self):
+
+       def get_description(self) -> str:
            return "My custom strategy description"
-       
-       def get_parameters(self):
-           return {"param1": self.param1, "param2": self.param2}
+
+       def get_parameters(self) -> dict:
+           return {"param1": self.param1}
    ```
+2. Register it in `strategies/__init__.py`'s `__all__` and wherever `strategy_manager.py` instantiates the built-in strategies.
+3. Add its config fields to `config.py` following the pattern used for MACD/LLM (env var + database-backed key + default).
 
-2. **Register in `strategies/__init__.py`:**
-
-   ```python
-   from .my_strategy import MyCustomStrategy
-   
-   __all__ = [
-       'BaseStrategy',
-       'StrategySignal',
-       'EMACrossoverStrategy',
-       'RSIBollingerBandsStrategy',
-       'MyCustomStrategy',  # Add here
-       'StrategyManager',
-       'SignalAggregationMode',
-   ]
-   ```
-
-3. **Add to config.py and main.py:**
-
-   Follow the pattern for EMA and RSI+BB strategies.
-
-### Disable a Strategy Dynamically
-
-Via API (requires implementation):
-
-```python
-POST /api/strategies/disable
-{
-  "strategy_name": "EMA_Crossover"
-}
-```
-
-Or via environment:
+## 📊 Backtesting Multiple Configurations
 
 ```bash
-BOT_STRATEGY_EMA_ENABLED=false
+python backtest.py 30    # 30-day backtest using current .env / database config
 ```
 
-## 📊 Backtesting with Multi-Strategy
+The backtest automatically uses your enabled strategies, weights, and aggregation mode — results should match what live trading would have done with that config.
 
-Run backtest with multi-strategy enabled:
-
-```bash
-python backtest.py 30
-```
-
-The backtest will automatically use your configured strategies and aggregation mode.
+**What to vary when comparing configs:**
+- **Isolate one strategy** — disable the others (`strategy_*_enabled=False`) to see its standalone contribution. For a repeatable, multi-window version of this, see `scripts/walk_forward_ema_only.py` / `walk_forward_macd_only.py` / `walk_forward_rsi_bb_only.py`.
+- **Aggregation mode** — rerun the same window under `weighted_voting`, `unanimous`, `any`, `best`, `voting` and compare win rate / P&L / acceptance rates.
+- **Strategy weights** — favor one strategy over another (e.g. `EMA_WEIGHT=1.5`, `RSI_BB_WEIGHT=0.8`) and see if it improves results, rather than assuming equal weight is optimal.
+- **Confidence threshold** — sweep `BOT_MIN_SIGNAL_CONFIDENCE` (e.g. 0.2 / 0.3 / 0.5) to trade off signal frequency against quality.
+- **Time period** — a single 30/60-day window is a small sample; compare multiple non-overlapping windows before trusting a result (see the walk-forward scripts and `docs/backtest_reports/` for the existing methodology and its caveats around overfitting to a re-tested window).
 
 ## 🐛 Troubleshooting
 
-### No Signals Being Generated
+**No signals being generated:** confirm the strategy is enabled (`BOT_STRATEGY_*_ENABLED=true`), multi-strategy mode is on (`BOT_USE_MULTI_STRATEGY=true`), and the confidence threshold isn't too high — try `BOT_MIN_SIGNAL_CONFIDENCE=0.2` or a looser aggregation mode (`weighted_voting`/`any`) as a diagnostic step.
 
-**Check:**
-1. Are strategies enabled? (`BOT_STRATEGY_EMA_ENABLED=true`)
-2. Is multi-strategy enabled? (`BOT_USE_MULTI_STRATEGY=true`)
-3. Is confidence threshold too high? (Try `BOT_MIN_SIGNAL_CONFIDENCE=0.2`)
-4. Is aggregation mode too strict? (Try `weighted_voting` or `any`)
+**Too many signals:** raise `BOT_MIN_SIGNAL_CONFIDENCE`, switch to a stricter aggregation mode (`unanimous`), or disable a strategy that's overtrading.
 
-**View logs:**
-```bash
-tail -f logs/bot.log | grep "Signal="
-```
+**Strategies constantly disagree (low acceptance rates across the board):** try `best` or `any` mode, adjust weights to favor the strategy that fits current conditions, or disable the strategy that doesn't fit the current regime rather than trying to out-vote it.
 
-### Too Many Signals
-
-**Solutions:**
-1. Increase confidence threshold: `BOT_MIN_SIGNAL_CONFIDENCE=0.5`
-2. Use stricter aggregation: `BOT_STRATEGY_AGGREGATION_MODE=unanimous`
-3. Disable one strategy temporarily
-4. Add more filters to individual strategies
-
-### Strategy Conflict
-
-**Symptoms:** Strategies constantly disagree (low acceptance rate)
-
-**Solutions:**
-1. Use `best` or `any` aggregation mode
-2. Adjust strategy weights (favor one over the other)
-3. Disable conflicting strategy in current market conditions
+**"Multi-strategy system not available":** confirms `strategies/` package is present and `BOT_USE_MULTI_STRATEGY=true` — check `curl -u admin:password http://localhost:8000/api/strategies` for the `multi_strategy_enabled` flag.
 
 ## 💡 Pro Tips
 
-1. **Market Condition Adaptation:**
-   - **Trending market**: Increase EMA weight, decrease RSI+BB weight
-   - **Ranging market**: Increase RSI+BB weight, decrease EMA weight
-   - **Volatile market**: Use `unanimous` mode for safety
+1. **Match strategy to regime**: increase EMA/MACD weight in trending markets, increase RSI+BB weight when ranging, favor `unanimous` mode in choppy/volatile conditions.
+2. **Confidence threshold**: start at 0.3 — higher means fewer, better signals; lower means more signals with more noise.
+3. **Weights don't need to be 1.0** — try 1.5 for a primary strategy and 0.8 for a secondary one, and validate the choice with a backtest rather than intuition.
+4. **Check `/api/strategies/stats` regularly** — a strategy with a persistently low acceptance rate isn't contributing and is a candidate to disable or reweight.
+5. **Backtest before changing live config** — and remember a single window is a small sample; see the walk-forward scripts for a multi-window methodology.
 
-2. **Confidence Tuning:**
-   - Start with `0.3` and adjust based on results
-   - Higher = fewer but better signals
-   - Lower = more signals but more noise
+## 🎓 Code References
 
-3. **Strategy Weights:**
-   - Weight doesn't need to be 1.0
-   - Try 1.5 for primary strategy, 0.8 for secondary
-   - Experiment to find your optimal ratio
-
-4. **Monitor Performance:**
-   - Check `/api/strategies/stats` daily
-   - Look for strategies with low acceptance rates
-   - Adjust weights based on current market conditions
-
-5. **Backtesting:**
-   - Test different aggregation modes
-   - Compare single-strategy vs multi-strategy results
-   - Validate on recent data (last 30-60 days)
-
-## 🎓 Learning Resources
-
-### Understanding the Code
-
-- `strategies/base_strategy.py` - Strategy interface
-- `strategies/ema_crossover_strategy.py` - Example trend-following strategy
-- `strategies/rsi_bb_strategy.py` - Example mean reversion strategy
-- `strategies/strategy_manager.py` - Signal aggregation logic
-
-### Key Concepts
-
-1. **Confidence Score**: How certain a strategy is about its signal (0.0 to 1.0)
-2. **Strategy Weight**: Importance multiplier for voting (typically 0.5 to 2.0)
-3. **Signal Aggregation**: Process of combining multiple signals into one
-4. **Attribution**: Tracking which strategy generated a trade
+- `strategies/base_strategy.py` — strategy interface
+- `strategies/ema_crossover_strategy.py`, `strategies/rsi_bb_strategy.py`, `strategies/macd_volume_strategy.py` — the three technical strategies
+- `strategies/llm/` — LLM pattern strategy (`strategy.py`, `market_data.py`, `indicators.py`, `prompt_builder.py`, `llm_client.py`, `response_parser.py`, `cache_manager.py`)
+- `strategies/strategy_manager.py` — signal aggregation logic
 
 ## 📞 Support
 
-If you encounter issues or have questions:
+Check logs (`./status.sh` or `tail -f logs/bot.log`), review live config (`/api/config`), check strategy stats (`/api/strategies/stats`), and test any change in backtest before applying it live.
 
-1. Check the logs: `./status.sh` or `tail -f logs/bot.log`
-2. Review configuration: `/api/config` endpoint
-3. Check strategy stats: `/api/strategies/stats` endpoint
-4. Test in backtest mode first before live trading
+## 🎉 What Good Multi-Strategy Performance Looks Like
 
-## 🎉 Success Metrics
-
-**Good multi-strategy performance:**
-- ✅ Win rate >50%
-- ✅ Both strategies being used (not just one)
-- ✅ Acceptance rate between 40-70%
-- ✅ Fewer trades but higher quality than single strategy
-- ✅ Better risk-adjusted returns
+- Win rate >50% and positive P&L, beating buy-and-hold over the tested window
+- More than one strategy actually contributing (not one at >70% acceptance while others sit under 20%)
+- Consistent results across multiple non-overlapping time windows, not just one lucky period
 
 ---
 
-**Happy multi-strategy trading! 🚀📈💰**
+**Happy multi-strategy trading!**

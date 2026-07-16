@@ -1,5 +1,55 @@
 # RAG Web UI Management Guide
 
+## What is RAG?
+
+**RAG (Retrieval Augmented Generation)** enhances the LLM trading strategy by using semantic search to find the most relevant historical trades instead of sending all trade history to the LLM.
+
+```
+BEFORE (Without RAG):
+Current market: BTC $67k, RSI 72 (overbought)
+→ LLM sees ALL 100 recent trades (mixed conditions)
+→ Confused by irrelevant patterns
+→ 10-15 second response time
+
+AFTER (With RAG):
+Current market: BTC $67k, RSI 72 (overbought)
+→ RAG searches: "Similar to RSI 72, overbought, bearish momentum"
+→ LLM sees ONLY 10 most similar trades
+→ Clear pattern emerges
+→ 2-3 second response time
+```
+
+| Metric | Without RAG | With RAG |
+|--------|-------------|----------|
+| LLM Response Time | 10-15s | 2-3s |
+| Token Usage | ~5000 tokens | ~500 tokens |
+| Min. Trades Needed | 3 | 5 |
+
+### Architecture
+
+```
+Trade Database (SQLite)
+        │
+        ▼
+Trade Embedder (sentence-transformers)  ← converts trades to vectors
+        │
+        ▼
+Vector Database (ChromaDB)              ← stores embeddings
+        │
+        ▼
+Similarity Search                       ← finds relevant trades
+        │
+        ▼
+LLM Analysis (Ollama)                   ← gets focused context
+```
+
+### Advanced: custom embedding model
+
+Edit `trade_rag.py`'s `TradeEmbedder.__init__(model_name=...)`:
+- `all-MiniLM-L6-v2` (default) — fast, 384 dimensions
+- `all-mpnet-base-v2` — better quality, 768 dimensions
+- `all-distilroberta-v1` — balanced
+
 ## ✅ What's New
 
 You can now **manage RAG indexing directly from the Web UI**! No need to run command-line scripts.
@@ -176,12 +226,6 @@ After indexing, verify RAG is working:
 | **Automation** | Can script/cron | Manual clicks |
 
 **Recommendation**: Use Web UI for quick management, CLI for automation/scripting.
-
-## 📚 Related Docs
-
-- `RAG_QUICKSTART.md` - Initial setup guide
-- `RAG_IMPLEMENTATION.md` - Technical details
-- `RAG_STATUS.md` - Current installation status
 
 ---
 

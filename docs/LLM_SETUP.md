@@ -171,6 +171,59 @@ Example output:
 }
 ```
 
+## Market Data Analysis (What the LLM Actually Sees)
+
+The strategy analyzes live market data, not just your bot's trade history — it works from the first candle, with no minimum trade count required. Each analysis cycle:
+
+1. Fetches ~100 recent candles from the exchange
+2. Calculates RSI(14), MACD, SMA 20/50, and a volume ratio (current vs. average)
+3. Detects support/resistance from recent swing highs/lows
+4. Optionally folds in your trade history (3+ trades) as extra context, if available
+5. Sends all of the above to the LLM and caches the result for `BOT_LLM_CACHE_MINUTES`
+
+The LLM returns direction, confidence, reasoning, detected patterns, and suggested stop-loss/take-profit/position size (see the example JSON in Step 6 above). Trade-history context is a bonus input, not a requirement — so backtests and fresh bots get real signals immediately instead of "not enough trade history, returning neutral."
+
+## Backtest Sampling (Why Backtests Don't Analyze Every Candle)
+
+Calling the LLM on every candle is too slow to be practical: at ~8s/call, a 7-day backtest on 5m candles (2,016 candles) would take ~4.5 hours. `BOT_LLM_BACKTEST_SAMPLE_INTERVAL` (default `12`) makes backtests analyze only every Nth candle and reuse the last analysis for the candles in between — live trading and manual "Run Analysis Now" are unaffected by this setting and always analyze immediately.
+
+| Interval | 5m timeframe | 1h timeframe | Use case |
+|---|---|---|---|
+| 1 | every candle | every candle | testing only, very slow |
+| 12 | every hour | every 12h | **default** |
+| 24 | every 2h | every day | less frequent |
+| 50+ | quick smoke-test runs | — | fast iteration, fewer trade opportunities |
+
+Match the interval to your timeframe's actual cadence — 12 candles means something very different on 5m vs. 1h vs. 4h.
+
+## Troubleshooting: Backtest Produces Zero Trades / Only Neutral Signals
+
+Work through these in order — they're the common causes, roughly most-to-least likely:
+
+1. **LLM is genuinely returning `neutral`.** LLMs default to caution on mixed signals. Try: lower `BOT_MIN_SIGNAL_CONFIDENCE` (e.g. `0.2`), raise `llm_temperature` (e.g. `0.5`) for more decisive output, or test on a clearly trending period — ranging/choppy markets produce more neutrals.
+2. **Signal generated but below the confidence threshold.** Check `BOT_MIN_SIGNAL_CONFIDENCE` (default 0.3) and try `BOT_LLM_REQUIRE_PATTERNS=false`.
+3. **Multi-strategy aggregation is filtering it out.** `unanimous` mode requires every enabled strategy to agree; `weighted_voting` with a low `BOT_STRATEGY_LLM_WEIGHT` can get outvoted. To isolate the LLM strategy for testing, disable EMA/RSI_BB/MACD and set aggregation to `any`.
+4. **Sample interval too sparse for the backtest length.** E.g. a 100-candle backtest with `sample_interval=50` only analyzes twice — reduce the interval or extend the backtest window.
+5. **Suggested position size below your minimum.** Check `BOT_MIN_POSITION_SIZE` against what the LLM is suggesting.
+
+To confirm sampling and signals are actually running, watch for this pattern in the logs:
+```
+llm_pattern: Backtest configured - 168 candles, sampling every 12 = 14 analyses
+llm_pattern: Generated signal - BULLISH (confidence: 65.0%, position: 25.0%)
+```
+If confidence stays low across a full backtest with a trending period and `require_patterns=false`, that's likely a genuine reflection of mixed market conditions rather than a config problem.
+
+## Speed Tuning
+
+If a single analysis takes 60-90s (vs. a healthy 8-15s), in rough order of impact:
+
+- **Reduce `BOT_LLM_BACKTEST_SAMPLE_INTERVAL`** first — fewer LLM calls is the single biggest lever for backtest wall-clock time.
+- **Shorten responses**: lower `llm_num_predict` (e.g. `500`) and `BOT_LLM_LOOKBACK_DAYS` (e.g. `3`).
+- **RAG does not speed anything up** — it adds retrieved context to the prompt for better accuracy, which means *more* tokens to process, not fewer. Don't disable it expecting a speed win; disable it only if you're deliberately trading accuracy for raw speed.
+- **Check GPU acceleration**: on macOS, Activity Monitor → GPU History while a request runs. Apple Silicon should use the GPU automatically; if usage is flat at 0%, restart Ollama (`pkill ollama && ollama serve`) — CPU-only inference is the most common cause of 60s+ responses.
+- **Smaller/faster model**: `phi3` is both faster and more consistently JSON-compliant than `mistral` for this use case.
+- **Cloud LLM as a last resort**: OpenAI/Anthropic APIs run 2-6s per analysis instead of local inference time, at the cost of a small per-call fee and requiring `llm_client.py` to support that provider.
+
 ## Advanced Configuration
 
 ### Running Ollama as a System Service
@@ -382,7 +435,7 @@ If you encounter issues not covered here:
 1. Check bot logs for detailed error messages
 2. Test Ollama independently with `ollama run mistral "test"`
 3. Verify model is working: `curl http://localhost:11434/api/generate -d '{"model": "mistral", "prompt": "test"}'`
-4. Review dashboard.py and llm_scheduler.py logs
+4. Review `llm_scheduler.py` and app logs (`logs/app.log`, `logs/bot_error.log`)
 
 ---
 

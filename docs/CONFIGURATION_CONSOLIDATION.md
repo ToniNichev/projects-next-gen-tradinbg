@@ -151,6 +151,60 @@ curl -X POST http://localhost:8000/api/strategy-config/update \
   }'
 ```
 
+## Architecture
+
+```
+Web Dashboard (UI controls)
+        │
+        ▼
+API Endpoints
+  GET  /api/strategy-config           ← current config
+  POST /api/strategy-config/update    ← save to database
+  POST /api/strategy-config/apply     ← hot reload
+        │
+        ▼
+Database: strategy_config table (key-value store)
+        │
+        ▼
+BotConfig.load()  (reads DB → falls back to .env → falls back to hardcoded default)
+        │
+        ▼
+StrategyManager.reload_config()  (applies to running strategies, no restart)
+```
+
+### `strategy_config` table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `key` | STRING(100) | Configuration key (unique) |
+| `value` | STRING(500) | Value, stored as string |
+| `value_type` | STRING(20) | `bool`, `int`, `float`, `str` |
+| `category` | STRING(50) | e.g. `multi_strategy`, `ema`, `rsi_bb`, `general` |
+| `description` | STRING(500) | Human-readable description |
+
+### Code examples
+
+```python
+import requests
+
+config = {"strategy_ema_weight": 1.5, "min_signal_confidence": 0.4}
+requests.post("http://localhost:8000/api/strategy-config/update",
+              json=config, auth=("admin", "your_password"))
+requests.post("http://localhost:8000/api/strategy-config/apply",
+              auth=("admin", "your_password"))
+```
+
+```bash
+# View current active config
+curl http://localhost:8000/api/config -u admin:your_password | jq .
+
+# Verify database directly
+sqlite3 data/trading.db "SELECT * FROM strategy_config;"
+
+# Reset to .env defaults by clearing the table
+sqlite3 data/trading.db "DELETE FROM strategy_config;"
+```
+
 ## What Requires Restart
 
 Most parameters can be hot-reloaded, but these require a bot restart:

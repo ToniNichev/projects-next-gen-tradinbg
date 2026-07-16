@@ -236,6 +236,29 @@ All improvements work automatically with existing backtest data. No configuratio
 
 ---
 
+## 🎨 Strategy Color & Navigation Reference
+
+| Strategy | Color | Hex |
+|----------|-------|-----|
+| EMA Crossover | Cyan | `#00D9FF` |
+| RSI + BB | Pink | `#FF6B9D` |
+| MACD + Volume | Gold | `#FFD700` |
+| LLM Pattern | Purple | `#9D4EDD` |
+| Multi-Strategy (aggregated) | White | `#FFFFFF` |
+
+Trade marker orientation: triangle pointing up = BUY, pointing down = SELL.
+
+**Chart navigation:** mouse wheel to zoom X-axis, click+drag to pan, left/right buttons jump by 15% of the visible range, reset button zooms to fit all data. Click a legend entry to toggle that strategy's visibility; hovering a legend card highlights it.
+
+## 🔧 Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| No HOD/LOD lines visible | Single-day backtest | Run with ≥2 days of data |
+| All markers the same size | No `confidence` field in trade data | Ensure the strategy populates `confidence` (0-1) |
+| Legend shows no statistics | No completed buy→sell trade pairs | Run the backtest long enough to close positions |
+| Chart looks cluttered | Many strategies/trades rendered at once | Click legend entries to hide strategies you don't need |
+
 ## 🚀 Future Enhancement Ideas
 
 ### Medium Priority (Not Yet Implemented):

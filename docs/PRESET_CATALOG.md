@@ -1,6 +1,6 @@
 # 🎨 Strategy Preset Catalog
 
-Complete guide to all 12 built-in strategy presets with detailed comparisons.
+Complete guide to all 13 built-in strategy presets with detailed comparisons.
 
 ---
 
@@ -455,9 +455,35 @@ Sideways: Mean Reversion → Balanced
 
 ---
 
+## 🔄 Applying & Backtesting a Preset
+
+**One-click (recommended):**
+1. Go to Strategy Center (`/strategy-config`) → **Configuration Presets**
+2. Click a preset card, then **"⚡ Apply & Run Backtest"**
+3. Backtest opens automatically; results carry a 🎨 badge naming the preset used
+
+**Manual:**
+1. Strategy Center → select preset → **"✅ Apply Configuration"**
+2. Backtest page → **"Current Config"** tab → leave parameters empty → **"Run Backtest"**
+3. Filling in custom parameters on the backtest form overrides the preset — leave them blank to test the preset as-is
+
+For a fair comparison across presets, keep `days_back` and symbol constant, clear old results first, and test across more than one market period (trending, ranging, and a drawdown period) rather than just the trailing 30 days.
+
+## 🚨 Troubleshooting: Different Presets Show the Same Backtest Result
+
+This means the preset wasn't actually applied before the backtest ran — the bot is a still reading its previous configuration.
+
+1. Click **"🐛 Debug Config"** — it should show `Source: Database (40+ params)`. If it shows `Environment`, the preset never got persisted; click "Apply Configuration" again and wait 1-2 seconds before backtesting.
+2. Check that the backtest form's custom parameter fields are empty — a filled-in field always overrides the preset.
+3. If it still doesn't take, verify the database directly:
+   ```bash
+   sqlite3 data/trading.db "SELECT COUNT(*) FROM strategy_config;"   # expect 40-50 rows
+   ```
+4. As a last resort, back up and reset: `mv data/trading.db data/trading.db.backup && ./restart.sh`, then re-apply the preset.
+
 ## 🎉 Summary
 
-You now have **12 comprehensive presets** covering:
+You now have **13 comprehensive presets** covering:
 - ✅ 3 Risk Levels (Conservative, Balanced, Aggressive)
 - ✅ 4 Timeframes (5m, 1h, 4h, default)
 - ✅ 3 Specialized Strategies (Trend, Mean Reversion, Breakout)
