@@ -317,6 +317,50 @@ class PaperTrader:
         
         return None
 
+    def update_position_intrabar(
+        self, open_: float, high: float, low: float, close: float
+    ) -> Optional[TradeRecord]:
+        """
+        Backtest-only exit check that uses the whole candle, like real stop
+        orders on an exchange (which trigger the moment price touches them),
+        instead of only the close as update_position() does.
+
+        We can't see the order of prices inside a candle, so assume the worst:
+        the low happens before the high. That means a stop beats a take-profit
+        when one candle touches both.
+        """
+        if not self.open_position:
+            return None
+        pos = self.open_position
+        if pos.side != "long":
+            logging.warning(f"Invalid position side: {pos.side}. Only 'long' supported in spot trading.")
+            return None
+
+        # Stop level in force as the candle opens (the higher of the two)
+        stop, reason = pos.stop_loss, "stop_loss"
+        if self.use_trailing_stop and pos.trailing_stop > stop:
+            stop, reason = pos.trailing_stop, "trailing_stop"
+
+        if low <= stop:
+            # A gap down through the stop fills at the open, not the stop
+            return self._close_position(min(open_, stop), reason)
+
+        if high >= pos.take_profit:
+            # A gap up through the target fills at the open
+            return self._close_position(max(open_, pos.take_profit), "take_profit")
+
+        if self.use_trailing_stop and high > pos.highest_price:
+            pos.highest_price = high
+            new_trailing = high * (1 - pos.initial_trailing_stop_pct)
+            if new_trailing > pos.trailing_stop:
+                pos.trailing_stop = new_trailing
+            # The high came before the close, so a close below the raised
+            # stop means price fell through it later in the candle
+            if close <= pos.trailing_stop:
+                return self._close_position(pos.trailing_stop, "trailing_stop")
+
+        return None
+
     def _open_position_in_db(self, position: Position) -> None:
         """Save position opening to database"""
         if self.enable_database and self.db_manager:

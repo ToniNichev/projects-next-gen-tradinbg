@@ -92,6 +92,7 @@ def _save_backtest_report(
     days_back: int,
     window_start: Optional[datetime] = None,
     window_end: Optional[datetime] = None,
+    intrabar_exits: bool = True,
 ) -> str:
     """Persist a dated go/no-go report to docs/backtest_reports/ as JSON."""
     report_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "backtest_reports")
@@ -113,6 +114,9 @@ def _save_backtest_report(
         "window_end": window_end.isoformat() if window_end is not None else None,
         "symbol": config.symbol,
         "timeframe": config.timeframe,
+        # How exits were checked: "intrabar" (candle high/low) or "close_only".
+        # Reports without this field predate Oct 2026 and are close_only.
+        "exit_model": "intrabar" if intrabar_exits else "close_only",
         "metrics": {
             "trades": result["trades"],
             "final_value": result["final_value"],
@@ -152,6 +156,7 @@ def run_backtest(
     progress_callback=None,
     save_report: bool = False,
     end_date: Optional[datetime] = None,
+    intrabar_exits: bool = True,
 ):
     """
     Run accelerated backtest on historical data with multi-strategy support.
@@ -168,6 +173,9 @@ def run_backtest(
             window (e.g. end_date=90 days ago, days_back=30 -> the 90-60 days-ago
             window) for walk-forward validation across non-overlapping periods.
             Defaults to None, which preserves the original "ending now" behavior.
+        intrabar_exits: If True (default), check stops / take-profit against each
+            candle's high and low, like real exchange stop orders. If False, check
+            only the close, as the paper bot does (the behavior before Oct 2026).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     
@@ -473,7 +481,12 @@ def run_backtest(
         })
         
         # Check for position exits (stop loss, take profit, trailing stop)
-        exit_trade = trader.update_position(current_price)
+        if intrabar_exits:
+            exit_trade = trader.update_position_intrabar(
+                current_candle[1], current_candle[2], current_candle[3], current_candle[4]
+            )
+        else:
+            exit_trade = trader.update_position(current_price)
         if exit_trade:
             trade_count += 1
             # Get strategy name from the exit trade signal (populated from position)
@@ -740,6 +753,7 @@ def run_backtest(
             result, config, days_back,
             window_start=window_start if end_date is not None else None,
             window_end=window_end if end_date is not None else None,
+            intrabar_exits=intrabar_exits,
         )
         logging.info(f"Backtest report saved to: {report_path}")
 
