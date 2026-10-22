@@ -62,7 +62,7 @@ class MockExchange:
     def fetch_my_trades(self, symbol, limit=10):
         return []
     
-    def create_market_buy_order(self, symbol, amount):
+    def create_market_buy_order(self, symbol, amount, params=None):
         price = self._ticker['ask']
         return {
             'id': 'test-order-123',
@@ -79,7 +79,7 @@ class MockExchange:
             'fee': {'cost': amount * price * 0.001, 'currency': 'USDT'},
         }
     
-    def create_market_sell_order(self, symbol, amount):
+    def create_market_sell_order(self, symbol, amount, params=None):
         price = self._ticker['bid']
         return {
             'id': 'test-order-456',

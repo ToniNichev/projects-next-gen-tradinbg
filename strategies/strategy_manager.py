@@ -417,11 +417,23 @@ class StrategyManager:
                 strategy.set_enabled(strategy_config.get("enabled", True))
                 strategy.weight = strategy_config.get("weight", 1.0)
                 
-                # Update strategy-specific parameters if available
-                if hasattr(strategy, 'config'):
-                    for key, value in strategy_config.items():
-                        if hasattr(strategy.config, key):
-                            setattr(strategy.config, key, value)
+                # Update strategy-specific parameters. Every strategy caches
+                # its config values as instance attributes at __init__ time
+                # (self.short_window = config.get("short_window", ...), etc.)
+                # and reads those attributes in compute_signal - not
+                # strategy.config, which is just the dict they were built
+                # from. Checking hasattr(strategy.config, key) against that
+                # dict is always False (dicts don't expose their keys as
+                # attributes), so this loop silently did nothing for every
+                # strategy-specific parameter (short_window, stop_loss_pct,
+                # RSI thresholds, ...) while "Apply Configuration" reported
+                # success - only enabled/weight (set directly above) ever
+                # actually took effect without a full restart.
+                for key, value in strategy_config.items():
+                    if hasattr(strategy, key):
+                        setattr(strategy, key, value)
+                    if isinstance(strategy.config, dict):
+                        strategy.config[key] = value
                 
                 # Log the reload
                 display_name = StrategyNames.get_display_name(strategy.name)

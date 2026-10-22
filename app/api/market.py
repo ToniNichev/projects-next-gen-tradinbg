@@ -86,8 +86,8 @@ def get_history():
 # ---------------------------------------------------------------------------
 
 @market_bp.route("/api/candles/<timeframe>")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_candles(timeframe):
     """Serve OHLCV candles — local DB first, Binance as fallback."""
     valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
@@ -166,8 +166,8 @@ def get_candles(timeframe):
 # ---------------------------------------------------------------------------
 
 @market_bp.route("/api/trades")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_trades():
     """Return filtered trade history from the database."""
     if not DATABASE_AVAILABLE:
@@ -224,8 +224,8 @@ def get_trades():
 # ---------------------------------------------------------------------------
 
 @market_bp.route("/api/stats")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_stats():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -236,8 +236,8 @@ def get_stats():
 
 
 @market_bp.route("/api/positions")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_positions():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -263,8 +263,8 @@ def get_positions():
 
 
 @market_bp.route("/api/performance")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_performance():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503

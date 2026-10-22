@@ -112,7 +112,14 @@ class EMACrossoverStrategy(BaseStrategy):
 
         # Calculate trend strength
         price = float(last.close)
-        trend_strength = abs(last.short_ema - last.long_ema) / price
+        # float() here matters: last.short_ema/long_ema are numpy.float64 from
+        # pandas, and unlike every other indicator below, this one wasn't cast.
+        # confidence (seeded from trend_strength) then carries that numpy type
+        # into the aggregated signal and downstream into LivePosition/trade
+        # balance state, where a later bool comparison on it would raise
+        # "numpy.bool_ is not JSON serializable" (the same bug already fixed
+        # in paper_trader.py's _buy/_sell/_close_position).
+        trend_strength = abs(float(last.short_ema) - float(last.long_ema)) / price
         
         # Get indicator values
         rsi_value = float(last.rsi) if pd.notna(last.rsi) else 50.0

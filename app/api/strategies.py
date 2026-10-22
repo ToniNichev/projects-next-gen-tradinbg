@@ -122,8 +122,8 @@ def _batch_save_config(data: dict, db) -> tuple:
 # ---------------------------------------------------------------------------
 
 @strategies_bp.route("/api/strategies")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_strategies():
     sm = _get_strategy_manager()
     if not sm:
@@ -151,8 +151,8 @@ def get_strategies():
 
 
 @strategies_bp.route("/api/strategies/stats")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_strategy_stats():
     sm = _get_strategy_manager()
     if not sm:
@@ -175,8 +175,8 @@ def get_strategy_stats():
 
 
 @strategies_bp.route("/api/strategies/<strategy_name>/enable", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def enable_strategy(strategy_name):
     sm = _get_strategy_manager()
     if not sm:
@@ -200,8 +200,8 @@ def enable_strategy(strategy_name):
 
 
 @strategies_bp.route("/api/strategies/<strategy_name>/disable", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def disable_strategy(strategy_name):
     sm = _get_strategy_manager()
     if not sm:
@@ -227,8 +227,8 @@ def disable_strategy(strategy_name):
 
 
 @strategies_bp.route("/api/strategies/<strategy_name>/toggle", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def toggle_strategy(strategy_name):
     from strategies.constants import StrategyNames
     sm = _get_strategy_manager()
@@ -284,8 +284,8 @@ def toggle_strategy(strategy_name):
 # ---------------------------------------------------------------------------
 
 @strategies_bp.route("/api/config")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_config():
     try:
         from config import BotConfig
@@ -327,8 +327,8 @@ def get_config():
 
 
 @strategies_bp.route("/api/config/debug")
-@require_auth
 @limiter.limit("60 per minute")
+@require_auth
 def debug_config():
     try:
         from config import BotConfig
@@ -360,8 +360,8 @@ def debug_config():
 
 
 @strategies_bp.route("/api/strategy-config")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_strategy_config():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -380,13 +380,13 @@ def get_strategy_config():
 
 
 @strategies_bp.route("/api/strategy-config/update", methods=["POST"])
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def update_strategy_config():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "No data provided"}), 400
         db = get_database()
@@ -399,8 +399,8 @@ def update_strategy_config():
 
 
 @strategies_bp.route("/api/strategy-config/apply", methods=["POST"])
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def apply_strategy_config():
     sm = _get_strategy_manager()
     if not sm:
@@ -420,8 +420,8 @@ def apply_strategy_config():
 # ---------------------------------------------------------------------------
 
 @strategies_bp.route("/api/presets", methods=["GET"])
-@require_auth
 @limiter.limit("60 per minute")
+@require_auth
 def get_presets():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -433,8 +433,8 @@ def get_presets():
 
 
 @strategies_bp.route("/api/presets/<preset_name>", methods=["GET"])
-@require_auth
 @limiter.limit("60 per minute")
+@require_auth
 def get_preset(preset_name):
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -448,13 +448,13 @@ def get_preset(preset_name):
 
 
 @strategies_bp.route("/api/presets", methods=["POST"])
-@require_auth
 @limiter.limit("20 per minute")
+@require_auth
 def save_preset():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "No data provided"}), 400
         name = data.get("name")
@@ -476,8 +476,8 @@ def save_preset():
 
 
 @strategies_bp.route("/api/presets/<preset_name>", methods=["DELETE"])
-@require_auth
 @limiter.limit("20 per minute")
+@require_auth
 def delete_preset(preset_name):
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -491,8 +491,8 @@ def delete_preset(preset_name):
 
 
 @strategies_bp.route("/api/presets/<preset_name>/apply", methods=["POST"])
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def apply_preset(preset_name):
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -598,8 +598,8 @@ def _pattern_description(name: str, signal) -> str:
 
 
 @strategies_bp.route("/api/strategies/signals")
-@require_auth
 @limiter.limit("60 per minute")
+@require_auth
 def get_strategy_signals():
     sm = _get_strategy_manager()
     if not sm:

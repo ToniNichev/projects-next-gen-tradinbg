@@ -193,24 +193,30 @@ def test_config_hot_reload():
             aggregation_mode=SignalAggregationMode.WEIGHTED_VOTING,
             min_confidence=0.3
         )
-        
-        # Modify config
+
+        # Modify config. reload_config() calls config.get_strategy_configs()
+        # itself, which builds a brand-new dict read fresh from this
+        # BotConfig instance's own attributes (config.short_window, etc.) -
+        # mutating the dict returned by an earlier get_strategy_configs()
+        # call (as this test used to do) has no effect, since that dict is
+        # thrown away. The actual attribute must be changed.
         print("\n🔄 Simulating config change...")
-        modified_config = config
-        strategy_configs["ema_crossover"]["weight"] = 1.5
-        strategy_configs["ema_crossover"]["short_window"] = 15
-        
+        config.strategy_ema_weight = 1.5
+        config.short_window = 15
+
         # Reload
-        manager.reload_config(modified_config)
-        
+        manager.reload_config(config)
+
         print(f"\n📊 EMA strategy state after reload:")
         print(f"   Name: {ema.name}")
         print(f"   Enabled: {ema.is_enabled()}")
         print(f"   Weight: {ema.get_weight()}")
         print(f"   Short Window: {ema.short_window}")
-        
-        # Verify changes were applied (weight is reloaded, but short_window may not be in this test)
-        # The important part is that reload_config runs without errors
+
+        # Verify changes actually took effect on the running strategy
+        # instance, not just that reload_config ran without raising.
+        assert ema.get_weight() == 1.5, f"weight should hot-reload to 1.5, got {ema.get_weight()}"
+        assert ema.short_window == 15, f"short_window should hot-reload to 15, got {ema.short_window}"
         print("\n✅ Hot reload completed successfully")
         return True
         

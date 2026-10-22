@@ -116,9 +116,36 @@ def build_exchange(config: BotConfig) -> ccxt.binanceus:
     return exchange
 
 
+def _register_stack_dump_signal(log_dir: str = "logs") -> None:
+    """Dump every thread's stack to a file on SIGUSR1.
+
+    Why: the websocket reconnect loop has been going silent for long
+    stretches without logging the success/failure lines the code should
+    always hit after calling ``_start_ws()``, which points at something
+    blocking inside that call rather than a clean exception. A log
+    statement can't tell us where a hang is; a live stack dump can.
+    Trigger with ``kill -USR1 <pid>``; output lands in
+    ``logs/stackdump.log`` (appended, so multiple dumps are kept).
+    """
+    import faulthandler
+
+    os.makedirs(log_dir, exist_ok=True)
+    dump_path = os.path.join(log_dir, "stackdump.log")
+    dump_file = open(dump_path, "a")
+
+    def _handler(signum, frame):
+        dump_file.write(f"\n=== stack dump at {datetime.now(timezone.utc).isoformat()} ===\n")
+        faulthandler.dump_traceback(file=dump_file, all_threads=True)
+        dump_file.flush()
+
+    signal.signal(signal.SIGUSR1, _handler)
+    logging.info("Stack dump registered: kill -USR1 %d (writes to %s)", os.getpid(), dump_path)
+
+
 def main():
     _configure_logging()
-    
+    _register_stack_dump_signal()
+
     # Initialize database BEFORE loading config so config can read from DB
     if DATABASE_AVAILABLE:
         try:
@@ -149,7 +176,26 @@ def main():
         except Exception as e:
             logging.error(f"Failed to initialize database: {e}")
             logging.warning("Continuing without database support")
-    
+
+    # Fail closed rather than silently trading real/dry-run money with no
+    # database: _check_portfolio_peak_drawdown() treats a missing db_manager
+    # as "kill switch passes" (permanent no-op, no warning logged at trade
+    # time), and sync_positions() deliberately won't adopt an exchange
+    # balance as "ours" on restart - so a crash while holding a position
+    # would come back up believing it's flat, with the real position still
+    # live on the exchange, risking a duplicate buy on top of it. Paper mode
+    # keeps the old permissive behavior since nothing it does is real.
+    if db_manager is None and config.trading_mode.lower() in ("live", "dry_run"):
+        logging.critical(
+            "Refusing to start in '%s' mode without a working database: the "
+            "portfolio-drawdown kill switch silently becomes a no-op and a "
+            "crash/restart while holding a position would lose track of it "
+            "entirely. Fix whatever is failing database init above (see the "
+            "error logged just before this), or run in 'paper' mode.",
+            config.trading_mode,
+        )
+        return
+
     # Determine trading mode and create appropriate trader
     trading_mode = config.trading_mode.lower()
     use_live_trader = False
@@ -337,6 +383,20 @@ def main():
         config.timeframe,
     )
 
+    # Root cause of a reconnect loop that would silently wedge for hours/days:
+    # nothing in this codebase ever set a socket timeout, and
+    # WebSocketApp.close() sends the close frame on whatever timeout is
+    # already on the socket - unbounded/blocking by default. On a "zombie"
+    # connection (dead but neither TCP nor ping/pong has noticed yet - a
+    # routine NAT/Wi-Fi-drop failure mode), that send() can hang forever.
+    # Depending on which thread hit it first, this either permanently wedges
+    # the watchdog thread itself (explaining why it would log "attempt #1"
+    # and then never log success or failure again) or lets a new connection
+    # through while leaking the old thread as a zombie. Setting a default
+    # timeout bounds every socket operation this library makes, closing the
+    # gap. 10s matches the ping_timeout already used below.
+    websocket.setdefaulttimeout(10)
+
     binance_symbol = config.symbol.replace("/", "").upper()
 
     # Mutable holder so the watchdog can swap in a fresh WebSocketApp on reconnect.
@@ -345,13 +405,34 @@ def main():
     def _start_ws() -> None:
         old_wsa = ws_holder["ws"]
         if old_wsa is not None:
-            try:
-                old_wsa.close()
-            except Exception:
-                pass
+            # Even with setdefaulttimeout above, don't let a close() call run
+            # inline on the caller's thread (the watchdog, or main() itself
+            # on the very first call) - run it on its own short-lived daemon
+            # thread with a hard join timeout, so a hang here can never block
+            # the reconnect path that's trying to replace this connection.
+            def _close_old(wsa=old_wsa):
+                try:
+                    wsa.close()
+                except Exception:
+                    pass
+
+            closer = threading.Thread(target=_close_old, name="ws-close", daemon=True)
+            closer.start()
+            closer.join(timeout=10.0)
+            if closer.is_alive():
+                logging.warning(
+                    "Closing the previous websocket connection is still hanging "
+                    "after 10s; abandoning it as a leaked thread rather than "
+                    "blocking the reconnect."
+                )
         old_thread = ws_holder["thread"]
         if old_thread is not None and old_thread.is_alive():
             old_thread.join(timeout=5.0)
+            if old_thread.is_alive():
+                logging.warning(
+                    "Previous websocket thread did not terminate within 5s "
+                    "after close(); it is now a leaked daemon thread."
+                )
 
         url = (
             f"wss://stream.binance.us:9443/ws/"
@@ -375,6 +456,11 @@ def main():
             ws_activity["last_mono"] = time.monotonic()
             ws_activity["stale_alerted"] = False
             logging.info("WebSocket stream started for %s / %s", config.symbol, config.timeframe)
+            # Patch any candle(s) missed during the outage that just ended -
+            # see _backfill_candle_gap for why this matters. Harmless (just a
+            # redundant no-op merge) on the very first connection too, so no
+            # need to special-case it.
+            _backfill_candle_gap()
 
         wsa = websocket.WebSocketApp(
             url,
@@ -396,7 +482,35 @@ def main():
 
     candle_buffer = []
     max_buffer_size = max(config.long_window * 2, 120)
-    
+
+    def _backfill_candle_gap() -> None:
+        """Re-fetch recent candles via REST after every (re)connect.
+
+        Without this, any kline messages missed during a disconnect -
+        however brief - leave a silent gap in candle_buffer: the next closed
+        candle is simply appended right after whatever arrived before the
+        outage, with no indication the timestamps aren't contiguous.
+        Strategies then compute EMA/RSI/MACD over that buffer as if it were
+        continuous, which can manifest as a spurious crossover/signal that's
+        really just the data discontinuity, not real price action - i.e. a
+        risk of a bad trade right after a reconnect. Merges fresh REST data
+        over whatever's already buffered (REST is authoritative for a given
+        timestamp; an in-memory candle from a partial/incomplete update
+        isn't), keyed by candle open-time so this is naturally idempotent.
+        """
+        nonlocal candle_buffer
+        try:
+            fetch_limit = min(500, max_buffer_size)
+            fresh = exchange.fetch_ohlcv(config.symbol, config.timeframe, limit=fetch_limit)
+            if not fresh:
+                return
+            merged = {c[0]: c for c in candle_buffer}
+            merged.update({c[0]: c for c in fresh})
+            candle_buffer = sorted(merged.values(), key=lambda c: c[0])[-max_buffer_size:]
+        except Exception as exc:
+            logging.warning("Candle backfill after (re)connect failed: %s", exc)
+
+
     # Pre-load initial candles to start trading immediately
     try:
         logging.info("Fetching initial candle history...")

@@ -1,5 +1,6 @@
 import csv
 import logging
+import math
 import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -95,31 +96,67 @@ class PaperTrader:
         """Restore balance and open position from database"""
         try:
             # Get the most recent trade to restore balance
+            last_trade = None
             recent_trades = self.db_manager.get_trades(limit=1)
             if recent_trades:
                 last_trade = recent_trades[0]
                 self.usdt_balance = float(last_trade.usdt_balance)
                 self.base_balance = float(last_trade.base_balance)
                 logging.info(f"📊 Restored balance from database: USDT={self.usdt_balance:.2f}, BASE={self.base_balance:.6f}")
-            
+
             # Get any open positions
             open_positions = self.db_manager.get_open_positions()
             if open_positions:
                 db_pos = open_positions[0]  # Should only be one open position
-                self.open_position = Position(
-                    side=db_pos.side,
-                    entry_price=float(db_pos.entry_price),
-                    amount=float(db_pos.amount),
-                    entry_time=db_pos.entry_time.isoformat(),
-                    stop_loss=float(db_pos.stop_loss) if db_pos.stop_loss else 0.0,
-                    take_profit=float(db_pos.take_profit) if db_pos.take_profit else 0.0,
-                    trailing_stop=float(db_pos.trailing_stop) if db_pos.trailing_stop else 0.0,
-                    initial_trailing_stop_pct=self.trailing_stop_pct,
-                    highest_price=float(db_pos.entry_price),
-                    strategy_name=db_pos.strategy_name if hasattr(db_pos, 'strategy_name') else None,
-                )
-                self.db_position_id = db_pos.id
-                logging.info(f"📊 Restored open position: {db_pos.side} {db_pos.amount:.6f} @ ${db_pos.entry_price:.2f}")
+
+                # Cross-check against the trade table rather than trusting
+                # the position table alone. _close_position_in_db() updates
+                # this row only after the balance mutation already happened
+                # in memory and the trade row already got written
+                # independently - if that DB write fails (lock contention,
+                # disk full, a transient error), the position stays
+                # is_open=True here even though the trade table already
+                # shows the sell with a correctly-flat post-close balance.
+                # Without this check, a restart right after that failure
+                # would restore a "ghost" position that doesn't actually
+                # exist anymore, and the next exit attempt against it would
+                # double-count the already-credited proceeds.
+                if last_trade is not None and last_trade.side == "sell":
+                    logging.critical(
+                        "DB inconsistency on restore: position %s is still "
+                        "marked open, but the most recent trade was a SELL "
+                        "(balance already reflects being flat). Treating "
+                        "the position as closed and repairing the DB row.",
+                        db_pos.id,
+                    )
+                    try:
+                        self.db_manager.update_position(db_pos.id, {
+                            "exit_price": float(last_trade.price),
+                            "exit_time": datetime.now(timezone.utc),
+                            "exit_reason": "reconciled_on_restart",
+                            "pnl": None,
+                            "is_open": False,
+                        })
+                    except Exception as repair_exc:
+                        logging.error(
+                            "Could not repair the stale position row: %s",
+                            repair_exc,
+                        )
+                else:
+                    self.open_position = Position(
+                        side=db_pos.side,
+                        entry_price=float(db_pos.entry_price),
+                        amount=float(db_pos.amount),
+                        entry_time=db_pos.entry_time.isoformat(),
+                        stop_loss=float(db_pos.stop_loss) if db_pos.stop_loss else 0.0,
+                        take_profit=float(db_pos.take_profit) if db_pos.take_profit else 0.0,
+                        trailing_stop=float(db_pos.trailing_stop) if db_pos.trailing_stop else 0.0,
+                        initial_trailing_stop_pct=self.trailing_stop_pct,
+                        highest_price=float(db_pos.entry_price),
+                        strategy_name=db_pos.strategy_name if hasattr(db_pos, 'strategy_name') else None,
+                    )
+                    self.db_position_id = db_pos.id
+                    logging.info(f"📊 Restored open position: {db_pos.side} {db_pos.amount:.6f} @ ${db_pos.entry_price:.2f}")
         except Exception as e:
             logging.warning(f"Could not restore from database: {e}")
 
@@ -244,7 +281,7 @@ class PaperTrader:
         
         pos = self.open_position
         exit_reason = None
-        
+
         # Only long positions supported (spot trading)
         if pos.side == "long":
             # Update trailing stop for long positions
@@ -255,7 +292,7 @@ class PaperTrader:
                     new_trailing = current_price * (1 - pos.initial_trailing_stop_pct)
                     if new_trailing > pos.trailing_stop:
                         pos.trailing_stop = new_trailing
-            
+
             # Check exit conditions (order matters: stop loss checked first for safety)
             if current_price <= pos.stop_loss:
                 exit_reason = "stop_loss"
@@ -267,7 +304,7 @@ class PaperTrader:
             # Should never happen in spot-only mode
             logging.warning(f"Invalid position side: {pos.side}. Only 'long' supported in spot trading.")
             return None
-        
+
         # Exit position if any condition triggered
         if exit_reason:
             return self._close_position(current_price, exit_reason)
@@ -319,14 +356,25 @@ class PaperTrader:
         """Close the current open long position (spot trading only)"""
         if not self.open_position:
             return None
-        
+
+        # See _buy() for why: automatic stop-loss/take-profit/trailing-stop
+        # exits route through here on every candle, so this is the most
+        # frequent balance-mutating path and the most important place to
+        # keep numpy scalars from contaminating self.usdt_balance/base_balance.
+        current_price = float(current_price)
+        # A non-finite price can't produce a meaningful close; declining
+        # leaves the position open to be retried on the next candle rather
+        # than corrupting balance state with a NaN fill.
+        if not math.isfinite(current_price):
+            return None
+
         pos = self.open_position
-        
+
         # Only long positions supported in spot trading
         if pos.side != "long":
             logging.warning(f"Cannot close {pos.side} position in spot-only mode")
             return None
-        
+
         # Sell to close long position
         fill_price = current_price * (1 - self.slippage)
         notional = pos.amount * fill_price
@@ -398,6 +446,22 @@ class PaperTrader:
 
     def _buy(self, price: float, order_pct: float, signal) -> Optional[TradeRecord]:
         """Open a long position or add to existing long position (scale in)"""
+        # Strategy signals (price, position_size) are often numpy scalars from
+        # pandas-based indicator math. numpy.float64 silently contaminates
+        # self.usdt_balance on the arithmetic below, and from then on any bool
+        # comparison on it (e.g. the dashboard's "can_buy") yields numpy.bool_,
+        # which Flask's JSON encoder can't serialize. Cast at the boundary so
+        # the trader's own state always stays plain Python floats.
+        price = float(price)
+        order_pct = float(order_pct)
+        # NaN/inf defeat every </> check in this function (e.g. the manual-buy
+        # API's own isfinite() guard can be bypassed by calling _buy directly,
+        # and the automated signal path has no guard at all here), and would
+        # permanently corrupt self.usdt_balance/base_balance to NaN with no
+        # recovery short of a restart.
+        if not (math.isfinite(price) and math.isfinite(order_pct)):
+            return None
+
         if self.usdt_balance <= 0:
             return None
         notional = self.usdt_balance * order_pct
@@ -452,14 +516,19 @@ class PaperTrader:
                 except Exception as e:
                     logging.error(f"Failed to update position in database: {e}")
         else:
-            # Create new position with risk management levels
+            # Create new position with risk management levels.
+            # float() on stop_loss/take_profit: signal values can be numpy
+            # scalars from pandas-derived strategy math (price/order_pct are
+            # already guarded above, but these two weren't, and the scale-in
+            # branch above re-derives from whatever's on self.open_position,
+            # so an uncast value here would keep re-tainting itself forever).
             self.open_position = Position(
                 side="long",
                 entry_price=fill_price,
                 amount=amount,
                 entry_time=datetime.now(timezone.utc).isoformat(),
-                stop_loss=signal.stop_loss if signal.stop_loss > 0 else fill_price * 0.98,
-                take_profit=signal.take_profit if signal.take_profit > 0 else fill_price * 1.04,
+                stop_loss=float(signal.stop_loss) if signal.stop_loss > 0 else fill_price * 0.98,
+                take_profit=float(signal.take_profit) if signal.take_profit > 0 else fill_price * 1.04,
                 trailing_stop=fill_price * (1 - self.trailing_stop_pct),
                 initial_trailing_stop_pct=self.trailing_stop_pct,
                 highest_price=fill_price,
@@ -489,6 +558,13 @@ class PaperTrader:
         Sell owned BTC (spot trading only - no shorting).
         Can only sell if you have BTC to sell.
         """
+        # See _buy() for why: keep numpy scalars out of balance state.
+        price = float(price)
+        order_pct = float(order_pct)
+        # See _buy() for why: NaN/inf would corrupt balance state permanently.
+        if not (math.isfinite(price) and math.isfinite(order_pct)):
+            return None
+
         # Spot trading: can only sell what you own
         if self.base_balance <= 0:
             logging.info(f"Cannot sell - no BTC position to exit (balance: {self.base_balance})")

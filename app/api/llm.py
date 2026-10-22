@@ -45,8 +45,8 @@ _validation_running: bool = False
 # ---------------------------------------------------------------------------
 
 @llm_bp.route("/api/llm/latest")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_latest_llm_analysis():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -78,8 +78,8 @@ def get_latest_llm_analysis():
 
 
 @llm_bp.route("/api/llm/history")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_llm_analysis_history():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -111,8 +111,8 @@ def get_llm_analysis_history():
 # ---------------------------------------------------------------------------
 
 @llm_bp.route("/api/llm/trigger", methods=["POST"])
-@require_auth
 @limiter.limit("5 per minute")
+@require_auth
 def trigger_llm_analysis():
     app_state = get_app_state()
     sm = app_state.get_strategy_manager()
@@ -162,8 +162,8 @@ def trigger_llm_analysis():
 
 
 @llm_bp.route("/api/llm/clear-cache", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def clear_llm_cache():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
@@ -186,8 +186,8 @@ def clear_llm_cache():
 # ---------------------------------------------------------------------------
 
 @llm_bp.route("/api/llm/models")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_ollama_models():
     try:
         import requests
@@ -212,8 +212,8 @@ def get_ollama_models():
 
 
 @llm_bp.route("/api/llm/test-connection", methods=["POST"])
-@require_auth
 @limiter.limit("20 per minute")
+@require_auth
 def test_llm_connection():
     import requests
     try:
@@ -260,8 +260,8 @@ def test_llm_connection():
 # ---------------------------------------------------------------------------
 
 @llm_bp.route("/api/llm/validate", methods=["POST"])
-@require_auth
 @limiter.limit("5 per minute")
+@require_auth
 def run_llm_validation():
     global _validation_running, _validation_results
     if _validation_running:
@@ -300,8 +300,8 @@ def run_llm_validation():
 
 
 @llm_bp.route("/api/llm/validate/quick", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def run_quick_validation():
     global _validation_running
     if _validation_running:
@@ -322,15 +322,15 @@ def run_quick_validation():
 
 
 @llm_bp.route("/api/llm/validate/results")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_validation_results():
     return jsonify({"results": _validation_results, "running": _validation_running})
 
 
 @llm_bp.route("/api/llm/validate/status")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_validation_status():
     return jsonify({
         "running": _validation_running,

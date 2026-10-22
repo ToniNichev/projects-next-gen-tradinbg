@@ -41,8 +41,8 @@ def _get_rag():
 
 
 @rag_bp.route("/api/rag/status")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_rag_status():
     try:
         from config import BotConfig
@@ -81,8 +81,8 @@ def get_rag_status():
 
 
 @rag_bp.route("/api/rag/index", methods=["POST"])
-@require_auth
 @limiter.limit("5 per minute")
+@require_auth
 def trigger_rag_indexing():
     import time
 

@@ -15,6 +15,8 @@ POST /api/trading/sync             Sync balances/positions from exchange
 """
 
 import logging
+import math
+from contextlib import nullcontext
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
@@ -94,8 +96,8 @@ def _create_manual_signal(direction: str, price: float, position_size: float, co
 # ---------------------------------------------------------------------------
 
 @trading_bp.route("/api/manual/status")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_manual_status():
     trader, lock = _get_trader_and_lock()
     if trader is None:
@@ -112,6 +114,12 @@ def get_manual_status():
             portfolio_value = trader.get_portfolio_value(price)
 
             position_info = None
+            # Captured in the same lock scope as position_info, from the same
+            # trader.open_position read - otherwise the websocket thread could
+            # open/close the position between this and position_info's build
+            # above, giving a response where can_sell and position disagree
+            # (e.g. can_sell: true but position: null).
+            can_sell = trader.open_position is not None
             if trader.open_position:
                 pos = trader.open_position
                 unrealised = (price - pos.entry_price) * pos.amount if pos.side == "long" else (pos.entry_price - price) * pos.amount
@@ -133,8 +141,11 @@ def get_manual_status():
             "balances": balances,
             "portfolio_value": portfolio_value,
             "position": position_info,
-            "can_buy": balances["USDT"] > 0,
-            "can_sell": trader.open_position is not None,
+            # bool() guards against numpy.bool_ (not a `bool` subclass, unlike
+            # numpy.float64/int64) leaking in if balances ever hold numpy
+            # scalars - that type isn't JSON-serializable and 500s this route.
+            "can_buy": bool(balances["USDT"] > 0),
+            "can_sell": bool(can_sell),
             "min_position_size": config.min_position_size,
             "max_position_size": config.max_position_size,
         })
@@ -159,8 +170,8 @@ def _available_usdt(trader) -> float:
 
 
 @trading_bp.route("/api/manual/buy", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def manual_buy():
     """
     Open (or scale into, in paper mode) a long position.
@@ -180,6 +191,16 @@ def manual_buy():
         exchange = get_app_state().get_exchange()
         params = request.get_json(silent=True) or {}
         position_size = float(params.get("position_size", config.order_pct))
+
+        # NaN defeats every < / > bound check below (every comparison against
+        # NaN is False), so {"position_size": NaN} would otherwise sail
+        # through validation, corrupt usdt_balance/base_balance to NaN in
+        # paper mode (no recovery short of a restart), and reach
+        # ccxt.create_market_buy_order(amount=nan, ...) unvalidated in live
+        # mode. Infinity is already correctly rejected by the bound checks
+        # below; isfinite() is just the one check that also catches NaN.
+        if not math.isfinite(position_size):
+            return jsonify({"error": "position_size must be a finite number"}), 400
 
         if position_size < config.min_position_size:
             return jsonify({
@@ -212,12 +233,17 @@ def manual_buy():
                 }), 400
 
             _sync_state_after_trade(trader)
+            # Captured inside the lock: the websocket thread can mutate
+            # balances the instant it's released, so reading this after
+            # `with lock:` exits could report a balance inconsistent with
+            # the trade just executed.
+            balances = trader.get_balances()
 
         return jsonify({
             "success": True,
             "trade": trade.to_dict(),
             "message": "Buy order executed successfully",
-            "balances": trader.get_balances(),
+            "balances": balances,
         })
 
     except Exception as exc:
@@ -226,8 +252,8 @@ def manual_buy():
 
 
 @trading_bp.route("/api/manual/sell", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def manual_sell():
     """
     Close the currently open long position via a market sell.
@@ -271,12 +297,14 @@ def manual_sell():
                 }), 400
 
             _sync_state_after_trade(trader)
+            # See manual_buy for why: capture while still holding the lock.
+            balances = trader.get_balances()
 
         return jsonify({
             "success": True,
             "trade": trade.to_dict(),
             "message": "Position closed successfully",
-            "balances": trader.get_balances(),
+            "balances": balances,
         })
 
     except Exception as exc:
@@ -309,29 +337,37 @@ def _sync_state_after_trade(trader) -> None:
 # ---------------------------------------------------------------------------
 
 @trading_bp.route("/api/manual/clear-trades", methods=["POST"])
-@require_auth
 @limiter.limit("5 per minute")
+@require_auth
 def clear_all_trades():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
 
     try:
         db = get_database()
-        stats_before = db.get_trade_stats()
-        count_before = stats_before["total_trades"]
-        deleted = db.clear_all_trades()
-        deleted_pos = db.clear_all_positions()
-
-        if deleted != count_before:
-            return jsonify({"error": f"Clear inconsistency: expected {count_before}, deleted {deleted}"}), 500
-
         from config import BotConfig
         config = BotConfig.load()
         initial = config.initial_usdt
 
         trader, lock = _get_trader_and_lock()
-        if trader and lock:
-            with lock:
+        # Hold the lock across the WHOLE operation (DB wipe + in-memory
+        # reset), not just the reset. Without this, a websocket-driven trade
+        # landing between the DB clear and the lock acquire would write a
+        # trade/position row into the just-cleared tables, and this
+        # function's balance reset below would then clobber that trade's
+        # in-memory effect - leaving an orphaned DB row inconsistent with
+        # the reset balance.
+        lock_ctx = lock if (trader and lock) else nullcontext()
+        with lock_ctx:
+            stats_before = db.get_trade_stats()
+            count_before = stats_before["total_trades"]
+            deleted = db.clear_all_trades()
+            deleted_pos = db.clear_all_positions()
+
+            if deleted != count_before:
+                return jsonify({"error": f"Clear inconsistency: expected {count_before}, deleted {deleted}"}), 500
+
+            if trader and lock:
                 trader.usdt_balance = initial
                 trader.base_balance = 0.0
                 trader.open_position = None
@@ -339,6 +375,7 @@ def clear_all_trades():
                 trader.winning_trades = 0
                 trader.total_pnl = 0.0
 
+        if trader and lock:
             get_app_state().update_trading_state(
                 usdt_balance=initial,
                 base_balance=0.0,
@@ -369,8 +406,8 @@ def clear_all_trades():
 # ---------------------------------------------------------------------------
 
 @trading_bp.route("/api/trading/mode")
-@require_auth
 @limiter.limit("30 per minute")
+@require_auth
 def get_trading_mode():
     try:
         from config import BotConfig
@@ -401,15 +438,21 @@ def get_trading_mode():
 
 
 @trading_bp.route("/api/trading/emergency-stop", methods=["POST"])
-@require_auth
 @limiter.limit("5 per minute")
+@require_auth
 def trigger_emergency_stop():
     trader, lock = _get_trader_and_lock()
     if trader is None:
         return jsonify({"error": "Trader not available"}), 503
 
     try:
-        params = request.get_json() or {}
+        # silent=True matters more here than anywhere else in this file: this
+        # is the panic button, and the most natural way to call it - a
+        # bodyless POST, or a fetch() with no explicit Content-Type - used to
+        # raise a 415/400 from get_json() BEFORE trigger_emergency_stop() was
+        # ever reached, swallowed by the except below into a generic 500 with
+        # trading left running. Match manual_buy's already-correct pattern.
+        params = request.get_json(silent=True) or {}
         close_positions = params.get("close_positions", True)
 
         with lock:
@@ -449,8 +492,8 @@ def trigger_emergency_stop():
 
 
 @trading_bp.route("/api/trading/enable", methods=["POST"])
-@require_auth
 @limiter.limit("5 per minute")
+@require_auth
 def enable_trading():
     trader, lock = _get_trader_and_lock()
     if trader is None:
@@ -470,8 +513,8 @@ def enable_trading():
 
 
 @trading_bp.route("/api/trading/disable", methods=["POST"])
-@require_auth
 @limiter.limit("5 per minute")
+@require_auth
 def disable_trading():
     trader, lock = _get_trader_and_lock()
     if trader is None:
@@ -488,8 +531,8 @@ def disable_trading():
 
 
 @trading_bp.route("/api/trading/sync", methods=["POST"])
-@require_auth
 @limiter.limit("10 per minute")
+@require_auth
 def sync_exchange():
     trader, lock = _get_trader_and_lock()
     if trader is None:

@@ -10,7 +10,9 @@ This module provides live trading capabilities with:
 """
 
 import logging
+import math
 import time
+import uuid
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_DOWN
@@ -423,26 +425,31 @@ class LiveTrader:
         """
         try:
             balance = self.exchange.fetch_balance()
-            
-            # Extract USDT balance
-            usdt_info = balance.get('USDT', {})
-            self.usdt_balance = float(usdt_info.get('free', 0.0))
-            usdt_total = float(usdt_info.get('total', 0.0))
-            
+
+            # Quote currency balance (e.g. USDT for BTC/USDT, USD for BTC/USD).
+            # Derived from the configured pair rather than hardcoded, since
+            # Binance.US keeps USD and USDT in separate wallets and the quote
+            # side of ``self.config.symbol`` is whichever one actually funds
+            # orders on this pair.
+            quote_currency = self.config.symbol.split('/')[1]
+            quote_info = balance.get(quote_currency, {})
+            self.usdt_balance = float(quote_info.get('free', 0.0))
+            usdt_total = float(quote_info.get('total', 0.0))
+
             # Extract base currency balance (e.g., BTC)
             base_currency = self.config.symbol.split('/')[0]
             base_info = balance.get(base_currency, {})
             self.base_balance = float(base_info.get('free', 0.0))
             base_total = float(base_info.get('total', 0.0))
-            
-            # Reserve some USDT for fees (0.1%)
+
+            # Reserve some quote currency for fees (0.1%)
             self.reserved_balance = self.usdt_balance * 0.001
-            
+
             self.logger.info(
-                f"Balances synced: USDT={self.usdt_balance:.2f} (total={usdt_total:.2f}), "
+                f"Balances synced: {quote_currency}={self.usdt_balance:.2f} (total={usdt_total:.2f}), "
                 f"{base_currency}={self.base_balance:.8f} (total={base_total:.8f})"
             )
-            
+
             return {
                 "USDT": self.usdt_balance,
                 "BASE": self.base_balance,
@@ -738,6 +745,9 @@ class LiveTrader:
         self._cancel_exchange_protective_stop()
 
         try:
+            # See execute_market_buy for why: one clientOrderId reused across
+            # every retry of this logical order placement.
+            client_order_id = f"stop{uuid.uuid4().hex[:24]}"
             order = _retry_call(
                 self.exchange.create_order,
                 self.config.symbol,
@@ -745,7 +755,11 @@ class LiveTrader:
                 "sell",
                 qty,
                 limit_px,
-                {"stopPrice": trigger, "timeInForce": "GTC"},
+                {
+                    "stopPrice": trigger,
+                    "timeInForce": "GTC",
+                    "newClientOrderId": client_order_id,
+                },
                 attempts=self.retry_attempts,
                 delay=self.retry_delay,
                 logger=self.logger,
@@ -760,12 +774,33 @@ class LiveTrader:
                 qty, trigger, limit_px, oid or "?",
             )
         except Exception as exc:
-            self.logger.error(
+            # Placing the real exchange-side stop is the only protection if
+            # this process itself goes down (crash, OOM, host reboot) - a
+            # materially different risk than a failed software exit, which
+            # already alerts critically via _alert_protective_exit_failed.
+            # This path used to only log, so an operator relying on push
+            # notifications would never find out their position is actually
+            # unprotected on the exchange side.
+            self.logger.critical(
                 "Failed to place exchange protective STOP_LOSS_LIMIT: %s. "
-                "Software stops still active.",
+                "Software stops still active, but this position has NO "
+                "exchange-side protection if the bot process goes down.",
                 exc,
                 exc_info=True,
             )
+            try:
+                from notify import send_notification
+
+                send_notification(
+                    "🚨 Exchange protective stop FAILED to place",
+                    f"{self.config.symbol}: could not place the exchange-side "
+                    f"STOP_LOSS_LIMIT order ({exc}). The bot's own software "
+                    f"stop-loss/take-profit is still active, but this "
+                    f"position has no protection if the process goes down.",
+                    severity="critical",
+                )
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Peak portfolio equity → drawdown kill-switch (buys only)
@@ -865,6 +900,14 @@ class LiveTrader:
         Returns:
             (is_valid, error_message)
         """
+        # NaN/inf defeat every < / > check below (comparisons against NaN are
+        # always False), so this must be unconditional - not even emergency
+        # closes should ever place an order with a non-finite amount/price.
+        # Defense-in-depth for app/api/trading.py's manual_buy isfinite()
+        # check, and the only guard at all for the automated signal path.
+        if not (math.isfinite(amount) and math.isfinite(price)):
+            return False, f"Non-finite amount ({amount}) or price ({price})"
+
         bypass_entry_gates = is_closing_sell or is_emergency_close
 
         if not is_emergency_close:
@@ -1003,10 +1046,22 @@ class LiveTrader:
         try:
             self.logger.info(f"Executing MARKET BUY: {amount} {symbol}")
 
+            # One clientOrderId generated BEFORE the retry loop, reused across
+            # every retry of this logical order. _TRANSIENT_CCXT_ERRORS (the
+            # only errors _retry_call retries on) are exactly the "ambiguous
+            # outcome" case - the exchange may have already received and
+            # filled the order while the response was lost in transit.
+            # Without an idempotency key, a retry after that submits a brand
+            # new real order for the same amount, doubling the position.
+            # Binance deduplicates by clientOrderId, so a retry that
+            # reaches an already-filled order returns/rejects instead of
+            # placing a second one.
+            client_order_id = f"buy{uuid.uuid4().hex[:24]}"
             order = _retry_call(
                 self.exchange.create_market_buy_order,
                 symbol=symbol,
                 amount=amount,
+                params={"newClientOrderId": client_order_id},
                 attempts=self.retry_attempts,
                 delay=self.retry_delay,
                 logger=self.logger,
@@ -1074,6 +1129,30 @@ class LiveTrader:
             notional = filled_amount * fill_price
             slippage = fill_price - current_price
 
+            # Binance deducts the trading fee from the asset you *receive* -
+            # for a buy that's the base currency (BTC), unless the account
+            # pays fees in BNB. order["filled"] is the gross executed
+            # quantity (ccxt's reading of executedQty), not net of that fee,
+            # so tracking filled_amount as the position size overstates what
+            # we actually hold. That mismatch surfaces later as
+            # InsufficientFunds when either the exchange-side protective
+            # stop or the bot's own stop-loss/take-profit sell tries to sell
+            # the (nonexistent) extra amount - i.e. it can break both
+            # safety nets on the same trade. Net the fee out when it was
+            # actually charged in the base currency.
+            base_currency = symbol.split("/")[0]
+            fee_currency = fee_info.get("currency")
+            position_amount = filled_amount
+            if fee_currency and fee_currency.upper() == base_currency.upper():
+                fee_in_base = float(fee_info.get("cost") or 0.0)
+                position_amount = max(0.0, filled_amount - fee_in_base)
+                if fee_in_base > 0:
+                    self.logger.info(
+                        "Fee charged in %s: netting %.8f off tracked position "
+                        "size (filled=%.8f -> position=%.8f)",
+                        base_currency, fee_in_base, filled_amount, position_amount,
+                    )
+
             trade = TradeRecord(
                 side="buy",
                 price=fill_price,
@@ -1088,9 +1167,9 @@ class LiveTrader:
                 order_id=order_record.order_id,
             )
 
-            # Open + persist position (uses the actual filled amount, not
-            # the requested amount).
-            self._open_long_position(fill_price, filled_amount, signal, order_record.order_id)
+            # Open + persist position using the fee-netted amount, not the
+            # gross filled amount - this is what we can actually sell later.
+            self._open_long_position(fill_price, position_amount, signal, order_record.order_id)
 
             self._sync_exchange_protective_stop()
 
@@ -1174,10 +1253,15 @@ class LiveTrader:
             # submit a market sell for the same asset.
             self._cancel_exchange_protective_stop()
 
+            # See execute_market_buy for why: one clientOrderId reused across
+            # every retry of this logical sell, so a lost response doesn't
+            # cause a duplicate real sell order.
+            client_order_id = f"sell{uuid.uuid4().hex[:24]}"
             order = _retry_call(
                 self.exchange.create_market_sell_order,
                 symbol=symbol,
                 amount=amount,
+                params={"newClientOrderId": client_order_id},
                 attempts=self.retry_attempts,
                 delay=self.retry_delay,
                 logger=self.logger,
@@ -1370,8 +1454,17 @@ class LiveTrader:
         order_id: Optional[str] = None,
     ):
         """Open a new long position and persist it to the DB."""
-        stop_loss = signal.stop_loss if signal and signal.stop_loss > 0 else entry_price * (1 - self.config.stop_loss_pct)
-        take_profit = signal.take_profit if signal and signal.take_profit > 0 else entry_price * (1 + self.config.take_profit_pct)
+        # float() on entry_price/amount/signal.stop_loss/take_profit: these
+        # may be numpy scalars from pandas-derived strategy math. A later bool
+        # comparison on any of them (a stop-trigger check, a dashboard flag)
+        # would otherwise raise "numpy.bool_ is not JSON serializable" - the
+        # same bug class already fixed in paper_trader.py's _buy/_sell. This
+        # is the real-money instance of that gap (paper_trader casts at its
+        # equivalent boundary; this one didn't).
+        entry_price = float(entry_price)
+        amount = float(amount)
+        stop_loss = float(signal.stop_loss) if signal and signal.stop_loss > 0 else entry_price * (1 - self.config.stop_loss_pct)
+        take_profit = float(signal.take_profit) if signal and signal.take_profit > 0 else entry_price * (1 + self.config.take_profit_pct)
         trailing_stop = entry_price * (1 - self.config.trailing_stop_pct)
 
         self.open_position = LivePosition(
@@ -1497,12 +1590,29 @@ class LiveTrader:
         Returns:
             TradeRecord if trade executed, None otherwise
         """
-        # Use dynamic position size from signal
+        # Use dynamic position size from signal. float(): signal.position_size
+        # can be a numpy scalar from pandas-derived sizing math; round_amount()
+        # downstream launders the final order amount back to plain float via
+        # Decimal(str(...)), but there's no reason to let a numpy type sit in
+        # intermediate state (order_pct/notional) any longer than it has to.
         if order_pct is None and signal.position_size > 0:
-            order_pct = signal.position_size
+            order_pct = float(signal.position_size)
         elif order_pct is None:
             order_pct = self.config.order_pct
-        
+
+        # Defense-in-depth clamp to the configured position-size caps.
+        # Each strategy already clamps its own position_size output to its
+        # own min/max_position_size before returning a signal, but that's
+        # the only place this was enforced - live_trader.py itself never
+        # re-checked it, and a weighted-average aggregate across strategies
+        # with different configured bounds, a manual order_pct override, or
+        # a bug in a future strategy could all bypass that single layer with
+        # no backstop here. max_position_risk_pct (risk-based position
+        # sizing from stop distance) is a separate, not-yet-implemented
+        # sizing methodology - this clamp doesn't attempt that, it only
+        # enforces the existing flat min/max percentage caps.
+        order_pct = max(self.config.min_position_size, min(self.config.max_position_size, order_pct))
+
         # Check for position exit on opposite signal
         if self.open_position:
             if (self.open_position.side == 'long' and signal.direction == 'bearish'):

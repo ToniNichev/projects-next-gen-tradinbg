@@ -155,7 +155,7 @@ def run_backtest():
     try:
         import threading
         import uuid
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
         days_back = int(data.get("days_back", 30))
         if days_back <= 0:
             return jsonify(create_response(success=False, error="days_back must be > 0")), 400
