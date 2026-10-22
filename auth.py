@@ -6,8 +6,10 @@ Supports both Basic HTTP Authentication and API Key authentication.
 
 import logging
 import os
+import threading
+import time
 from functools import wraps
-from typing import Optional
+from typing import Dict, List, Optional
 
 import bcrypt
 from flask import request
@@ -73,20 +75,74 @@ def get_auth_config() -> AuthConfig:
     return _auth_config
 
 
+# Brute-force lockout: too many failed logins from one IP blocks it for a while.
+LOCKOUT_MAX_FAILURES = 5
+LOCKOUT_WINDOW_SECONDS = 15 * 60
+_failed_logins: Dict[str, List[float]] = {}
+_failed_lock = threading.Lock()
+
+
+def _client_ip() -> str:
+    try:
+        from app.extensions import _get_real_ip
+        return _get_real_ip()
+    except Exception:
+        return request.remote_addr or "unknown"
+
+
+def _recent_failures(ip: str, now: float) -> List[float]:
+    """Failures from this IP inside the window (caller holds the lock)."""
+    recent = [t for t in _failed_logins.get(ip, []) if now - t < LOCKOUT_WINDOW_SECONDS]
+    if recent:
+        _failed_logins[ip] = recent
+    else:
+        _failed_logins.pop(ip, None)
+    return recent
+
+
+def _is_locked_out(ip: str) -> bool:
+    with _failed_lock:
+        return len(_recent_failures(ip, time.time())) >= LOCKOUT_MAX_FAILURES
+
+
+def _record_failure(ip: str) -> None:
+    with _failed_lock:
+        now = time.time()
+        recent = _recent_failures(ip, now)
+        recent.append(now)
+        _failed_logins[ip] = recent
+        if len(recent) == LOCKOUT_MAX_FAILURES:
+            logger.warning(
+                "Locking out %s for %d min after %d failed logins",
+                ip, LOCKOUT_WINDOW_SECONDS // 60, LOCKOUT_MAX_FAILURES,
+            )
+
+
 @http_auth.verify_password
 def verify_password(username: str, password: str) -> bool:
     """Verify username and password for Basic HTTP Auth"""
     config = get_auth_config()
-    
+
     # If auth is disabled, allow all
     if not config.enabled:
         return True
-    
+
+    # No credentials sent (e.g. a browser's first request before the login
+    # prompt). Not a failed attempt, so don't log or count it.
+    if not username and not password:
+        return False
+
+    ip = _client_ip()
+    if _is_locked_out(ip):
+        logger.warning(f"Authentication blocked: {ip} is locked out")
+        return False
+
     # Check username matches
     if username != config.username:
-        logger.warning(f"Authentication failed: invalid username '{username}'")
+        logger.warning(f"Authentication failed: invalid username '{username}' from {ip}")
+        _record_failure(ip)
         return False
-    
+
     # Check if stored password is hashed (starts with $2b$ for bcrypt)
     if config.password.startswith('$2b$') or config.password.startswith('$2a$'):
         # Stored password is hashed, verify with bcrypt
@@ -96,8 +152,9 @@ def verify_password(username: str, password: str) -> bool:
         is_valid = password == config.password
     
     if not is_valid:
-        logger.warning(f"Authentication failed: invalid password for user '{username}'")
-    
+        logger.warning(f"Authentication failed: invalid password for user '{username}' from {ip}")
+        _record_failure(ip)
+
     return is_valid
 
 

@@ -49,3 +49,4 @@ backups/
 *.swo
 *~
 
+/trade_log.csv

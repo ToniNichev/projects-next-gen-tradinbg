@@ -73,7 +73,7 @@ class TradeEmbedder:
             logger.info(f"Loading embedding model: {self.model_name}")
             try:
                 self.model = SentenceTransformer(self.model_name)
-                logger.info(f"Embedding model loaded successfully (dimension: {self.model.get_sentence_embedding_dimension()})")
+                logger.info(f"Embedding model loaded successfully (dimension: {self.model.get_embedding_dimension()})")
             except Exception as e:
                 logger.error(f"Failed to load embedding model: {e}")
                 raise

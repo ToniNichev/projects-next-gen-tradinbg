@@ -152,7 +152,7 @@ class PaperTrader:
                         take_profit=float(db_pos.take_profit) if db_pos.take_profit else 0.0,
                         trailing_stop=float(db_pos.trailing_stop) if db_pos.trailing_stop else 0.0,
                         initial_trailing_stop_pct=self.trailing_stop_pct,
-                        highest_price=float(db_pos.entry_price),
+                        highest_price=float(db_pos.highest_price or db_pos.entry_price),
                         strategy_name=db_pos.strategy_name if hasattr(db_pos, 'strategy_name') else None,
                     )
                     self.db_position_id = db_pos.id
@@ -281,6 +281,7 @@ class PaperTrader:
         
         pos = self.open_position
         exit_reason = None
+        ratcheted = False
 
         # Only long positions supported (spot trading)
         if pos.side == "long":
@@ -292,6 +293,7 @@ class PaperTrader:
                     new_trailing = current_price * (1 - pos.initial_trailing_stop_pct)
                     if new_trailing > pos.trailing_stop:
                         pos.trailing_stop = new_trailing
+                    ratcheted = True
 
             # Check exit conditions (order matters: stop loss checked first for safety)
             if current_price <= pos.stop_loss:
@@ -304,6 +306,10 @@ class PaperTrader:
             # Should never happen in spot-only mode
             logging.warning(f"Invalid position side: {pos.side}. Only 'long' supported in spot trading.")
             return None
+
+        # Save the new high / trailing stop so a restart doesn't reset them
+        if ratcheted and not exit_reason:
+            self._update_open_position_in_db()
 
         # Exit position if any condition triggered
         if exit_reason:
@@ -333,6 +339,18 @@ class PaperTrader:
             except Exception as e:
                 logging.error(f"Failed to save position to database: {e}")
     
+    def _update_open_position_in_db(self) -> None:
+        """Push current trailing stop / highest price back to the DB row."""
+        if not (self.enable_database and self.db_manager and self.db_position_id and self.open_position):
+            return
+        try:
+            self.db_manager.update_position(self.db_position_id, {
+                "trailing_stop": self.open_position.trailing_stop,
+                "highest_price": self.open_position.highest_price,
+            })
+        except Exception as e:
+            logging.error(f"Failed to update open position in database: {e}")
+
     def _close_position_in_db(self, exit_price: float, exit_reason: str, pnl: float) -> None:
         """Update position closure in database"""
         if self.enable_database and self.db_manager and self.db_position_id:
