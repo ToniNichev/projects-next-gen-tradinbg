@@ -11,6 +11,8 @@ Usage:
     venv/bin/python scripts/walk_forward_long.py                # all strategies, 24 windows
     venv/bin/python scripts/walk_forward_long.py --windows 12 --strategies ema
     venv/bin/python scripts/walk_forward_long.py --save         # also write reports
+    venv/bin/python scripts/walk_forward_long.py --timeframe 4h --no-costs
+    venv/bin/python scripts/walk_forward_long.py --timeframe 1d --days 180 --windows 4
 """
 import argparse
 import logging
@@ -25,7 +27,6 @@ if str(ROOT) not in sys.path:
 
 from backtest import run_backtest  # noqa: E402
 
-DAYS_BACK = 30
 STRATEGIES = {
     "ema": "strategy_ema_enabled",
     "rsi_bb": "strategy_rsi_bb_enabled",
@@ -44,17 +45,23 @@ def main():
     parser.add_argument("--windows", type=int, default=24)
     parser.add_argument("--strategies", nargs="+", default=list(STRATEGIES), choices=list(STRATEGIES))
     parser.add_argument("--symbol", default="BTC/USDT")
+    parser.add_argument("--timeframe", default="1h")
+    parser.add_argument("--days", type=int, default=30, help="length of each window in days")
+    parser.add_argument("--no-costs", action="store_true", help="set fees and slippage to zero")
     parser.add_argument("--save", action="store_true", help="write a report per window to docs/backtest_reports/")
     args = parser.parse_args()
 
     now = datetime.now(timezone.utc)
-    ends = [now - timedelta(days=DAYS_BACK * i) for i in range(args.windows)]
+    ends = [now - timedelta(days=args.days * i) for i in range(args.windows)]
+    extra = {"symbol": args.symbol, "timeframe": args.timeframe}
+    if args.no_costs:
+        extra.update(fee_rate=0.0, slippage=0.0)
     results = {s: [] for s in args.strategies}
 
     for i, end in enumerate(ends):
         for s in args.strategies:
             r = run_backtest(
-                days_back=DAYS_BACK, config_overrides={**only(s), "symbol": args.symbol},
+                days_back=args.days, config_overrides={**only(s), **extra},
                 end_date=end, save_report=args.save, intrabar_exits=True,
             )
             results[s].append(r)
@@ -64,7 +71,8 @@ def main():
 
     bh = [r["buy_hold_pct"] for r in results[args.strategies[0]]]
     header = f"{'window_end':<11} {'B&H%':>7}" + "".join(f" | {s + ' trades':>11} {'pnl%':>6}" for s in args.strategies)
-    print(f"\nSymbol: {args.symbol}, {args.windows} x {DAYS_BACK}-day windows, intrabar exits")
+    costs = "no costs" if args.no_costs else "with fees + slippage"
+    print(f"\nSymbol: {args.symbol} {args.timeframe}, {args.windows} x {args.days}-day windows, intrabar exits, {costs}")
     print(header)
     for i, end in enumerate(ends):
         row = f"{str(end.date()):<11} {bh[i]:>7.2f}"
