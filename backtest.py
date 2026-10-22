@@ -420,6 +420,14 @@ def run_backtest(
         # historical window's end boundary; trim it back for walk-forward runs.
         all_candles = [c for c in all_candles if c[0] <= target_end_time]
 
+    # Warn when the exchange has no data for part of the window (e.g. a pair
+    # listed partway through it), so a short window isn't mistaken for a full one
+    if all_candles and all_candles[0][0] - since > 24 * 3600 * 1000:
+        logging.warning(
+            "Window starts %s but %s data only begins %s; this window is partial",
+            exchange.iso8601(since), config.symbol, exchange.iso8601(all_candles[0][0]),
+        )
+
     logging.info(f"✓ Loaded {len(all_candles)} candles across {batch_count} batch(es). Starting backtest...")
     
     # Show actual time period covered
