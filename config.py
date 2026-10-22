@@ -133,6 +133,15 @@ class BotConfig:
     llm_rag_num_results: int = 10  # Number of similar trades to retrieve
     llm_rag_min_trades: int = 5  # Minimum trades needed to use RAG
     llm_rag_persist_dir: str = "./data/chroma_db"  # Vector database storage location
+
+    # Strategy: Trend Hold (daily close vs N-day average, all in / all out).
+    # Meant to run alone with use_trailing_stop off. See scripts/trend_hold_test.py.
+    strategy_trend_enabled: bool = False
+    strategy_trend_weight: float = 1.0
+    strategy_trend_ma_days: int = 100
+    strategy_trend_band: float = 0.01
+    strategy_trend_position_size: float = 0.99
+    strategy_trend_emergency_stop_pct: float = 0.0  # 0 = no stop below entry
     
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
@@ -319,6 +328,13 @@ class BotConfig:
             llm_rag_num_results=get_val("llm_rag_num_results", "BOT_LLM_RAG_NUM_RESULTS", 10, int),
             llm_rag_min_trades=get_val("llm_rag_min_trades", "BOT_LLM_RAG_MIN_TRADES", 5, int),
             llm_rag_persist_dir=get_val("llm_rag_persist_dir", "BOT_LLM_RAG_PERSIST_DIR", "./data/chroma_db", str),
+            # Trend Hold Strategy (can be overridden by database)
+            strategy_trend_enabled=get_val("strategy_trend_enabled", "BOT_STRATEGY_TREND_ENABLED", False, bool),
+            strategy_trend_weight=get_val("strategy_trend_weight", "BOT_STRATEGY_TREND_WEIGHT", 1.0, float),
+            strategy_trend_ma_days=get_val("strategy_trend_ma_days", "BOT_STRATEGY_TREND_MA_DAYS", 100, int),
+            strategy_trend_band=get_val("strategy_trend_band", "BOT_STRATEGY_TREND_BAND", 0.01, float),
+            strategy_trend_position_size=get_val("strategy_trend_position_size", "BOT_STRATEGY_TREND_POSITION_SIZE", 0.99, float),
+            strategy_trend_emergency_stop_pct=get_val("strategy_trend_emergency_stop_pct", "BOT_STRATEGY_TREND_EMERGENCY_STOP_PCT", 0.0, float),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),
@@ -443,6 +459,14 @@ class BotConfig:
                 "take_profit_pct": self.take_profit_pct,
                 "min_position_size": self.min_position_size,
                 "max_position_size": self.max_position_size,
-            }
+            },
+            "trend_hold": {
+                "enabled": self.strategy_trend_enabled,
+                "weight": self.strategy_trend_weight,
+                "ma_days": self.strategy_trend_ma_days,
+                "band": self.strategy_trend_band,
+                "position_size": self.strategy_trend_position_size,
+                "emergency_stop_pct": self.strategy_trend_emergency_stop_pct,
+            },
         }
 

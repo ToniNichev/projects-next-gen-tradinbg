@@ -8,6 +8,7 @@ from .base_strategy import BaseStrategy, StrategySignal
 from .ema_crossover_strategy import EMACrossoverStrategy
 from .rsi_bb_strategy import RSIBollingerBandsStrategy
 from .macd_volume_strategy import MACDVolumeStrategy
+from .trend_hold_strategy import TrendHoldStrategy
 from .strategy_manager import StrategyManager, SignalAggregationMode
 from .constants import StrategyNames
 
@@ -25,6 +26,7 @@ __all__ = [
     'EMACrossoverStrategy',
     'RSIBollingerBandsStrategy',
     'MACDVolumeStrategy',
+    'TrendHoldStrategy',
     'StrategyManager',
     'SignalAggregationMode',
     'StrategyNames',

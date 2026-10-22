@@ -136,6 +136,8 @@ class ConfigService:
                         category = "rsi_bb"
                     elif key.startswith("strategy_macd_"):
                         category = "macd_volume"
+                    elif key.startswith("strategy_trend_"):
+                        category = "trend_hold"
                     elif key.startswith("strategy_llm_") or key.startswith("llm_"):
                         category = "llm_pattern"
                     elif key in ["use_multi_strategy", "strategy_aggregation_mode", "min_signal_confidence"]:

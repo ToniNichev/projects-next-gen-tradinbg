@@ -28,6 +28,7 @@ from strategies import (
     EMACrossoverStrategy,
     RSIBollingerBandsStrategy,
     MACDVolumeStrategy,
+    TrendHoldStrategy,
     StrategyManager,
     SignalAggregationMode,
 )
@@ -295,6 +296,13 @@ def main():
         strategies.append(macd_strategy)
         status = "✓ Enabled" if macd_strategy.is_enabled() else "✗ Disabled"
         logging.info(f"{status}: {macd_strategy.name} (weight: {macd_strategy.get_weight()})")
+
+        # Trend Hold Strategy - always create, set enabled state from config
+        trend_strategy = TrendHoldStrategy(strategy_configs["trend_hold"])
+        trend_strategy.set_enabled(strategy_configs["trend_hold"]["enabled"])
+        strategies.append(trend_strategy)
+        status = "✓ Enabled" if trend_strategy.is_enabled() else "✗ Disabled"
+        logging.info(f"{status}: {trend_strategy.name} (weight: {trend_strategy.get_weight()})")
         
         # LLM Pattern Strategy - always create, set enabled state from config
         llm_scheduler = None

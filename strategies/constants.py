@@ -30,6 +30,7 @@ class StrategyNames:
     RSI_BB_MEAN_REVERSION = "RSI_BB_MeanReversion"
     MACD_VOLUME_MOMENTUM = "MACD_Volume_Momentum"
     LLM_PATTERN = "llm_pattern"
+    TREND_HOLD = "Trend_Hold"
     
     # Display names for UI (user-friendly)
     DISPLAY_NAMES = {
@@ -37,6 +38,7 @@ class StrategyNames:
         RSI_BB_MEAN_REVERSION: "RSI + Bollinger Bands",
         MACD_VOLUME_MOMENTUM: "MACD + Volume Momentum",
         LLM_PATTERN: "LLM Pattern Analysis",
+        TREND_HOLD: "Trend Hold (daily MA)",
     }
     
     # Config keys for database persistence
@@ -45,6 +47,7 @@ class StrategyNames:
         RSI_BB_MEAN_REVERSION: "strategy_rsi_bb_enabled",
         MACD_VOLUME_MOMENTUM: "strategy_macd_enabled",
         LLM_PATTERN: "strategy_llm_enabled",
+        TREND_HOLD: "strategy_trend_enabled",
     }
     
     # Strategy configuration section names
@@ -53,6 +56,7 @@ class StrategyNames:
         RSI_BB_MEAN_REVERSION: "rsi_bb",
         MACD_VOLUME_MOMENTUM: "macd_volume",
         LLM_PATTERN: "llm_pattern",
+        TREND_HOLD: "trend_hold",
     }
     
     # Strategy types/categories
@@ -61,6 +65,7 @@ class StrategyNames:
         RSI_BB_MEAN_REVERSION: "Mean Reversion",
         MACD_VOLUME_MOMENTUM: "Momentum Breakout",
         LLM_PATTERN: "AI Pattern Recognition",
+        TREND_HOLD: "Trend Filter",
     }
     
     # Strategy icons (for UI)
@@ -69,6 +74,7 @@ class StrategyNames:
         RSI_BB_MEAN_REVERSION: "🌊",
         MACD_VOLUME_MOMENTUM: "📊",
         LLM_PATTERN: "🤖",
+        TREND_HOLD: "🧭",
     }
     
     @classmethod
@@ -84,6 +90,7 @@ class StrategyNames:
             cls.RSI_BB_MEAN_REVERSION,
             cls.MACD_VOLUME_MOMENTUM,
             cls.LLM_PATTERN,
+            cls.TREND_HOLD,
         ]
     
     @classmethod
@@ -192,3 +199,4 @@ STRATEGY_EMA = StrategyNames.EMA_CROSSOVER
 STRATEGY_RSI_BB = StrategyNames.RSI_BB_MEAN_REVERSION
 STRATEGY_MACD = StrategyNames.MACD_VOLUME_MOMENTUM
 STRATEGY_LLM = StrategyNames.LLM_PATTERN
+STRATEGY_TREND = StrategyNames.TREND_HOLD

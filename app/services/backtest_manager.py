@@ -455,6 +455,8 @@ class BacktestManager:
             "strategy_rsi_bb_weight": self.config.strategy_rsi_bb_weight,
             "strategy_macd_enabled": self.config.strategy_macd_enabled,
             "strategy_macd_weight": self.config.strategy_macd_weight,
+            "strategy_trend_enabled": self.config.strategy_trend_enabled,
+            "strategy_trend_weight": self.config.strategy_trend_weight,
         }
         
         # Include overrides if provided
@@ -481,6 +483,9 @@ class BacktestManager:
             
             if self.config.strategy_macd_enabled:
                 strategies.append("MACD + Volume")
+
+            if self.config.strategy_trend_enabled:
+                strategies.append("Trend Hold")
             
             # Check for LLM strategy
             try:
