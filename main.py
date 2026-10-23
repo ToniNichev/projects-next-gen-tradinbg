@@ -491,6 +491,30 @@ def main():
     candle_buffer = []
     max_buffer_size = max(config.long_window * 2, 120)
 
+    def _save_candles(candles: list) -> None:
+        """Store closed candles in the DB so the dashboard chart stays current.
+
+        The chart's /api/candles reads the DB first; before this, only the
+        startup seeder wrote candles, so the chart froze at the last restart.
+        add_candle() upserts, so re-saving a candle is harmless.
+        """
+        if db_manager is None:
+            return
+        for c in candles:
+            try:
+                db_manager.add_candle({
+                    "symbol": config.symbol,
+                    "timeframe": config.timeframe,
+                    "timestamp": datetime.utcfromtimestamp(int(c[0]) / 1000),
+                    "open": float(c[1]),
+                    "high": float(c[2]),
+                    "low": float(c[3]),
+                    "close": float(c[4]),
+                    "volume": float(c[5]),
+                })
+            except Exception as exc:
+                logging.warning("Could not save candle to DB: %s", exc)
+
     def _backfill_candle_gap() -> None:
         """Re-fetch recent candles via REST after every (re)connect.
 
@@ -515,6 +539,9 @@ def main():
             merged = {c[0]: c for c in candle_buffer}
             merged.update({c[0]: c for c in fresh})
             candle_buffer = sorted(merged.values(), key=lambda c: c[0])[-max_buffer_size:]
+            # Also save the last day of closed candles (the newest one is still
+            # forming) so a disconnect doesn't leave a gap in the chart
+            _save_candles(fresh[-25:-1])
         except Exception as exc:
             logging.warning("Candle backfill after (re)connect failed: %s", exc)
 
@@ -638,6 +665,7 @@ def main():
                 float(kline.get("v", 0.0)),  # volume
             ]
             candle_buffer.append(candle_data)
+            _save_candles([candle_data])
             
             # Keep buffer at max size
             if len(candle_buffer) > max_buffer_size:

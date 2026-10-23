@@ -1265,6 +1265,15 @@
                 drag: {
                   enabled: false,
                 },
+                // Sideways swipes and Shift+wheel scroll the chart (custom
+                // wheel handler); don't let the plugin also zoom out on them
+                onZoomStart: function({ event }) {
+                  if (event && event.type === 'wheel' &&
+                      (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY))) {
+                    return false;
+                  }
+                  return true;
+                },
                 onZoomComplete: function() {
                   saveView();
                   fitYAxisToVisibleCandles();
@@ -1558,6 +1567,11 @@
         isLoadingHistorical = false;
         
         currentTimeframe = timeframe;
+        // A new timeframe starts from the full view, not the old zoom range
+        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; velocityX = 0; }
+        userHasZoomed = false;
+        savedViewMin = null;
+        savedViewMax = null;
         await refresh();
         
         // Ensure Y-axis fits after timeframe change
@@ -1568,7 +1582,29 @@
         document.getElementById('chart-loading').classList.remove('show');
       }
 
+      // Run one refresh at a time. A call that arrives while one is running
+      // queues a single follow-up run (e.g. a timeframe switch mid-refresh).
+      let refreshInFlight = null;
+      let refreshQueued = false;
       async function refresh() {
+        if (refreshInFlight) {
+          refreshQueued = true;
+          return refreshInFlight;
+        }
+        refreshInFlight = (async () => {
+          do {
+            refreshQueued = false;
+            await refreshOnce();
+          } while (refreshQueued);
+        })();
+        try {
+          await refreshInFlight;
+        } finally {
+          refreshInFlight = null;
+        }
+      }
+
+      async function refreshOnce() {
         try {
           // Fetch candle data from exchange
           let history = [];
@@ -1660,61 +1696,16 @@
             noDataEl.classList.add('show');
           }
           
-          if (candleData.length > 0) {
-          }
-          
-          chart.data.datasets[0].data = candleData;
-          chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe})`;
-          
-          // Set up pan limits - extend range beyond visible data for panning
-          if (candleData.length > 0) {
-            const timestamps = candleData.map(d => d.x);
-            const minTime = Math.min(...timestamps);
-            const maxTime = Math.max(...timestamps);
-            const timeRange = maxTime - minTime;
-            
-            // Add 20% padding on each side for panning capability
-            const padding = timeRange * 0.2 || 3600000; // Default 1 hour if no range
-            
-            // Set pan limits (wider than visible range)
-            chart.options.plugins.zoom.limits.x.min = minTime - padding * 2;
-            chart.options.plugins.zoom.limits.x.max = maxTime + padding * 2;
-            
-            // For single data point, show a window around it
-            if (candleData.length === 1) {
-              const hourInMs = 60 * 60 * 1000;
-              chart.options.scales.x.min = minTime - hourInMs;
-              chart.options.scales.x.max = maxTime + hourInMs;
-            } else {
-              // Always reset options so chart.update() sees all data
-              chart.options.scales.x.min = undefined;
-              chart.options.scales.x.max = undefined;
-            }
-          }
-          
-          // Add signals dataset if not exists
-          if (!chart.data.datasets[1]) {
-            chart.data.datasets.push({
-              label: "Signals",
-              type: "scatter",
-              pointStyle: "triangle",
-              pointRadius: 8,
-              data: [],
-              showLine: false,
-              yAxisID: "y",
-              order: 5, // Draw signals in middle layer
-            });
-          }
-          
-          // Only show signal markers on the default timeframe (1h - bot's actual trading timeframe)
+          // Fetch bot signals BEFORE touching the chart. Everything below that
+          // changes the chart runs in one synchronous step, so a drag or zoom
+          // can't land between "reset view" and "restore view" anymore.
+          let signalPoints = [];
           if (currentTimeframe === '1h') {
-            // Fetch bot-generated signals from history endpoint (not candle data)
+            // Only show signal markers on the bot's trading timeframe
             try {
               const signalResp = await fetch("/history", {credentials: 'include'});
               const signalBody = await signalResp.json();
-              const signalHistory = signalBody.history || [];
-              
-              chart.data.datasets[1].data = signalHistory
+              signalPoints = (signalBody.history || [])
                 .filter((row) => row.signal_direction !== "neutral")
                 .map((row) => ({
                   x: new Date(row.timestamp).getTime(),
@@ -1724,42 +1715,13 @@
                 }));
             } catch (error) {
               console.error("Error fetching signals:", error);
-              chart.data.datasets[1].data = [];
             }
-          } else {
-            // Clear signals for other timeframes
-            chart.data.datasets[1].data = [];
           }
-          
-          // Use 'none' mode for data updates to prevent animation jank
-          // Only animate zoom/pan interactions, not data refreshes
-          chart.update('none');
 
-          if (userHasZoomed && savedViewMin !== null) {
-            // maxTime is block-scoped above, so recompute from chart data
-            const allData = chart.data.datasets[0].data;
-            const latestTime = allData.length > 0 ? Math.max(...allData.map(c => c.x)) : savedViewMax;
-            const tfMs = getTimeframeMs(currentTimeframe);
-            const atRightEdge = (latestTime - savedViewMax) < tfMs * 1.5;
-            if (atRightEdge) {
-              const range = savedViewMax - savedViewMin;
-              savedViewMin = latestTime - range;
-              savedViewMax = latestTime;
-            }
-            // Fit Y to zoomed range — compute directly so we don't need a second chart.update()
-            const vCandles = allData.filter(c => c.x >= savedViewMin && c.x <= savedViewMax);
-            if (vCandles.length > 0) {
-              let minP = Infinity, maxP = -Infinity;
-              vCandles.forEach(c => { minP = Math.min(minP, c.l); maxP = Math.max(maxP, c.h); });
-              const pad = (maxP - minP) * 0.05 || maxP * 0.02;
-              chart.options.scales.y.min = minP - pad;
-              chart.options.scales.y.max = maxP + pad;
-            }
-            // zoomScale internally calls chart.update(), which picks up the Y options above
-            chart.zoomScale('x', {min: savedViewMin, max: savedViewMax}, 'none');
-          } else {
-            fitYAxisToVisibleCandles();
-            chart.update('none');
+          // While the user is dragging or the chart is still gliding, leave it
+          // alone; the next refresh picks up the new candles.
+          if (!isDragging && !momentumAnimation) {
+            applyChartData(candleData, signalPoints);
           }
           
           // Update trade markers after chart data is refreshed
@@ -1855,6 +1817,81 @@
             console.error("Error updating balance:", balanceErr);
           }
         }
+      }
+
+      // Swap in fresh candles without moving the user's view. The visible range
+      // is read from the chart at this moment (not a saved copy that some
+      // interaction might not have updated). If the view was showing the
+      // newest candle, it slides forward so new candles stay in sight.
+      function applyChartData(candleData, signalPoints) {
+        const oldData = chart.data.datasets[0].data;
+        const prevLatest = oldData.length > 0 ? Math.max(...oldData.map(c => c.x)) : null;
+        const keepView = userHasZoomed && chart.scales.x
+          ? { min: chart.scales.x.min, max: chart.scales.x.max }
+          : null;
+
+        chart.data.datasets[0].data = candleData;
+        chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe})`;
+
+        if (!chart.data.datasets[1]) {
+          chart.data.datasets.push({
+            label: "Signals",
+            type: "scatter",
+            pointStyle: "triangle",
+            pointRadius: 8,
+            data: [],
+            showLine: false,
+            yAxisID: "y",
+            order: 5, // Draw signals in middle layer
+          });
+        }
+        chart.data.datasets[1].data = signalPoints;
+
+        if (candleData.length > 0) {
+          const timestamps = candleData.map(d => d.x);
+          const minTime = Math.min(...timestamps);
+          const maxTime = Math.max(...timestamps);
+          // Pan limits: data range plus padding on each side
+          const padding = (maxTime - minTime) * 0.2 || 3600000;
+          chart.options.plugins.zoom.limits.x.min = minTime - padding * 2;
+          chart.options.plugins.zoom.limits.x.max = maxTime + padding * 2;
+
+          if (keepView) {
+            let { min, max } = keepView;
+            const tfMs = getTimeframeMs(currentTimeframe);
+            if (prevLatest !== null && maxTime > prevLatest && prevLatest - max < tfMs * 1.5) {
+              min += maxTime - prevLatest;
+              max += maxTime - prevLatest;
+            }
+            chart.options.scales.x.min = min;
+            chart.options.scales.x.max = max;
+            savedViewMin = min;
+            savedViewMax = max;
+            fitYAxisToRange(min, max);
+          } else if (candleData.length === 1) {
+            const hourInMs = 60 * 60 * 1000;
+            chart.options.scales.x.min = minTime - hourInMs;
+            chart.options.scales.x.max = maxTime + hourInMs;
+            fitYAxisToRange(minTime - hourInMs, maxTime + hourInMs);
+          } else {
+            chart.options.scales.x.min = undefined;
+            chart.options.scales.x.max = undefined;
+            fitYAxisToRange(minTime, maxTime);
+          }
+        }
+
+        chart.update('none');
+      }
+
+      // Fit the Y axis to the candles inside [min, max]
+      function fitYAxisToRange(min, max) {
+        const visible = chart.data.datasets[0].data.filter(c => c.x >= min && c.x <= max);
+        if (visible.length === 0) return;
+        let minP = Infinity, maxP = -Infinity;
+        visible.forEach(c => { minP = Math.min(minP, c.l); maxP = Math.max(maxP, c.h); });
+        const pad = (maxP - minP) * 0.05 || maxP * 0.02;
+        chart.options.scales.y.min = minP - pad;
+        chart.options.scales.y.max = maxP + pad;
       }
 
       function saveView() {
@@ -2457,6 +2494,7 @@
         // Check if it's a horizontal scroll (shift + wheel or trackpad horizontal)
         if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
           e.preventDefault();
+          userHasZoomed = true;  // keep this view across refreshes
           
           const xScale = chart.scales.x;
           const range = xScale.max - xScale.min;
