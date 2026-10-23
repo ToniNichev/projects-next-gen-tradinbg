@@ -33,13 +33,23 @@
   }
   .chart-container {
     position: relative;
-    height: 500px;
+    /* Column layout: controls and legend take what they need, the chart
+       gets the rest, so it can't spill below the panel */
+    display: flex;
+    flex-direction: column;
+    height: 600px;
     width: 100%;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 0.75rem;
     padding: 1.5rem;
     margin-top: 1rem;
+  }
+  /* Chart.js sizes the canvas to this box (needs position: relative) */
+  .chart-canvas-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
   }
   .chart-container canvas {
     cursor: grab;
@@ -225,9 +235,8 @@
     margin-bottom: 1.5rem;
   }
   
-  .chart-container:fullscreen canvas {
+  .chart-container:fullscreen .chart-canvas-wrap {
     flex: 1;
-    height: 100% !important;
   }
   
   /* Firefox fullscreen support */
@@ -955,7 +964,9 @@
     <div id="legend-items" style="display: flex; gap: 1rem; flex-wrap: wrap;"></div>
   </div>
   
-  <canvas id="priceChart"></canvas>
+  <div class="chart-canvas-wrap">
+    <canvas id="priceChart"></canvas>
+  </div>
 </div>
 
 <script>
