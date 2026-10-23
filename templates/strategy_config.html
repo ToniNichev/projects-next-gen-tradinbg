@@ -417,6 +417,7 @@
   .strategy-tab.active.tab-rsi    { border-top: 3px solid var(--accent-blue);  color: var(--accent-blue);  }
   .strategy-tab.active.tab-macd   { border-top: 3px solid #f39c12;             color: #f39c12;             }
   .strategy-tab.active.tab-llm    { border-top: 3px solid #9b59b6;             color: #9b59b6;             }
+  .strategy-tab.active.tab-trend  { border-top: 3px solid #1abc9c;             color: #1abc9c;             }
   .strategy-tab .tab-dot {
     width: 7px; height: 7px;
     border-radius: 50%;
@@ -1442,6 +1443,9 @@
       <div class="strategy-tab tab-llm" onclick="switchStrategyTab('llm')" id="tab-btn-llm">
         <span class="tab-dot" id="tab-dot-llm"></span> 🤖 LLM
       </div>
+      <div class="strategy-tab tab-trend" onclick="switchStrategyTab('trend')" id="tab-btn-trend">
+        <span class="tab-dot" id="tab-dot-trend"></span> 🧭 Trend
+      </div>
     </div>
   </div>
 
@@ -2127,7 +2131,124 @@
       <div id="validation-result" style="margin-top: 0.75rem; padding: 0.75rem; border-radius: 0.375rem; display: none;"></div>
     </div>
   </div>
-  </div><!-- End strategySettings collapsible -->
+  </div><!-- /tab-panel-llm -->
+
+  <div class="strategy-tab-panel" id="tab-panel-trend">
+  <!-- Trend Hold Strategy -->
+  <div class="strategy-section" id="strategy-trend" data-strategy-name="Trend_Hold" style="border-left-color: #1abc9c;">
+    <div class="strategy-tab-header">
+      <div>
+        <span class="strat-title" style="color: #1abc9c;">🧭 Trend Hold</span>
+        <span class="strat-type">Trend Filter · daily candles</span>
+      </div>
+      <button class="tab-toggle-btn" id="tab-toggle-Trend_Hold"
+              onclick="toggleStrategyFromTab('Trend_Hold','trend')">…</button>
+    </div>
+
+    <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0 0 0.75rem;">
+      Holds BTC while the daily close is above its moving average and moves to cash when it falls below.
+      Checked once per day on closed daily candles, so it trades only a few times a year.
+      Meant to run <strong>alone</strong>: other strategies would mix their stops and sizes into its trades.
+    </p>
+    <div id="trendTrailingWarning" style="display: none; background: rgba(231,76,60,0.12); border: 1px solid #e74c3c; color: #e74c3c; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem;">
+      ⚠️ The trailing stop (Risk Management) is on. It will sell on ordinary dips and fight this strategy &mdash; turn it off while Trend Hold is enabled.
+    </div>
+
+    <div class="form-grid" id="strategy-trend-settings">
+      <div class="form-group">
+        <label class="form-label">
+          Moving Average Length (days)
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              How many daily closes the average uses. Longer = fewer trades and slower to react; shorter = faster but more false switches.
+              <hr>
+              <span class="risk-indicator risk-low">100</span> Tested setting
+              <span class="risk-indicator risk-medium">50</span> Faster
+              <span class="risk-indicator risk-medium">200</span> Slower
+            </span>
+          </span>
+        </label>
+        <input type="number" class="form-control" id="strategyTrendMaDays" name="strategy_trend_ma_days"
+               value="100" min="20" max="300">
+        <span class="form-text">Default: 100</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          Band
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              How far the daily close must be above the average to buy, or below it to sell. Inside the band the bot keeps what it has, which avoids flipping back and forth.
+              <hr>
+              <span class="risk-indicator risk-low">1%</span> Tested setting
+              <span class="risk-indicator risk-medium">0%</span> More trades
+              <span class="risk-indicator risk-medium">3%</span> Fewer trades
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="strategyTrendBand" name="strategy_trend_band"
+               min="0" max="0.05" step="0.005" value="0.01">
+        <span class="form-text">
+          <span class="range-value" id="strategyTrendBandValue">1.0%</span>
+        </span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          Position Size
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Share of the cash balance to buy with when the trend turns up. Just under 100% so the fee fits. In live mode the global Max Position Size still caps this.
+              <hr>
+              <span class="risk-indicator risk-low">99%</span> Tested setting (all in)
+              <span class="risk-indicator risk-medium">50%</span> Half in
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="strategyTrendPositionSize" name="strategy_trend_position_size"
+               min="0.1" max="0.99" step="0.01" value="0.99">
+        <span class="form-text">
+          <span class="range-value" id="strategyTrendPositionSizeValue">99%</span>
+        </span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          Emergency Stop
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Optional safety net: sell if price falls this far below the entry price, without waiting for the daily close. 0 = off. The tested rule had none.
+              <hr>
+              <span class="risk-indicator risk-low">Off</span> Tested setting
+              <span class="risk-indicator risk-medium">20%</span> Crash protection
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="strategyTrendEmergencyStopPct" name="strategy_trend_emergency_stop_pct"
+               min="0" max="0.3" step="0.01" value="0">
+        <span class="form-text">
+          <span class="range-value" id="strategyTrendEmergencyStopPctValue">Off</span>
+        </span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          Strategy Weight
+          <span class="info-icon" style="position: relative;">i
+            <span class="info-tooltip">
+              Only matters if other strategies are enabled at the same time, which isn't recommended for this one.
+            </span>
+          </span>
+        </label>
+        <input type="range" class="form-range" id="strategyTrendWeight" name="strategy_trend_weight"
+               min="0.5" max="2.0" step="0.1" value="1.0">
+        <span class="form-text">
+          <span class="range-value" id="strategyTrendWeightValue">1.0</span>
+        </span>
+      </div>
+    </div>
+  </div>
+  </div><!-- /tab-panel-trend -->
 
   <!-- Action Buttons -->
   <div class="action-buttons">
@@ -2167,7 +2288,7 @@
       <strong>Requires restart:</strong> Symbol and Timeframe changes only.
     </small>
   </div>
-  </div><!-- /tab-panel-llm -->
+  </div><!-- End strategySettings collapsible -->
 </form>
 
 <!-- Preview Modal -->
@@ -2202,6 +2323,10 @@
     'macdVolumeMultiplier': (v) => parseFloat(v).toFixed(1) + 'x',
     'macdStopLoss': (v) => (v * 100).toFixed(1) + '%',
     'macdTakeProfit': (v) => (v * 100).toFixed(1) + '%',
+    'strategyTrendWeight': (v) => parseFloat(v).toFixed(1),
+    'strategyTrendBand': (v) => (v * 100).toFixed(1) + '%',
+    'strategyTrendPositionSize': (v) => (v * 100).toFixed(0) + '%',
+    'strategyTrendEmergencyStopPct': (v) => parseFloat(v) > 0 ? (v * 100).toFixed(0) + '%' : 'Off',
     'atrStopMultiplier': (v) => parseFloat(v).toFixed(1) + 'x',
     'stopLossPct': (v) => parseFloat(v).toFixed(1) + '%',
     'takeProfitPct': (v) => parseFloat(v).toFixed(1) + '%',
@@ -2211,6 +2336,28 @@
     'volumeThreshold': (v) => parseFloat(v).toFixed(1) + 'x'
   };
   
+  // Trend Hold helpers
+  let trendStrategyEnabled = false;
+
+  function trendFormValues() {
+    return {
+      strategy_trend_weight: parseFloat(document.getElementById('strategyTrendWeight').value),
+      strategy_trend_ma_days: parseInt(document.getElementById('strategyTrendMaDays').value),
+      strategy_trend_band: parseFloat(document.getElementById('strategyTrendBand').value),
+      strategy_trend_position_size: parseFloat(document.getElementById('strategyTrendPositionSize').value),
+      strategy_trend_emergency_stop_pct: parseFloat(document.getElementById('strategyTrendEmergencyStopPct').value),
+    };
+  }
+
+  // Warn when the trailing stop is on while Trend Hold is enabled
+  function updateTrendTrailingWarning() {
+    const trailing = document.getElementById('useTrailingStop');
+    const warning = document.getElementById('trendTrailingWarning');
+    if (!trailing || !warning) return;
+    warning.style.display = trendStrategyEnabled && trailing.checked ? 'block' : 'none';
+  }
+  document.getElementById('useTrailingStop')?.addEventListener('change', updateTrendTrailingWarning);
+
   // Attach event listeners for range inputs
   Object.keys(rangeUpdaters).forEach(id => {
     const element = document.getElementById(id);
@@ -2355,6 +2502,22 @@
       const macdTP = config.strategy_macd_take_profit_pct || 0.05;
       document.getElementById('macdTakeProfit').value = macdTP;
       document.getElementById('macdTakeProfitValue').textContent = (macdTP * 100).toFixed(1) + '%';
+
+      // Trend Hold Strategy (enable/disable via Overview or tab toggle)
+      const trendValues = {
+        strategyTrendMaDays: config.strategy_trend_ma_days ?? 100,
+        strategyTrendBand: config.strategy_trend_band ?? 0.01,
+        strategyTrendPositionSize: config.strategy_trend_position_size ?? 0.99,
+        strategyTrendEmergencyStopPct: config.strategy_trend_emergency_stop_pct ?? 0,
+        strategyTrendWeight: config.strategy_trend_weight ?? 1.0,
+      };
+      for (const [id, value] of Object.entries(trendValues)) {
+        const el = document.getElementById(id);
+        el.value = value;
+        el.dispatchEvent(new Event('input'));
+      }
+      trendStrategyEnabled = config.strategy_trend_enabled === true || config.strategy_trend_enabled === 'True';
+      updateTrendTrailingWarning();
       
       showAlert('Configuration loaded successfully', 'success');
     } catch (error) {
@@ -2433,6 +2596,9 @@
         strategy_macd_require_zero_cross: document.getElementById('macdRequireZeroCross').checked,
         strategy_macd_stop_loss_pct: parseFloat(document.getElementById('macdStopLoss').value),
         strategy_macd_take_profit_pct: parseFloat(document.getElementById('macdTakeProfit').value),
+
+        // Trend Hold Strategy (enabled state managed by Overview/tab toggles, not here)
+        ...trendFormValues(),
         
         // LLM Pattern Strategy (enabled state managed by Overview toggles, not here)
         strategy_llm_weight: parseFloat(document.getElementById('llmWeight').value),
@@ -2580,6 +2746,13 @@ BOT_STRATEGY_MACD_REQUIRE_ZERO_CROSS=${document.getElementById('macdRequireZeroC
 BOT_STRATEGY_MACD_STOP_LOSS_PCT=${document.getElementById('macdStopLoss').value}
 BOT_STRATEGY_MACD_TAKE_PROFIT_PCT=${document.getElementById('macdTakeProfit').value}
 
+# Trend Hold Strategy Parameters
+BOT_STRATEGY_TREND_WEIGHT=${document.getElementById('strategyTrendWeight').value}
+BOT_STRATEGY_TREND_MA_DAYS=${document.getElementById('strategyTrendMaDays').value}
+BOT_STRATEGY_TREND_BAND=${document.getElementById('strategyTrendBand').value}
+BOT_STRATEGY_TREND_POSITION_SIZE=${document.getElementById('strategyTrendPositionSize').value}
+BOT_STRATEGY_TREND_EMERGENCY_STOP_PCT=${document.getElementById('strategyTrendEmergencyStopPct').value}
+
 # LLM Pattern Strategy Parameters
 BOT_STRATEGY_LLM_WEIGHT=${document.getElementById('llmWeight').value}
 BOT_LLM_OLLAMA_MODEL=${document.getElementById('llmModel').value}
@@ -2712,6 +2885,15 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
           riskLevel: 'Medium-High',
           docLink: '/static/docs/macd-strategy.md'
         },
+        'Trend_Hold': {
+          type: 'Trend Filter',
+          howItWorks: 'Checks the daily close once per day. Holds BTC while it is above its moving average and moves to cash when it falls below. Avoids most of a bear market at the cost of missing part of each recovery.',
+          bestFor: 'Long trends and avoiding big crashes',
+          avoids: 'Sideways markets (can switch in and out a few times)',
+          keyParams: 'MA length (100 days), Band (1%)',
+          riskLevel: 'Low-Medium',
+          docLink: '/static/docs/trend-hold-strategy.md'
+        },
         'llm_pattern': {
           type: 'AI Pattern Recognition',
           howItWorks: 'Uses local LLM (via Ollama) to analyze your recent trade history and identify patterns in wins/losses, support/resistance levels, and market behavior. Generates signals with reasoning.',
@@ -2730,6 +2912,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         if (strategy.name.includes('EMA')) icon = '📈';
         else if (strategy.name.includes('MACD')) icon = '📊';
         else if (strategy.name.includes('llm')) icon = '🤖';
+        else if (strategy.name === 'Trend_Hold') icon = '🧭';
         const statusClass = strategy.enabled ? 'enabled' : 'disabled';
         const toggleBtnClass = strategy.enabled ? 'disable' : 'enable';
         const toggleBtnText = strategy.enabled ? '🔴 Disable' : '🟢 Enable';
@@ -2747,7 +2930,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
               <strong>Key Parameters:</strong> ${info.keyParams}<br>
               <strong>Risk Level:</strong> <span style="color: ${info.riskLevel === 'Low-Medium' ? '#58D68D' : info.riskLevel === 'Medium' ? '#f39c12' : '#e74c3c'};">${info.riskLevel}</span>
               <hr style="margin: 0.5rem 0; border-color: var(--border-color);">
-              <a href="#strategy-${strategy.name.includes('EMA') ? 'ema' : strategy.name.includes('MACD') ? 'macd' : 'rsi-bb'}-settings" 
+              <a href="#strategy-${strategy.name.includes('EMA') ? 'ema' : strategy.name.includes('MACD') ? 'macd' : strategy.name === 'Trend_Hold' ? 'trend' : 'rsi-bb'}-settings" 
                  style="color: var(--accent-blue); text-decoration: none; font-size: 0.8rem;">
                 ⚙️ Configure this strategy →
               </a>
@@ -2955,7 +3138,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
   // ═══════════════════════════════════════════════════════════════
   // STRATEGY TAB SWITCHER
   // ═══════════════════════════════════════════════════════════════
-  const TAB_IDS = ['ema', 'rsi', 'macd', 'llm'];
+  const TAB_IDS = ['ema', 'rsi', 'macd', 'llm', 'trend'];
 
   function switchStrategyTab(tab) {
     TAB_IDS.forEach(t => {
@@ -2969,7 +3152,8 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     'EMA_Crossover':        'ema',
     'RSI_BB_MeanReversion': 'rsi',
     'MACD_Volume_Momentum': 'macd',
-    'llm_pattern':          'llm'
+    'llm_pattern':          'llm',
+    'Trend_Hold':           'trend'
   };
 
   function updateTabDot(strategyName, enabled) {
@@ -2985,7 +3169,8 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     'EMA_Crossover':        'ema',
     'RSI_BB_MeanReversion': 'rsi',
     'MACD_Volume_Momentum': 'macd',
-    'llm_pattern':          'llm'
+    'llm_pattern':          'llm',
+    'Trend_Hold':           'trend'
   };
 
   // Called by inline tab toggle buttons — delegates to the existing toggleStrategy logic
@@ -3037,7 +3222,8 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       'EMA_Crossover': 'strategy-ema',
       'RSI_BB_MeanReversion': 'strategy-rsi-bb',
       'MACD_Volume_Momentum': 'strategy-macd',
-      'llm_pattern': 'strategy-llm'
+      'llm_pattern': 'strategy-llm',
+      'Trend_Hold': 'strategy-trend'
     };
     
     // Find the matching section ID
@@ -3054,6 +3240,10 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     }
     updateTabDot(strategyName, enabled);
     updateTabToggleBtn(strategyName, enabled);
+    if (strategyName === 'Trend_Hold') {
+      trendStrategyEnabled = enabled;
+      updateTrendTrailingWarning();
+    }
     if (!sectionId) {
       console.warn('Unknown strategy name:', strategyName, 'Available mappings:', Object.keys(strategyMapping));
     }
@@ -3088,7 +3278,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         const targetElement = document.querySelector(hash);
         if (targetElement) {
           // Switch to the right strategy tab if navigating to a strategy section
-          const tabMapping = { 'strategy-ema': 'ema', 'strategy-rsi-bb': 'rsi', 'strategy-macd': 'macd', 'strategy-llm': 'llm' };
+          const tabMapping = { 'strategy-ema': 'ema', 'strategy-rsi-bb': 'rsi', 'strategy-macd': 'macd', 'strategy-llm': 'llm', 'strategy-trend': 'trend' };
           const hashKey = hash.replace('#', '');
           if (tabMapping[hashKey]) switchStrategyTab(tabMapping[hashKey]);
 
@@ -3450,6 +3640,8 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         strategy_macd_require_zero_cross: document.getElementById('macdRequireZeroCross').checked,
         strategy_macd_stop_loss_pct: parseFloat(document.getElementById('macdStopLoss').value),
         strategy_macd_take_profit_pct: parseFloat(document.getElementById('macdTakeProfit').value),
+        // Trend Hold Strategy
+        ...trendFormValues(),
       };
       
       const response = await fetch('/api/presets', {
@@ -3543,6 +3735,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
 • EMA: ${config.strategy_ema_enabled ? '✅ Enabled' : '❌ Disabled'} (weight: ${config.strategy_ema_weight})<br>
 • RSI+BB: ${config.strategy_rsi_bb_enabled ? '✅ Enabled' : '❌ Disabled'} (weight: ${config.strategy_rsi_bb_weight})<br>
 • MACD: ${config.strategy_macd_enabled ? '✅ Enabled' : '❌ Disabled'} (weight: ${config.strategy_macd_weight})<br>
+• Trend Hold: ${config.strategy_trend_enabled ? '✅ Enabled' : '❌ Disabled'} (weight: ${config.strategy_trend_weight})<br>
         `;
         
         // Show in preview modal
