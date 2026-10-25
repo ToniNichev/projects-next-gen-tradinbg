@@ -5,6 +5,7 @@ import signal
 import sys
 import threading
 import time
+from typing import Optional
 from datetime import datetime, timezone
 
 import json
@@ -141,6 +142,34 @@ def _register_stack_dump_signal(log_dir: str = "logs") -> None:
 
     signal.signal(signal.SIGUSR1, _handler)
     logging.info("Stack dump registered: kill -USR1 %d (writes to %s)", os.getpid(), dump_path)
+
+
+def stream_problem(
+    connected: bool,
+    last_closed_open: int,
+    now_ms: int,
+    timeframe_ms: int,
+    grace_s: float,
+    label: str = "kline",
+) -> Optional[str]:
+    """Why the kline stream needs a reconnect, or None if it's healthy.
+
+    Unhealthy when the connection errored/closed, or when the candle that
+    most recently closed hasn't arrived `grace_s` seconds after its close.
+    Silence between trades alone is fine.
+    """
+    if not connected:
+        return "connection closed or errored"
+    expected = (now_ms // timeframe_ms) * timeframe_ms - timeframe_ms
+    close_ms = expected + timeframe_ms
+    late_s = (now_ms - close_ms) / 1000
+    if last_closed_open < expected and late_s >= grace_s:
+        closed_at = datetime.utcfromtimestamp(close_ms / 1000).strftime("%H:%M")
+        return (
+            f"{label} candle that closed at {closed_at} UTC hasn't arrived "
+            f"({late_s:.0f}s late, grace {grace_s:.0f}s)"
+        )
+    return None
 
 
 def main():
@@ -455,13 +484,17 @@ def main():
 
         def on_error(ws, error):
             logging.error("WebSocket error: %s", error)
-            ws_activity["last_mono"] = 0  # force stale detection
+            if ws is ws_holder["ws"]:  # ignore a replaced connection's late errors
+                ws_activity["connected"] = False  # watchdog reconnects
 
         def on_close(ws, code, msg):
             logging.warning("WebSocket closed: %s %s", code, msg)
+            if ws is ws_holder["ws"]:  # ignore the old connection closing on reconnect
+                ws_activity["connected"] = False  # watchdog reconnects
 
         def on_open(ws):
             ws_activity["last_mono"] = time.monotonic()
+            ws_activity["connected"] = True
             ws_activity["stale_alerted"] = False
             logging.info("WebSocket stream started for %s / %s", config.symbol, config.timeframe)
             # Patch any candle(s) missed during the outage that just ended -
@@ -539,9 +572,17 @@ def main():
             merged = {c[0]: c for c in candle_buffer}
             merged.update({c[0]: c for c in fresh})
             candle_buffer = sorted(merged.values(), key=lambda c: c[0])[-max_buffer_size:]
-            # Also save the last day of closed candles (the newest one is still
-            # forming) so a disconnect doesn't leave a gap in the chart
-            _save_candles(fresh[-25:-1])
+            # Save the last day of closed candles so a disconnect doesn't leave
+            # a gap in the chart (skip the one still forming, if present)
+            now_ms = int(time.time() * 1000)
+            closed = [c for c in fresh if c[0] + timeframe_ms <= now_ms]
+            _save_candles(closed[-24:])
+            # We're now as current as the exchange itself, so the watchdog
+            # shouldn't count the latest close as missing (an hour with no
+            # trades has no candle to deliver)
+            ws_activity["last_closed_open"] = max(
+                ws_activity["last_closed_open"], _last_closed_open(now_ms)
+            )
         except Exception as exc:
             logging.warning("Candle backfill after (re)connect failed: %s", exc)
 
@@ -616,14 +657,30 @@ def main():
         except Exception as e:
             logging.warning("Could not start candle seeder: %s", e)
 
-    # Last monotonic time we saw a kline for our symbol (partial counts).
-    ws_activity = {"last_mono": time.monotonic(), "stale_alerted": False}
+    # Stream health, read by the watchdog:
+    # - last_mono: last time any kline arrived (informational; a quiet market
+    #   can go 10+ minutes without one, so silence alone isn't a failure)
+    # - connected: False after an error/close, until the next on_open
+    # - last_closed_open: open time (ms) of the newest closed candle received
+    timeframe_ms = int(exchange.parse_timeframe(config.timeframe) * 1000)
+
+    def _last_closed_open(now_ms: int) -> int:
+        """Open time of the candle that most recently closed."""
+        return (now_ms // timeframe_ms) * timeframe_ms - timeframe_ms
+
+    ws_activity = {
+        "last_mono": time.monotonic(),
+        "connected": False,
+        "stale_alerted": False,
+        # Count the candle that closed just before startup as received
+        "last_closed_open": _last_closed_open(int(time.time() * 1000)),
+    }
 
     def handle_kline(msg: dict) -> None:
         nonlocal candle_buffer
         if msg.get("e") == "error":
             logging.error("WebSocket error message: %s", msg.get("m", msg))
-            ws_activity["last_mono"] = 0  # force stale detection immediately
+            ws_activity["connected"] = False  # force a reconnect
             return
         if msg.get("e") != "kline":
             return
@@ -656,6 +713,9 @@ def main():
         
         # Store closed candles in buffer
         if kline.get("x"):  # Candle is closed
+            ws_activity["last_closed_open"] = max(
+                ws_activity["last_closed_open"], int(kline.get("t", 0))
+            )
             candle_data = [
                 int(kline.get("t", 0)),  # timestamp
                 float(kline.get("o", 0.0)),  # open
@@ -778,15 +838,33 @@ def main():
             logging.exception("websocket cycle failed: %s", exc)
 
     def _ws_watchdog_loop() -> None:
-        threshold = float(getattr(config, "ws_stale_alert_seconds", 180.0))
-        poll = max(5.0, min(60.0, threshold / 4.0))
+        # Grace period after a candle should have closed before we call the
+        # stream stale. Quiet markets can go 10+ minutes without a single
+        # trade (and so without a kline message), which the old "no message
+        # for N seconds" rule mistook for a dead connection. A dead connection
+        # is caught by the ping/pong keepalive (on_error/on_close), so here
+        # we only need to notice a candle close that never arrived.
+        grace = float(getattr(config, "ws_stale_alert_seconds", 180.0))
+        poll = 15.0
         reconnect_attempts = 0
+
+        def _problem() -> Optional[str]:
+            return stream_problem(
+                connected=ws_activity["connected"],
+                last_closed_open=ws_activity["last_closed_open"],
+                now_ms=int(time.time() * 1000),
+                timeframe_ms=timeframe_ms,
+                grace_s=grace,
+                label=f"{config.symbol} / {config.timeframe}",
+            )
 
         while not stop_event.wait(poll):
             if not getattr(config, "ws_watchdog_enabled", True):
                 continue
-            age = time.monotonic() - ws_activity["last_mono"]
-            if age < threshold:
+            problem = _problem()
+            if problem is None:
+                if ws_activity["stale_alerted"]:
+                    logging.info("WebSocket watchdog: stream healthy again")
                 ws_activity["stale_alerted"] = False
                 reconnect_attempts = 0
                 continue
@@ -794,10 +872,7 @@ def main():
             # Alert once when the stream first goes stale.
             if not ws_activity["stale_alerted"]:
                 ws_activity["stale_alerted"] = True
-                body = (
-                    f"No kline for {config.symbol} / {config.timeframe} in {age:.0f}s "
-                    f"(threshold {threshold:.0f}s). Attempting reconnect..."
-                )
+                body = f"{problem}. Attempting reconnect..."
                 logging.error("WebSocket watchdog: %s", body)
                 send_notification(
                     "Trading bot: kline stream stale",
