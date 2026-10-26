@@ -1386,8 +1386,7 @@
               },
               zoom: {
                 wheel: {
-                  enabled: true,
-                  speed: 0.05,
+                  enabled: false,  // smooth wheel zoom is handled below
                 },
                 pinch: {
                   enabled: true,
@@ -1700,7 +1699,7 @@
         
         currentTimeframe = timeframe;
         // A new timeframe starts from the full view, not the old zoom range
-        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; velocityX = 0; }
+        stopMotion();
         userHasZoomed = false;
         savedViewMin = null;
         savedViewMax = null;
@@ -1852,7 +1851,7 @@
 
           // While the user is dragging or the chart is still gliding, leave it
           // alone; the next refresh picks up the new candles.
-          if (!isDragging && !momentumAnimation) {
+          if (!isDragging && !momentumAnimation && !viewAnim) {
             applyChartData(candleData, signalPoints);
           }
           
@@ -2032,7 +2031,7 @@
       }
 
       function resetZoom() {
-        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; velocityX = 0; }
+        stopMotion();
         userHasZoomed = false;
         savedViewMin = null;
         savedViewMax = null;
@@ -2048,27 +2047,11 @@
       }
       
       function zoomIn() {
-        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; velocityX = 0; }
-        saveView();
-        chart.zoom(1.2);
-        
-        // Fit Y-axis after zoom
-        setTimeout(() => {
-          fitYAxisToVisibleCandles();
-          chart.update('none');
-        }, 10);
+        zoomViewBy(0.8, null, BUTTON_EASE_MS);
       }
       
       function zoomOut() {
-        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; velocityX = 0; }
-        saveView();
-        chart.zoom(0.8);
-        
-        // Fit Y-axis after zoom
-        setTimeout(() => {
-          fitYAxisToVisibleCandles();
-          chart.update('none');
-        }, 10);
+        zoomViewBy(1.25, null, BUTTON_EASE_MS);
       }
       
       // Convert timeframe string to milliseconds
@@ -2253,50 +2236,11 @@
       }
       
       function panLeft() {
-        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; velocityX = 0; }
-        saveView();
-        // Pan left by 15% of visible range with smooth animation
-        const xScale = chart.scales.x;
-        const range = xScale.max - xScale.min;
-        const panAmount = range * 0.15;
-        
-        // Smooth pan with animation
-        const currentMin = xScale.min;
-        const currentMax = xScale.max;
-        chart.zoomScale('x', {
-          min: currentMin - panAmount,
-          max: currentMax - panAmount
-        }, 'default');
-        
-        // Fit Y-axis after pan
-        setTimeout(() => {
-          fitYAxisToVisibleCandles();
-          chart.update('none');
-          checkAndLoadHistoricalData();
-        }, 100);
+        panViewBy(-0.15, BUTTON_EASE_MS);
       }
       
       function panRight() {
-        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; velocityX = 0; }
-        saveView();
-        // Pan right by 15% of visible range with smooth animation
-        const xScale = chart.scales.x;
-        const range = xScale.max - xScale.min;
-        const panAmount = range * 0.15;
-        
-        // Smooth pan with animation
-        const currentMin = xScale.min;
-        const currentMax = xScale.max;
-        chart.zoomScale('x', {
-          min: currentMin + panAmount,
-          max: currentMax + panAmount
-        }, 'default');
-        
-        // Fit Y-axis after pan
-        setTimeout(() => {
-          fitYAxisToVisibleCandles();
-          chart.update('none');
-        }, 100);
+        panViewBy(0.15, BUTTON_EASE_MS);
       }
       
       // Smooth keyboard navigation with repeat support
@@ -2324,28 +2268,11 @@
               break;
             case 'ArrowLeft':
               e.preventDefault();
-              // Smaller pan for smoother keyboard scrolling
-              const xScale1 = chart.scales.x;
-              const range1 = xScale1.max - xScale1.min;
-              const panAmount1 = range1 * 0.05;  // 5% increments
-              chart.zoomScale('x', {
-                min: xScale1.min - panAmount1,
-                max: xScale1.max - panAmount1
-              }, 'none');  // No animation for smooth continuous scrolling
-              fitYAxisToVisibleCandles();
-              chart.update('none');
+              panViewBy(-KEY_PAN_STEP);
               break;
             case 'ArrowRight':
               e.preventDefault();
-              const xScale2 = chart.scales.x;
-              const range2 = xScale2.max - xScale2.min;
-              const panAmount2 = range2 * 0.05;
-              chart.zoomScale('x', {
-                min: xScale2.min + panAmount2,
-                max: xScale2.max + panAmount2
-              }, 'none');
-              fitYAxisToVisibleCandles();
-              chart.update('none');
+              panViewBy(KEY_PAN_STEP);
               break;
             case '+':
             case '=':
@@ -2396,14 +2323,122 @@
       let lastDragPos = 0;
       let momentumAnimation = null;
       const velocityHistory = []; // Track last few velocities for smoothing
+
+      // ---- Smooth view motion ------------------------------------------
+      // Wheel, buttons and arrow keys set a target view; the chart eases
+      // toward it every frame, so movement is gradual instead of jumpy.
+      // Bigger *_EASE_MS = slower, softer movement.
+      const WHEEL_EASE_MS = 120;      // wheel zoom / sideways scroll
+      const BUTTON_EASE_MS = 170;     // toolbar buttons
+      const WHEEL_ZOOM_SENS = 0.0006; // zoom per wheel pixel (~6% per mouse notch)
+      const WHEEL_PAN_SENS = 1 / 1600;  // share of the view per sideways wheel pixel
+      const KEY_PAN_STEP = 0.03;      // share of the view per arrow-key repeat (every 50ms)
+      const MOMENTUM_DECAY_MS = 325;  // glide after a drag: bigger = longer glide
+      const MAX_FLING_PX_PER_MS = 2.5;
+
+      let viewAnim = null;
+      let viewTarget = null;
+      let viewEaseMs = WHEEL_EASE_MS;
+      let viewLastT = 0;
+
+      function stopMomentum() {
+        if (momentumAnimation) { cancelAnimationFrame(momentumAnimation); momentumAnimation = null; }
+        velocityX = 0;
+      }
+
+      function stopViewAnimation() {
+        if (viewAnim) { cancelAnimationFrame(viewAnim); viewAnim = null; }
+        viewTarget = null;
+      }
+
+      function stopMotion() {
+        stopMomentum();
+        stopViewAnimation();
+      }
+
+      // The view new steps build on: the pending target if one is running,
+      // so quick repeated wheel ticks add up instead of fighting each other
+      function baseView() {
+        if (viewTarget) return { ...viewTarget };
+        return { min: chart.scales.x.min, max: chart.scales.x.max };
+      }
+
+      function animateViewTo(min, max, easeMs = WHEEL_EASE_MS) {
+        stopMomentum();
+        const limits = chart.options.plugins.zoom.limits.x;
+        const minRange = limits.minRange || 60 * 1000;
+        if (max - min < minRange) {
+          const mid = (min + max) / 2;
+          min = mid - minRange / 2;
+          max = mid + minRange / 2;
+        }
+        // Stay within the loaded data (same edges dragging uses)
+        if (limits.min !== undefined && limits.max !== undefined) {
+          const span = Math.min(max - min, limits.max - limits.min);
+          if (min < limits.min) { min = limits.min; max = min + span; }
+          if (max > limits.max) { max = limits.max; min = max - span; }
+        }
+        userHasZoomed = true;
+        viewTarget = { min, max };
+        viewEaseMs = easeMs;
+        if (!viewAnim) {
+          viewLastT = performance.now();
+          viewAnim = requestAnimationFrame(stepView);
+        }
+      }
+
+      function stepView(t) {
+        const dt = Math.min(64, Math.max(0, t - viewLastT));
+        viewLastT = t;
+        const a = 1 - Math.exp(-dt / viewEaseMs);
+        const x = chart.scales.x;
+        let min = x.min + (viewTarget.min - x.min) * a;
+        let max = x.max + (viewTarget.max - x.max) * a;
+        const span = viewTarget.max - viewTarget.min;
+        const done = Math.abs(viewTarget.min - min) + Math.abs(viewTarget.max - max) < span * 0.0005;
+        if (done) { min = viewTarget.min; max = viewTarget.max; }
+
+        chart.options.scales.x.min = min;
+        chart.options.scales.x.max = max;
+        savedViewMin = min;
+        savedViewMax = max;
+
+        // Ease the price axis too, toward the range the candles will need
+        const y = visiblePriceRange(viewTarget.min, viewTarget.max);
+        if (y) {
+          const ys = chart.scales.y;
+          chart.options.scales.y.min = done ? y.min : ys.min + (y.min - ys.min) * a;
+          chart.options.scales.y.max = done ? y.max : ys.max + (y.max - ys.max) * a;
+        }
+        chart.update('none');
+
+        if (done) {
+          viewAnim = null;
+          viewTarget = null;
+          checkAndLoadHistoricalData();
+          if (showTradeMarkers) updateTradeMarkers();
+          return;
+        }
+        viewAnim = requestAnimationFrame(stepView);
+      }
+
+      function panViewBy(fraction, easeMs = WHEEL_EASE_MS) {
+        const v = baseView();
+        const shift = (v.max - v.min) * fraction;
+        animateViewTo(v.min + shift, v.max + shift, easeMs);
+      }
+
+      // factor < 1 zooms in. anchor = time under the cursor (null = centre)
+      function zoomViewBy(factor, anchor = null, easeMs = WHEEL_EASE_MS) {
+        const v = baseView();
+        const at = anchor ?? (v.min + v.max) / 2;
+        animateViewTo(at - (at - v.min) * factor, at + (v.max - at) * factor, easeMs);
+      }
       const VELOCITY_HISTORY_SIZE = 5;
       
       canvas.addEventListener('mousedown', (e) => {
-        // Cancel any ongoing momentum animation
-        if (momentumAnimation) {
-          cancelAnimationFrame(momentumAnimation);
-          momentumAnimation = null;
-        }
+        // Grabbing the chart stops any glide or easing in progress
+        stopMotion();
         
         isDragging = true;
           userHasZoomed = true;
@@ -2500,6 +2535,21 @@
         }
       };
       
+      // Price range (with padding) of the candles between two times
+      function visiblePriceRange(visibleMin, visibleMax) {
+        let minPrice = Infinity;
+        let maxPrice = -Infinity;
+        for (const candle of chart.data.datasets[0].data) {
+          if (candle.x >= visibleMin && candle.x <= visibleMax) {
+            if (candle.l < minPrice) minPrice = candle.l;
+            if (candle.h > maxPrice) maxPrice = candle.h;
+          }
+        }
+        if (minPrice === Infinity) return null;
+        const padding = (maxPrice - minPrice) * 0.05 || maxPrice * 0.02;
+        return { min: minPrice - padding, max: maxPrice + padding };
+      }
+
       // Auto-fit Y-axis to visible candles
       function fitYAxisToVisibleCandles() {
         const candleData = chart.data.datasets[0].data;
@@ -2544,6 +2594,7 @@
         }
         
         // Only apply momentum if velocity is significant (at least 0.5 px/ms)
+        velocityX = Math.max(-MAX_FLING_PX_PER_MS, Math.min(MAX_FLING_PX_PER_MS, velocityX));
         if (Math.abs(velocityX) < 0.5) {
           velocityX = 0;
           // Still check for historical data loading
@@ -2551,10 +2602,12 @@
           return;
         }
         
-        const deceleration = 0.95; // Friction factor (higher = longer glide)
-        const minVelocity = 0.1; // Stop when velocity becomes negligible
+        const minVelocity = 0.03; // Stop when velocity becomes negligible (px/ms)
+        let lastT = performance.now();
         
-        const animate = () => {
+        const animate = (t) => {
+          const dt = Math.min(64, Math.max(0, t - lastT));
+          lastT = t;
           // Stop animation when velocity is too low
           if (Math.abs(velocityX) < minVelocity) {
             velocityX = 0;
@@ -2570,8 +2623,8 @@
           const timeRange = xScale.max - xScale.min;
           const timePerPixel = timeRange / chartWidth;
           
-          // Convert velocity to time delta (~16ms per frame at 60fps)
-          const timeDelta = velocityX * 16 * timePerPixel;
+          // Distance this frame, based on real elapsed time
+          const timeDelta = velocityX * dt * timePerPixel;
           
           // Apply pan
           const newMin = xScale.min - timeDelta;
@@ -2599,8 +2652,8 @@
           
           chart.update('none'); // No animation for smooth 60fps momentum
           
-          // Apply deceleration
-          velocityX *= deceleration;
+          // Apply deceleration (time-based)
+          velocityX *= Math.exp(-dt / MOMENTUM_DECAY_MS);
           
           // Continue animation
           momentumAnimation = requestAnimationFrame(animate);
@@ -2613,46 +2666,26 @@
       canvas.addEventListener('mouseup', stopDragging);
       canvas.addEventListener('mouseleave', stopDragging);
       
-      // Add horizontal mouse wheel scrolling support
-      let wheelScrollTimeout = null;
+      // Mouse wheel / trackpad: up-down zooms around the cursor, sideways
+      // (or Shift+wheel) scrolls. Both ease smoothly toward the new view.
       canvas.addEventListener('wheel', (e) => {
-        // Cancel any ongoing momentum animation when user scrolls
-        if (momentumAnimation) {
-          cancelAnimationFrame(momentumAnimation);
-          momentumAnimation = null;
-          velocityX = 0;
+        e.preventDefault();
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+        const dx = e.deltaX * unit;
+        const dy = e.deltaY * unit;
+
+        if (e.shiftKey || Math.abs(dx) > Math.abs(dy)) {
+          const d = dx || (e.shiftKey ? dy : 0);
+          panViewBy(Math.max(-120, Math.min(120, d)) * WHEEL_PAN_SENS);
+          return;
         }
-        
-        // Check if it's a horizontal scroll (shift + wheel or trackpad horizontal)
-        if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-          e.preventDefault();
-          userHasZoomed = true;  // keep this view across refreshes
-          
-          const xScale = chart.scales.x;
-          const range = xScale.max - xScale.min;
-          
-          // Determine scroll direction and amount
-          const deltaX = e.deltaX || (e.shiftKey ? e.deltaY : 0);
-          const scrollAmount = (deltaX / 1000) * range; // Adjust sensitivity
-          
-          // Apply smooth horizontal scroll
-          chart.zoomScale('x', {
-            min: xScale.min + scrollAmount,
-            max: xScale.max + scrollAmount
-          }, 'none');
-          
-          // Fit Y-axis to visible candles
-          fitYAxisToVisibleCandles();
-          chart.update('none');
-          
-          // Check for historical data loading after scroll ends (debounced)
-          if (deltaX < 0 || e.deltaX < 0) {  // Scrolling left
-            clearTimeout(wheelScrollTimeout);
-            wheelScrollTimeout = setTimeout(() => {
-              checkAndLoadHistoricalData();
-            }, 300);
-          }
-        }
+
+        // Trackpad pinch arrives as ctrl+wheel with small deltas
+        const sens = e.ctrlKey ? WHEEL_ZOOM_SENS * 4 : WHEEL_ZOOM_SENS;
+        const step = Math.max(-120, Math.min(120, dy));
+        const rect = canvas.getBoundingClientRect();
+        const anchor = chart.scales.x.getValueForPixel(e.clientX - rect.left);
+        zoomViewBy(Math.exp(step * sens), anchor);
       }, { passive: false });
 
       // Initial refresh
