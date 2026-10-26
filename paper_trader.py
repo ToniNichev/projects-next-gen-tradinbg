@@ -104,8 +104,8 @@ class PaperTrader:
                 self.base_balance = float(last_trade.base_balance)
                 logging.info(f"📊 Restored balance from database: USDT={self.usdt_balance:.2f}, BASE={self.base_balance:.6f}")
 
-            # Get any open positions
-            open_positions = self.db_manager.get_open_positions()
+            # Get any open positions (the paper bot's own, not the live trader's)
+            open_positions = self.db_manager.get_open_positions(live=False)
             if open_positions:
                 db_pos = open_positions[0]  # Should only be one open position
 

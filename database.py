@@ -25,10 +25,15 @@ from sqlalchemy import (
     desc,
     func,
     inspect,
+    or_,
     text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+
+# strategy_name on position rows opened by the live trader (paper rows use the
+# strategy's name), so live and paper positions in the shared table stay apart.
+LIVE_POSITION_TAG = "live_trader"
 
 Base = declarative_base()
 
@@ -552,10 +557,22 @@ class DatabaseManager:
                 return position
             return None
 
-    def get_open_positions(self) -> List[Position]:
-        """Get all currently open positions"""
+    def get_open_positions(self, live: Optional[bool] = None) -> List[Position]:
+        """Get currently open positions.
+
+        live=True: only rows opened by the live trader; live=False: only the
+        paper bot's rows; None: all.
+        """
         with self.get_session() as session:
-            return session.query(Position).filter(Position.is_open == True).all()
+            query = session.query(Position).filter(Position.is_open == True)
+            if live is True:
+                query = query.filter(Position.strategy_name == LIVE_POSITION_TAG)
+            elif live is False:
+                query = query.filter(or_(
+                    Position.strategy_name.is_(None),
+                    Position.strategy_name != LIVE_POSITION_TAG,
+                ))
+            return query.all()
 
     def add_candle(self, candle_data: Dict) -> Candle:
         """Add a candle record (with duplicate handling)"""

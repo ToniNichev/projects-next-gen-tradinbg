@@ -319,16 +319,18 @@ class TestOrderExecution(unittest.TestCase):
         self.assertEqual(trade.exit_reason, 'test')
         self.assertIsNone(trader.open_position)
     
-    def test_dry_run_no_balance_change(self):
-        """Test dry run mode doesn't change balances"""
+    def test_dry_run_simulates_without_real_orders(self):
+        """Dry run tracks a simulated balance/position; no real order is sent"""
+        self.exchange.create_market_buy_order = Mock(side_effect=AssertionError("real order"))
         trader = LiveTrader(self.exchange, self.config, mode=TradingMode.DRY_RUN)
-        trader.usdt_balance = 1000.0
-        initial_balance = trader.usdt_balance
-        
+        self.assertEqual(trader.usdt_balance, self.config.initial_usdt)
+
         trade = trader.execute_market_buy(0.01)
-        
+
         self.assertIsNotNone(trade)
-        self.assertEqual(trader.usdt_balance, initial_balance)
+        self.assertIsNotNone(trader.open_position)
+        self.assertLess(trader.usdt_balance, self.config.initial_usdt)
+        self.assertAlmostEqual(trader.base_balance, 0.01)
 
 
 class TestPositionManagement(unittest.TestCase):

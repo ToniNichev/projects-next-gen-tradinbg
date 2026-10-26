@@ -26,9 +26,14 @@ if TYPE_CHECKING:
 
 try:
     from database import DatabaseManager, Trade as DBTrade, Position as DBPosition
+    from database import LIVE_POSITION_TAG
     DATABASE_AVAILABLE = True
 except ImportError:
     DATABASE_AVAILABLE = False
+    LIVE_POSITION_TAG = "live_trader"
+
+# A stop more than 80% below entry means "no stop": skip the exchange order.
+NO_STOP_BELOW_FRACTION = 0.2
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +280,9 @@ class LiveTrader:
         self.exchange = exchange
         self.config = config
         self.mode = mode
-        self.db_manager = db_manager
+        # A dry run is a rehearsal: simulated balance and position, and
+        # nothing written to the database the paper bot also uses.
+        self.db_manager = None if mode == TradingMode.DRY_RUN else db_manager
         self.logger = logging.getLogger(__name__)
         
         # Symbol info (populated on first use)
@@ -288,6 +295,8 @@ class LiveTrader:
         self.usdt_balance: float = 0.0
         self.base_balance: float = 0.0
         self.reserved_balance: float = 0.0  # Reserved for fees
+        if mode == TradingMode.DRY_RUN:
+            self.usdt_balance = float(config.initial_usdt)
         
         # Order tracking
         self.pending_orders: Dict[str, OrderRecord] = {}
@@ -423,6 +432,15 @@ class LiveTrader:
         Returns:
             Dict with USDT and BASE balances
         """
+        if self.mode == TradingMode.DRY_RUN:
+            self.reserved_balance = self.usdt_balance * 0.001
+            return {
+                "USDT": self.usdt_balance,
+                "BASE": self.base_balance,
+                "USDT_total": self.usdt_balance,
+                "BASE_total": self.base_balance,
+            }
+
         try:
             balance = self.exchange.fetch_balance()
 
@@ -497,6 +515,9 @@ class LiveTrader:
            "claim_orphan_balance" flow (not yet implemented) or open a
            position via the dashboard.
         """
+        if self.mode == TradingMode.DRY_RUN:
+            return self.open_position
+
         try:
             self.sync_balances()
             base_currency = self.config.symbol.split("/")[0]
@@ -542,7 +563,10 @@ class LiveTrader:
         if not self.db_manager:
             return None
         try:
-            open_positions = self.db_manager.get_open_positions()
+            # live=True: only rows this module opened. The paper bot shares
+            # the table, and its simulated position must never be treated
+            # as real coins on the exchange.
+            open_positions = self.db_manager.get_open_positions(live=True)
         except Exception as exc:
             self.logger.error("Failed to read open positions from DB: %s", exc)
             return None
@@ -624,7 +648,7 @@ class LiveTrader:
                 "highest_price": position.highest_price,
                 "lowest_price": position.lowest_price,
                 "is_open": True,
-                "strategy_name": "live_trader",
+                "strategy_name": LIVE_POSITION_TAG,
                 "exchange_stop_order_id": position.exchange_stop_order_id,
             })
             self.db_position_id = row.id
@@ -684,7 +708,12 @@ class LiveTrader:
 
     def _effective_protective_trigger(self, pos: LivePosition) -> float:
         """Price level at which a protective sell should trigger (long)."""
-        return max(float(pos.stop_loss), float(pos.trailing_stop))
+        trigger = float(pos.stop_loss)
+        # The trailing level is set at entry even when trailing is off; only
+        # count it when the bot actually uses a trailing stop.
+        if self.config.use_trailing_stop:
+            trigger = max(trigger, float(pos.trailing_stop))
+        return trigger
 
     def _cancel_exchange_protective_stop(self) -> None:
         """Cancel the optional STOP_LOSS_LIMIT resting on the exchange."""
@@ -729,6 +758,17 @@ class LiveTrader:
 
         pos = self.open_position
         trigger = self._effective_protective_trigger(pos)
+        if trigger < pos.entry_price * NO_STOP_BELOW_FRACTION:
+            # The strategy has no real stop (Trend Hold exits on the trend
+            # rule). Placing one at a near-zero price would be rejected by the
+            # exchange and fire a false "unprotected" alert on every buy.
+            self._cancel_exchange_protective_stop()
+            self.logger.info(
+                "No exchange protective stop: strategy stop $%.2f is more than "
+                "%.0f%% below entry $%.2f (treated as no stop).",
+                trigger, (1 - NO_STOP_BELOW_FRACTION) * 100, pos.entry_price,
+            )
+            return
         trigger = self.round_price(trigger)
         # Binance requires limit < stop for auction — sell limit slightly
         # below the trigger so that when the stop fires, the limit rests
@@ -1036,7 +1076,7 @@ class LiveTrader:
                 f"[DRY_RUN] Would BUY {amount} {symbol} @ ~${current_price:.2f} "
                 f"(notional: ${amount * current_price:.2f})"
             )
-            return self._create_simulated_trade('buy', amount, current_price, signal)
+            return self._simulate_market_buy(amount, current_price, signal)
         
         # PAPER mode - simulate
         if self.mode == TradingMode.PAPER:
@@ -1239,7 +1279,7 @@ class LiveTrader:
                 f"[DRY_RUN] Would SELL {amount} {symbol} @ ~${current_price:.2f} "
                 f"(reason: {exit_reason})"
             )
-            return self._create_simulated_trade('sell', amount, current_price, signal, exit_reason)
+            return self._simulate_market_sell(amount, current_price, signal, exit_reason)
         
         # PAPER mode - simulate
         if self.mode == TradingMode.PAPER:
@@ -1732,33 +1772,6 @@ class LiveTrader:
         self._log_trade(trade)
 
         return trade
-    
-    def _create_simulated_trade(
-        self,
-        side: str,
-        amount: float,
-        price: float,
-        signal: Optional["StrategySignal"],
-        exit_reason: Optional[str] = None,
-    ) -> TradeRecord:
-        """Create a simulated trade record for DRY_RUN mode"""
-        fill_price = price * (1 + self.config.slippage if side == 'buy' else 1 - self.config.slippage)
-        notional = amount * fill_price
-        fee = notional * self.config.fee_rate
-        
-        return TradeRecord(
-            side=side,
-            price=fill_price,
-            amount=amount,
-            notional=notional,
-            fee=fee,
-            slippage=abs(fill_price - price),
-            usdt_balance=self.usdt_balance,
-            base_balance=self.base_balance,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            signal=signal.to_dict() if signal else {},
-            exit_reason=exit_reason,
-        )
     
     # =========================================================================
     # Logging & Persistence
