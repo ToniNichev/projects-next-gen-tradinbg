@@ -32,24 +32,227 @@
     margin: 0.5rem 0 0 0;
   }
   .chart-container {
+    /* Glass panel. Column layout: header, toolbar and legend take what
+       they need, the chart gets the rest so it can't spill below. */
+    --glass-hi: rgba(255, 255, 255, 0.12);
+    --glass-line: rgba(255, 255, 255, 0.09);
+    --seg-track: rgba(0, 0, 0, 0.28);
     position: relative;
-    /* Column layout: controls and legend take what they need, the chart
-       gets the rest, so it can't spill below the panel */
     display: flex;
     flex-direction: column;
-    height: 600px;
+    gap: 0.9rem;
+    height: 680px;
     width: 100%;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.75rem;
-    padding: 1.5rem;
-    margin-top: 1rem;
+    padding: 1.25rem 1.25rem 0.9rem;
+    margin-top: 2rem;
+    border-radius: 18px;
+    border: 1px solid var(--glass-line);
+    background:
+      radial-gradient(900px 320px at 0% 0%, rgba(88, 214, 141, 0.10), transparent 60%),
+      radial-gradient(700px 320px at 100% 100%, rgba(83, 155, 245, 0.10), transparent 60%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)),
+      var(--bg-secondary);
+    box-shadow:
+      inset 0 1px 0 var(--glass-hi),
+      0 20px 50px -20px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
   }
-  /* Chart.js sizes the canvas to this box (needs position: relative) */
+
+  /* Header: title on the left, live status on the right */
+  .chart-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .chart-head h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    letter-spacing: -0.01em;
+  }
+  .chart-sub {
+    margin-top: 0.2rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+  .chart-sub b { color: var(--text-primary); font-weight: 600; }
+  .chart-sub b.tf-view { color: var(--accent-blue); }
+  .chart-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-line);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    white-space: nowrap;
+  }
+  .status-pill[data-state="live"] {
+    color: var(--accent-green);
+    background: rgba(88, 214, 141, 0.1);
+    border-color: rgba(88, 214, 141, 0.3);
+  }
+  .status-pill[data-state="live"]::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 0 0 rgba(88, 214, 141, 0.6);
+    animation: live-pulse 2s infinite;
+  }
+  .status-pill[data-state="more"] { color: var(--accent-blue); }
+  @keyframes live-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(88, 214, 141, 0.6); }
+    70%  { box-shadow: 0 0 0 7px rgba(88, 214, 141, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(88, 214, 141, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .status-pill[data-state="live"]::before { animation: none; }
+  }
+
+  /* Help tooltip sits at the right edge: open it downward and leftward */
+  .chart-status .info-tooltip {
+    left: auto;
+    right: -6px;
+    bottom: auto;
+    top: 150%;
+    margin-left: 0;
+    transform: none;
+  }
+  .chart-status .info-tooltip::after {
+    top: auto;
+    bottom: 100%;
+    left: auto;
+    right: 10px;
+    border-color: transparent transparent var(--border-color) transparent;
+  }
+
+  /* Toolbar: timeframe on the left, view controls on the right */
+  .chart-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  /* Segmented control (glass track with pill buttons) */
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 12px;
+    background: var(--seg-track);
+    border: 1px solid var(--glass-line);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  }
+  .seg button,
+  .glass-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 30px;
+    min-width: 34px;
+    padding: 0 0.7rem;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s;
+  }
+  .seg button:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .seg button:active,
+  .glass-btn:active { transform: scale(0.96); }
+  .seg button:focus-visible,
+  .glass-btn:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 1px;
+  }
+  .seg button.active {
+    color: #eafff2;
+    background: linear-gradient(180deg, rgba(88, 214, 141, 0.38), rgba(88, 214, 141, 0.16));
+    border-color: rgba(88, 214, 141, 0.5);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 4px 14px -4px rgba(88, 214, 141, 0.45);
+  }
+  .seg-label {
+    padding: 0 0.5rem 0 0.45rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    opacity: 0.7;
+  }
+
+  /* Standalone glass button */
+  .glass-btn {
+    height: 36px;
+    padding: 0 0.85rem;
+    border-radius: 11px;
+    color: var(--text-primary);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 8px -2px rgba(0, 0, 0, 0.5);
+  }
+  .glass-btn:hover {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  .glass-btn svg,
+  .seg button svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+  }
+  .toggle-trades-btn.active {
+    color: #ffe680;
+    background: linear-gradient(180deg, rgba(255, 215, 0, 0.26), rgba(255, 215, 0, 0.08));
+    border-color: rgba(255, 215, 0, 0.45);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 14px -4px rgba(255, 215, 0, 0.35);
+  }
+  #fullscreen-btn.active {
+    color: #e3c8ff;
+    background: linear-gradient(180deg, rgba(186, 85, 211, 0.3), rgba(186, 85, 211, 0.1));
+    border-color: rgba(186, 85, 211, 0.5);
+  }
+
+  /* Chart area: a recessed glass well */
   .chart-canvas-wrap {
     position: relative;
     flex: 1;
     min-height: 0;
+    padding: 0.6rem 0.4rem 0.2rem 0.2rem;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.35);
   }
   .chart-container canvas {
     cursor: grab;
@@ -59,52 +262,43 @@
   .chart-container canvas:active {
     cursor: grabbing;
   }
-  .chart-controls {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .chart-controls .nav-group {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-  .chart-controls .zoom-group {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-  .chart-controls .timeframe-group {
-    display: flex;
-    gap: 0.25rem;
-    align-items: center;
-  }
-  .chart-controls .timeframe-group label {
-    font-size: 0.875rem;
+  .chart-hint {
+    font-size: 0.72rem;
     color: var(--text-secondary);
-    margin-right: 0.5rem;
+    opacity: 0.75;
+    text-align: center;
   }
-  .chart-controls .timeframe-group button {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.8rem;
-    min-width: 45px;
+  .chart-hint kbd {
+    font: inherit;
+    font-size: 0.68rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: 5px;
+    border: 1px solid var(--glass-line);
+    background: rgba(255, 255, 255, 0.05);
   }
-  .chart-controls .timeframe-group button.active {
-    background: rgba(88, 214, 141, 0.4);
-    border-color: rgba(88, 214, 141, 0.8);
-    font-weight: 600;
+
+  @media (max-width: 720px) {
+    .chart-container { height: 620px; padding: 1rem 0.75rem 0.75rem; }
+    .chart-toolbar { flex-direction: column; align-items: stretch; }
+    .chart-toolbar > .seg { justify-content: space-between; }
+    .chart-toolbar > .seg button { flex: 1; padding: 0; }
+    .toolbar-right { justify-content: space-between; }
+    .glass-btn .btn-label { display: none; }
+    .glass-btn { padding: 0 0.7rem; }
+    .chart-hint { display: none; }
   }
+
   .loading-indicator {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(13, 17, 23, 0.85);
+    border: 1px solid var(--glass-line);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     padding: 1rem 2rem;
-    border-radius: 0.5rem;
+    border-radius: 12px;
     display: none;
     align-items: center;
     gap: 0.75rem;
@@ -118,9 +312,11 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.75);
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     padding: 1.5rem 2rem;
-    border-radius: 0.75rem;
+    border-radius: 14px;
     display: none;
     flex-direction: column;
     align-items: center;
@@ -142,97 +338,16 @@
     color: var(--text-secondary);
     max-width: 320px;
   }
-  .no-data-indicator button {
-    margin-top: 0.25rem;
-    padding: 0.4rem 1rem;
-    font-size: 0.8rem;
-  }
-  .chart-controls button {
-    padding: 0.5rem 1rem;
-    background: rgba(88, 214, 141, 0.2);
-    border: 1px solid rgba(88, 214, 141, 0.4);
-    border-radius: 0.5rem;
-    color: #58D68D;
-    cursor: pointer;
-    font-size: 0.875rem;
-    transition: all 0.2s;
-    font-weight: 500;
-  }
-  .chart-controls button:hover {
-    background: rgba(88, 214, 141, 0.3);
-    border-color: rgba(88, 214, 141, 0.6);
-  }
-  .chart-controls button:active {
-    transform: scale(0.95);
-  }
-  .chart-controls .kbd-hint {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    padding: 0.5rem;
-  }
-  
-  .chart-info {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    padding: 0.5rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  
-  .chart-info .badge {
-    background: rgba(88, 214, 141, 0.2);
-    border: 1px solid rgba(88, 214, 141, 0.4);
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.25rem;
-    font-weight: 600;
-  }
-  
-  /* Trade marker toggle button */
-  .toggle-trades-btn {
-    background: rgba(255, 215, 0, 0.2);
-    border: 1px solid rgba(255, 215, 0, 0.4);
-    color: #FFD700;
-  }
-  
-  .toggle-trades-btn:hover {
-    background: rgba(255, 215, 0, 0.3);
-    border-color: rgba(255, 215, 0, 0.6);
-  }
-  
-  .toggle-trades-btn.active {
-    background: rgba(255, 215, 0, 0.5);
-    border-color: rgba(255, 215, 0, 0.8);
-    font-weight: 600;
-  }
-  
-  /* Fullscreen button */
-  #fullscreen-btn {
-    background: rgba(138, 43, 226, 0.2);
-    border: 1px solid rgba(138, 43, 226, 0.4);
-    color: #BA55D3;
-  }
-  
-  #fullscreen-btn:hover {
-    background: rgba(138, 43, 226, 0.3);
-    border-color: rgba(138, 43, 226, 0.6);
-  }
-  
-  #fullscreen-btn.active {
-    background: rgba(138, 43, 226, 0.5);
-    border-color: rgba(138, 43, 226, 0.8);
-    font-weight: 600;
-  }
-  
-  /* Fullscreen mode styles */
+
+    /* Fullscreen mode styles */
   .chart-container:fullscreen {
     padding: 2rem;
     display: flex;
     flex-direction: column;
   }
   
-  .chart-container:fullscreen .chart-controls {
-    margin-bottom: 1.5rem;
+  .chart-container:fullscreen .chart-toolbar {
+    margin-bottom: 0.25rem;
   }
   
   .chart-container:fullscreen .chart-canvas-wrap {
@@ -630,39 +745,45 @@
     transform: translateY(0);
   }
   
-  /* Strategy legend */
+  /* Chart legend: one slim row of chips */
   .strategy-legend {
     display: flex;
-    gap: 1rem;
+    gap: 0.4rem;
     flex-wrap: wrap;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
-    margin-bottom: 1rem;
     align-items: center;
   }
-  
   .legend-title {
-    font-weight: 600;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--text-secondary);
-    font-size: 0.875rem;
-    margin-right: 0.5rem;
+    opacity: 0.7;
+    margin-right: 0.2rem;
   }
-  
   .legend-item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.875rem;
+    gap: 0.4rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
-  
   .legend-marker {
-    width: 16px;
-    height: 16px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
-    border: 2px solid #ffffff;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
   }
+  .legend-shape {
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+  .legend-shape.buy { color: var(--accent-green); }
+  .legend-shape.sell { color: var(--accent-red); }
 </style>
 {% endblock %}
 
@@ -803,34 +924,6 @@
   </div>
 </div>
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-  <div>
-    <h2 style="margin: 0;">Price Chart</h2>
-    <p style="margin: 0.25rem 0 0 0; font-size: 0.875rem; color: var(--text-secondary);">
-      Bot trading on <span style="color: var(--accent-green); font-weight: 600;">1h</span> timeframe · Chart view: <span id="current-tf-display" style="color: var(--accent-blue); font-weight: 600;">1h</span>
-    </p>
-  </div>
-  <span class="info-icon">i
-    <span class="info-tooltip">
-      Real-time candlestick chart with trading signals. Green/red candles show price movement. Triangle markers indicate signals.
-      <hr>
-      <strong>Timeframe Selection:</strong><br>
-      • Select different timeframes to analyze<br>
-      • Signals only shown on bot's trading timeframe (1h)<br>
-      • Historical data for other timeframes<br>
-      <hr>
-      <strong>Smooth Navigation:</strong><br>
-      • Click & drag with momentum (kinetic scrolling)<br>
-      • Shift + mouse wheel to scroll left/right<br>
-      • Mouse wheel (no shift) to zoom<br>
-      • Hold arrow keys for smooth scrolling<br>
-      • +/- keys to zoom in/out<br>
-      • Press 0 to reset view<br>
-      • Press F for fullscreen (ESC to exit)
-    </span>
-  </span>
-</div>
-
 <!-- Strategy Signals Panel -->
 <style>
   .strategy-signals-grid {
@@ -920,11 +1013,40 @@
   <div class="no-data-indicator" id="chart-no-data">
     <span class="no-data-title">No Chart Data Available</span>
     <span class="no-data-detail">Could not load candles from the exchange API and no bot history is available yet. Check that your API keys are configured and the exchange is reachable.</span>
-    <button onclick="refresh()">Retry</button>
+    <button class="glass-btn" onclick="refresh()">Retry</button>
   </div>
-  <div class="chart-controls">
-    <div class="timeframe-group">
-      <label>Timeframe:</label>
+
+  <div class="chart-head">
+    <div>
+      <h2>Price Chart</h2>
+      <div class="chart-sub">BTC/USD · bot trades on <b>1h</b> · viewing <b class="tf-view" id="current-tf-display">1h</b></div>
+    </div>
+    <div class="chart-status">
+      <span class="status-pill" id="infinite-scroll-status" data-state="live">Live</span>
+      <span class="status-pill" id="candle-count">0 candles</span>
+      <span class="info-icon">i
+        <span class="info-tooltip">
+          Real-time candlestick chart with trading signals. Green/red candles show price movement. Triangle markers indicate signals and trades.
+          <hr>
+          <strong>Timeframes:</strong><br>
+          • Signals are only shown on the bot's trading timeframe (1h)<br>
+          • Other timeframes show history only<br>
+          <hr>
+          <strong>Navigation:</strong><br>
+          • Click &amp; drag with momentum<br>
+          • Shift + mouse wheel to scroll left/right<br>
+          • Mouse wheel to zoom<br>
+          • Hold arrow keys to scroll<br>
+          • +/- keys to zoom, 0 to reset<br>
+          • F for fullscreen (ESC to exit)
+        </span>
+      </span>
+    </div>
+  </div>
+
+  <div class="chart-toolbar">
+    <div class="seg timeframe-group" role="group" aria-label="Chart timeframe">
+      <span class="seg-label">TF</span>
       <button onclick="changeTimeframe('5m')" id="tf-5m">5m</button>
       <button onclick="changeTimeframe('15m')" id="tf-15m">15m</button>
       <button onclick="changeTimeframe('30m')" id="tf-30m">30m</button>
@@ -932,41 +1054,35 @@
       <button onclick="changeTimeframe('4h')" id="tf-4h">4h</button>
       <button onclick="changeTimeframe('1d')" id="tf-1d">1d</button>
     </div>
-    <div class="nav-group">
-      <button onclick="panLeft()" title="Pan left (← arrow key or Shift+Wheel)">◀ Left</button>
-      <button onclick="panRight()" title="Pan right (→ arrow key or Shift+Wheel)">Right ▶</button>
-      <span class="kbd-hint">💡 Drag with momentum | Shift+Wheel to scroll | Wheel to zoom | F for fullscreen</span>
-    </div>
-    <div style="display: flex; gap: 1rem; align-items: center;">
-      <div class="chart-info" id="chart-info">
-        <span class="badge" id="candle-count">0 candles</span>
-        <span id="infinite-scroll-status">🔄 Infinite scroll active</span>
+    <div class="toolbar-right">
+      <div class="seg" role="group" aria-label="Pan">
+        <button onclick="panLeft()" title="Pan left (← or Shift+Wheel)" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button onclick="panRight()" title="Pan right (→ or Shift+Wheel)" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
-      <div class="zoom-group">
-        <button onclick="resetZoom()">Reset</button>
-        <button onclick="zoomIn()" title="Zoom in (or press +)">+ Zoom</button>
-        <button onclick="zoomOut()" title="Zoom out (or press -)">- Zoom</button>
+      <div class="seg" role="group" aria-label="Zoom">
+        <button onclick="zoomOut()" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button onclick="resetZoom()" title="Reset view (0)" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+        <button onclick="zoomIn()" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
       </div>
-      <div class="nav-group">
-        <button onclick="toggleTradeMarkers()" id="toggle-trades-btn" class="toggle-trades-btn active" title="Show/hide executed trades on chart">
-          📊 Trades
-        </button>
-        <button onclick="toggleFullscreen()" id="fullscreen-btn" title="Toggle fullscreen chart view (F for fullscreen, ESC to exit)">
-          ⛶ Fullscreen
-        </button>
-      </div>
+      <button onclick="toggleTradeMarkers()" id="toggle-trades-btn" class="glass-btn toggle-trades-btn active" aria-pressed="true" title="Show/hide executed trades on the chart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3l4 6H3z"/><path d="M17 21l-4-6h8z"/><path d="M7 9v12M17 3v12"/></svg><span class="btn-label">Trades</span>
+      </button>
+      <button onclick="toggleFullscreen()" id="fullscreen-btn" class="glass-btn" title="Fullscreen (F, ESC to exit)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="btn-label">Fullscreen</span>
+      </button>
     </div>
   </div>
-  
+
   <!-- Strategy Legend -->
   <div id="strategy-legend" class="strategy-legend" style="display: none;">
-    <span class="legend-title">Strategies:</span>
-    <div id="legend-items" style="display: flex; gap: 1rem; flex-wrap: wrap;"></div>
+    <span class="legend-title">Trades</span>
+    <div id="legend-items" style="display: contents;"></div>
   </div>
-  
+
   <div class="chart-canvas-wrap">
     <canvas id="priceChart"></canvas>
   </div>
+  <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
 </div>
 
 <script>
@@ -1072,44 +1188,48 @@
                 tooltipFormat: "MMM dd, yyyy HH:mm:ss",
               },
               ticks: {
-                color: "#e1e8ff",
+                color: "#8b949e",
                 source: "auto",
                 autoSkip: true,
                 maxRotation: 0,
+                font: { size: 11 },
               },
               grid: {
-                color: "rgba(255,255,255,0.1)",
+                color: "rgba(255,255,255,0.045)",
               },
+              border: { display: false },
               offset: true,
             },
             y: {
               beginAtZero: false,
               type: "linear",
+              position: "right",
               ticks: {
-                color: "#e1e8ff",
+                color: "#8b949e",
+                font: { size: 11 },
+                callback: (v) => v.toLocaleString('en-US', { maximumFractionDigits: 0 }),
               },
               grid: {
-                color: "rgba(255,255,255,0.1)",
+                color: "rgba(255,255,255,0.045)",
               },
+              border: { display: false },
             },
           },
           plugins: {
             legend: {
-              display: true,
-              labels: {
-                color: "#e1e8ff",
-              },
+              display: false,  // the chip row above the chart is the legend
             },
             tooltip: {
               enabled: true,
               mode: 'nearest',
               intersect: true,
-              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              backgroundColor: 'rgba(13, 17, 23, 0.92)',
               titleColor: '#ffffff',
               bodyColor: '#e1e8ff',
-              borderColor: 'rgba(88, 214, 141, 0.5)',
-              borderWidth: 2,
-              padding: 16,
+              borderColor: 'rgba(255, 255, 255, 0.14)',
+              borderWidth: 1,
+              cornerRadius: 12,
+              padding: 14,
               displayColors: true,
               titleFont: {
                 size: 14,
@@ -1353,7 +1473,9 @@
               <span>${displayName}</span>
             </div>
           `;
-        }).join('');
+        }).join('') + `
+          <div class="legend-item"><span class="legend-shape buy">▲</span><span>Buy</span></div>
+          <div class="legend-item"><span class="legend-shape sell">▼</span><span>Sell</span></div>`;
       }
       
       // Add trade marker datasets to chart
@@ -1479,11 +1601,11 @@
         
         if (showTradeMarkers) {
           btn.classList.add('active');
-          btn.textContent = '📊 Trades';
         } else {
           btn.classList.remove('active');
-          btn.textContent = '📊 Trades (Hidden)';
         }
+        btn.setAttribute('aria-pressed', String(showTradeMarkers));
+        btn.querySelector('.btn-label').textContent = showTradeMarkers ? 'Trades' : 'Trades off';
         
         updateTradeMarkers();
       }
@@ -1531,11 +1653,10 @@
         
         if (isFullscreen) {
           btn.classList.add('active');
-          btn.textContent = '⛶ Exit Fullscreen';
         } else {
           btn.classList.remove('active');
-          btn.textContent = '⛶ Fullscreen';
         }
+        btn.querySelector('.btn-label').textContent = isFullscreen ? 'Exit' : 'Fullscreen';
         
         // Resize chart to fit new container size
         setTimeout(() => {
@@ -2119,14 +2240,14 @@
         
         if (statusEl) {
           if (currentTimeframe === '1h') {
-            statusEl.textContent = '📡 Live data';
-            statusEl.style.color = '#58D68D';
+            statusEl.textContent = 'Live';
+            statusEl.dataset.state = 'live';
           } else if (hasMoreHistoricalData) {
-            statusEl.textContent = '🔄 Scroll left for more history';
-            statusEl.style.color = 'var(--accent-blue)';
+            statusEl.textContent = 'Scroll left for more';
+            statusEl.dataset.state = 'more';
           } else {
-            statusEl.textContent = '📊 All available data loaded';
-            statusEl.style.color = 'var(--text-secondary)';
+            statusEl.textContent = 'All history loaded';
+            statusEl.dataset.state = 'done';
           }
         }
       }
