@@ -942,84 +942,171 @@
 
 <!-- Strategy Signals Panel -->
 <style>
-  .strategy-signals-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 1rem;
-    margin-top: 1rem;
+  /* Glass panel, same look as the chart below */
+  .signals-panel {
+    position: relative;
+    margin-top: 2rem;
+    padding: 1.25rem;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background:
+      radial-gradient(800px 260px at 100% 0%, rgba(83, 155, 245, 0.08), transparent 60%),
+      radial-gradient(700px 260px at 0% 100%, rgba(88, 214, 141, 0.07), transparent 60%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)),
+      var(--bg-secondary);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 20px 50px -20px rgba(0, 0, 0, 0.7);
   }
-  .strategy-card {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-  .strategy-card-header {
+  .signals-head {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  .signals-head h2 { margin: 0; font-size: 1.25rem; letter-spacing: -0.01em; }
+  .signals-sub { margin-top: 0.2rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .consensus-pill {
+    display: inline-flex;
     align-items: center;
-  }
-  .strategy-card-name {
-    font-weight: 600;
-    font-size: 0.9rem;
-  }
-  .strategy-badge {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.5rem;
+    gap: 0.45rem;
+    padding: 0.35rem 0.8rem;
     border-radius: 999px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .strategy-badge.enabled  { background: rgba(88,214,141,0.15); color: #58D68D; border: 1px solid rgba(88,214,141,0.3); }
-  .strategy-badge.disabled { background: rgba(150,150,150,0.1); color: var(--text-secondary); border: 1px solid var(--border-color); }
-  .strategy-direction {
-    font-size: 1.25rem;
+    font-size: 0.78rem;
     font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    white-space: nowrap;
   }
-  .strategy-direction.bullish { color: #58D68D; }
-  .strategy-direction.bearish { color: #ff5e57; }
-  .strategy-direction.neutral { color: var(--text-secondary); }
-  .strategy-confidence-bar-wrap {
-    background: var(--bg-secondary, rgba(255,255,255,0.05));
-    border-radius: 999px;
-    height: 6px;
+  .consensus-pill .lbl { font-weight: 600; opacity: 0.75; }
+  .consensus-pill.bullish { color: var(--accent-green); background: rgba(88, 214, 141, 0.1); border-color: rgba(88, 214, 141, 0.3); }
+  .consensus-pill.bearish { color: var(--accent-red); background: rgba(255, 94, 87, 0.1); border-color: rgba(255, 94, 87, 0.3); }
+
+  .strategy-signals-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 0.9rem;
+  }
+  .signals-empty { font-size: 0.85rem; color: var(--text-secondary); padding: 0.5rem 0; }
+
+  /* One active strategy */
+  .sig-card {
+    --tone: var(--text-secondary);
+    --tone-bg: rgba(255, 255, 255, 0.04);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    padding: 1rem 1.1rem;
+    border-radius: 14px;
+    background: linear-gradient(180deg, var(--tone-bg), rgba(0, 0, 0, 0.12));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
     overflow: hidden;
   }
-  .strategy-confidence-bar {
-    height: 100%;
-    border-radius: 999px;
-    transition: width 0.4s ease;
+  .sig-card::before {  /* coloured edge */
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    background: var(--tone);
+    opacity: 0.8;
   }
-  .strategy-pattern {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    line-height: 1.5;
+  .sig-card.bullish { --tone: var(--accent-green); --tone-bg: rgba(88, 214, 141, 0.07); }
+  .sig-card.bearish { --tone: var(--accent-red);   --tone-bg: rgba(255, 94, 87, 0.07); }
+
+  .sig-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+  .sig-name { font-weight: 650; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; }
+  .sig-live {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent-green);
+    padding: 0.12rem 0.45rem; border-radius: 999px;
+    background: rgba(88, 214, 141, 0.1); border: 1px solid rgba(88, 214, 141, 0.28);
   }
-  .strategy-weight {
-    font-size: 0.72rem;
-    color: var(--text-secondary);
+  .sig-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); }
+  .sig-meta { font-size: 0.72rem; color: var(--text-secondary); white-space: nowrap; }
+
+  .sig-dir { display: flex; align-items: center; gap: 0.6rem; }
+  .sig-arrow {
+    display: grid; place-items: center;
+    width: 38px; height: 38px; border-radius: 11px;
+    color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
   }
-  .strategy-sparkline {
-    margin-top: 0.25rem;
-    width: 100%;
-    overflow: hidden;
+  .sig-arrow svg { width: 20px; height: 20px; }
+  .sig-dir-text { font-size: 1.35rem; font-weight: 750; color: var(--tone); letter-spacing: -0.01em; line-height: 1; }
+  .sig-dir-sub { font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.2rem; }
+  .sig-conf { margin-left: auto; text-align: right; }
+  .sig-conf b { display: block; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+  .sig-conf span { font-size: 0.68rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+  .sig-meter { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+  .sig-meter i { display: block; height: 100%; border-radius: inherit; background: var(--tone); transition: width 0.5s ease; }
+
+  .sig-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.5rem; }
+  .sig-tile {
+    padding: 0.5rem 0.65rem; border-radius: 10px;
+    background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.05);
   }
-  .strategy-sparkline svg { width: 100%; height: 40px; display: block; }
+  .sig-tile span { display: block; font-size: 0.66rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+  .sig-tile b { display: block; margin-top: 0.15rem; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+  .sig-tile b.up { color: var(--accent-green); }
+  .sig-tile b.down { color: var(--accent-red); }
+
+  .sig-spark {
+    padding: 0.35rem 0.4rem; border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18); border: 1px solid rgba(255, 255, 255, 0.04);
+  }
+  .sig-spark svg { width: 100%; height: 44px; display: block; }
+  .sig-spark-cap {
+    display: flex; justify-content: space-between; gap: 0.5rem;
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-secondary); padding: 0.1rem 0.2rem 0.25rem;
+  }
+  .sig-spark-cap .zone { color: rgba(255, 94, 87, 0.8); }
+  .sig-spark .waiting { font-size: 0.72rem; color: var(--text-secondary); padding: 0.6rem 0.2rem; display: block; }
+  .sig-desc { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
+
+  /* Strategies that are switched off: one quiet row */
+  .sig-off {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem;
+    margin-top: 0.9rem; padding-top: 0.85rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .sig-off-label {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-secondary); opacity: 0.7; margin-right: 0.2rem;
+  }
+  .sig-off a {
+    font-size: 0.75rem; color: var(--text-secondary); text-decoration: none;
+    padding: 0.22rem 0.65rem; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.07);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .sig-off a:hover { color: var(--text-primary); border-color: rgba(255, 255, 255, 0.18); }
+
+  @media (max-width: 720px) {
+    .signals-panel { padding: 1rem 0.75rem; }
+    .strategy-signals-grid { grid-template-columns: 1fr; }
+    .sig-tiles { grid-template-columns: repeat(2, 1fr); }
+  }
 </style>
 
-<div class="card" style="margin-top: 2rem;">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-    <h2 style="margin: 0;">Strategy Signals</h2>
-    <small style="color: var(--text-secondary);">Each strategy votes on the next trade</small>
+<section class="signals-panel">
+  <div class="signals-head">
+    <div>
+      <h2>Strategy Signals</h2>
+      <div class="signals-sub" id="signals-sub">Each active strategy votes on the next trade</div>
+    </div>
+    <span class="consensus-pill" id="signals-consensus" style="display: none;"></span>
   </div>
   <div id="strategy-signals-grid" class="strategy-signals-grid">
-    <div style="color: var(--text-secondary); font-size: 0.85rem;">Loading...</div>
+    <div class="signals-empty">Loading…</div>
   </div>
-</div>
+  <div id="strategy-signals-off" class="sig-off" style="display: none;"></div>
+</section>
 
 <div class="chart-container">
   <div class="loading-indicator" id="chart-loading">
@@ -3403,59 +3490,145 @@
       }
 
 
+      // Distance of the daily close from its average, with the ±band lines
+      function sparkTrend(history) {
+        const pts0 = history.filter(h => h.i && typeof h.i.distance_pct === 'number');
+        if (pts0.length < 2) return '<span class="waiting">Chart fills in as hourly checks arrive…</span>';
+        const W = 200, H = 44, pad = 4;
+        const vals = pts0.map(h => h.i.distance_pct);
+        const band = 1;
+        const lo = Math.min(-band * 1.5, ...vals), hi = Math.max(band * 1.5, ...vals);
+        const xOf = i => (pad + (i / (vals.length - 1)) * (W - pad * 2)).toFixed(1);
+        const yOf = v => normalizeY(v, lo, hi, H, pad);
+        const pts = vals.map((v, i) => `${xOf(i)},${yOf(v)}`);
+        const last = vals[vals.length - 1];
+        const color = last > band ? '#58D68D' : last < -band ? '#ff5e57' : '#8b949e';
+        return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+          <rect x="${pad}" y="${yOf(-band)}" width="${W - pad * 2}" height="${Math.max(0, H - pad - yOf(-band))}" fill="rgba(255,94,87,0.07)"/>
+          <line x1="${pad}" y1="${yOf(band)}" x2="${W-pad}" y2="${yOf(band)}" stroke="rgba(88,214,141,0.35)" stroke-width="1" stroke-dasharray="3,2"/>
+          <line x1="${pad}" y1="${yOf(-band)}" x2="${W-pad}" y2="${yOf(-band)}" stroke="rgba(255,94,87,0.45)" stroke-width="1" stroke-dasharray="3,2"/>
+          ${svgLine(pts, color, 1.8)}
+        </svg>`;
+      }
+
       const STRATEGY_DISPLAY = {
         'EMA_Crossover':          'EMA Crossover',
         'RSI_BB_MeanReversion':   'RSI + Bollinger Bands',
         'MACD_Volume_Momentum':   'MACD + Volume',
         'llm_pattern':            'LLM Pattern',
+        'Trend_Hold':             'Trend Hold',
       };
 
-      function directionIcon(d) {
-        if (d === 'bullish') return '📈';
-        if (d === 'bearish') return '📉';
-        return '➡️';
+      const DIR_ICON = {
+        bullish: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>',
+        bearish: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6 6 4-4 8 8"/><path d="M15 17h6v-6"/></svg>',
+        neutral: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 12h16"/></svg>',
+      };
+
+      const DIR_TEXT = {
+        bullish: ['Bullish', 'Leaning buy / hold'],
+        bearish: ['Bearish', 'Leaning sell / cash'],
+        neutral: ['Neutral', 'No clear direction'],
+      };
+
+      function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       }
 
-      function confidenceColor(c) {
-        if (c >= 0.65) return '#58D68D';
-        if (c >= 0.40) return '#FFA500';
-        return '#ff5e57';
+      const usd0 = v => '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+      function signalTiles(s) {
+        const ind = s.indicators || {};
+        if (typeof ind.distance_pct !== 'number') return '';
+        const smaKey = Object.keys(ind).find(k => /^sma_\d+d$/.test(k));
+        const days = smaKey ? smaKey.match(/\d+/)[0] : '';
+        const dist = ind.distance_pct;
+        const tiles = [
+          ['Daily close', usd0(ind.daily_close), ''],
+          [`${days}-day avg`, smaKey ? usd0(ind[smaKey]) : '—', ''],
+          ['Distance', `${dist >= 0 ? '+' : ''}${dist.toFixed(1)}%`, dist >= 0 ? 'up' : 'down'],
+        ];
+        if (s.direction === 'bearish' && ind.buy_above) tiles.push(['Buys above', usd0(ind.buy_above), 'up']);
+        else if (ind.sell_below) tiles.push(['Sells below', usd0(ind.sell_below), 'down']);
+        return `<div class="sig-tiles">${tiles.map(([k, v, c]) =>
+          `<div class="sig-tile"><span>${k}</span><b class="${c}">${v}</b></div>`).join('')}</div>`;
+      }
+
+      function signalCard(s) {
+        const name = STRATEGY_DISPLAY[s.name] || s.display_name || s.name;
+        const dir = ['bullish', 'bearish'].includes(s.direction) ? s.direction : 'neutral';
+        const pct = Math.round((s.confidence || 0) * 100);
+        const [dirText, dirSub] = DIR_TEXT[dir];
+        const when = s.timestamp
+          ? new Date(s.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          : null;
+        const isTrend = s.name === 'Trend_Hold';
+        const spark = isTrend ? sparkTrend(s.history || []) : getSparkline(s);
+        const sparkCaption = isTrend
+          ? '<div class="sig-spark-cap"><span>Distance from average</span><span class="zone">sell zone below −1%</span></div>'
+          : '';
+        return `<div class="sig-card ${dir}">
+          <div class="sig-top">
+            <div class="sig-name">${escapeHtml(name)} <span class="sig-live">Active</span></div>
+            <div class="sig-meta">weight ${s.weight}${when ? ' · ' + when : ''}</div>
+          </div>
+          <div class="sig-dir">
+            <div class="sig-arrow">${DIR_ICON[dir]}</div>
+            <div>
+              <div class="sig-dir-text">${dirText}</div>
+              <div class="sig-dir-sub">${dirSub}</div>
+            </div>
+            <div class="sig-conf"><b>${pct}%</b><span>confidence</span></div>
+          </div>
+          <div class="sig-meter"><i style="width:${pct}%"></i></div>
+          ${signalTiles(s)}
+          ${spark ? `<div class="sig-spark">${sparkCaption}${spark}</div>` : ''}
+          <div class="sig-desc">${escapeHtml(s.pattern || '—')}</div>
+        </div>`;
       }
 
       async function updateStrategySignals() {
+        const grid = document.getElementById('strategy-signals-grid');
+        const off = document.getElementById('strategy-signals-off');
+        const sub = document.getElementById('signals-sub');
+        const pill = document.getElementById('signals-consensus');
         try {
           const resp = await fetch('/api/strategies/signals', {credentials: 'include'});
-          if (!resp.ok) return;
+          if (!resp.ok) {
+            if (resp.status === 503) grid.innerHTML = '<div class="signals-empty">Signals appear once the bot is running.</div>';
+            return;
+          }
           const data = await resp.json();
-          const grid = document.getElementById('strategy-signals-grid');
-          if (!data.signals || !data.signals.length) return;
+          const all = data.signals || [];
+          const active = all.filter(s => s.enabled);
+          const inactive = all.filter(s => !s.enabled);
 
-          grid.innerHTML = data.signals.map(s => {
-            const displayName = STRATEGY_DISPLAY[s.name] || s.name;
-            const pct = (s.confidence * 100).toFixed(0);
-            const barColor = s.enabled ? confidenceColor(s.confidence) : 'var(--text-secondary)';
-            const dirClass = s.enabled ? s.direction : 'neutral';
-            const dirLabel = s.enabled
-              ? `${directionIcon(s.direction)} ${s.direction.toUpperCase()}`
-              : '— DISABLED';
-            const pattern = s.enabled ? (s.pattern || '—') : 'Not participating in vote';
-            const weight = s.enabled ? `weight ${s.weight}` : '';
+          grid.innerHTML = active.length
+            ? active.map(signalCard).join('')
+            : '<div class="signals-empty">No strategy is enabled. Turn one on in Strategies.</div>';
 
-            const spark = s.enabled ? getSparkline(s) : '';
-            return `<div class="strategy-card">
-              <div class="strategy-card-header">
-                <span class="strategy-card-name">${displayName}</span>
-                <span class="strategy-badge ${s.enabled ? 'enabled' : 'disabled'}">${s.enabled ? 'active' : 'off'}</span>
-              </div>
-              <div class="strategy-direction ${dirClass}">${dirLabel}</div>
-              <div class="strategy-confidence-bar-wrap">
-                <div class="strategy-confidence-bar" style="width:${s.enabled ? pct : 0}%; background:${barColor};"></div>
-              </div>
-              ${spark ? `<div class="strategy-sparkline">${spark}</div>` : ''}
-              <div class="strategy-pattern">${pattern}</div>
-              ${s.enabled ? `<div class="strategy-weight">Confidence ${pct}% &nbsp;·&nbsp; ${weight}</div>` : ''}
-            </div>`;
-          }).join('');
+          sub.textContent = `${active.length} of ${all.length} strategies voting on the next trade`;
+
+          // Consensus pill: what the active strategies say together
+          const dirs = new Set(active.map(s => s.direction));
+          if (active.length && dirs.size === 1) {
+            const d = [...dirs][0];
+            pill.className = 'consensus-pill ' + d;
+            pill.innerHTML = `<span class="lbl">${active.length > 1 ? 'Consensus' : 'Bot leans'}</span> ${DIR_TEXT[d] ? DIR_TEXT[d][0] : d}`;
+          } else if (active.length) {
+            pill.className = 'consensus-pill';
+            pill.innerHTML = '<span class="lbl">Consensus</span> Mixed';
+          }
+          pill.style.display = active.length ? 'inline-flex' : 'none';
+
+          if (inactive.length) {
+            off.innerHTML = '<span class="sig-off-label">Off</span>' + inactive.map(s =>
+              `<a href="/strategy-config" title="Enable in Strategies">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
+            ).join('');
+            off.style.display = 'flex';
+          } else {
+            off.style.display = 'none';
+          }
         } catch (e) {
           console.error('Failed to fetch strategy signals:', e);
         }

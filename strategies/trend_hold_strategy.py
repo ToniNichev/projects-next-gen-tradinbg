@@ -130,8 +130,15 @@ class TrendHoldStrategy(BaseStrategy):
                 "daily_close": daily_close,
                 f"sma_{self.ma_days}d": ma,
                 "distance_pct": distance * 100,
+                # Daily close levels that would flip the signal
+                "buy_above": ma * (1 + self.band),
+                "sell_below": ma * (1 - self.band),
             },
-            info={"rule": f"daily close vs {self.ma_days}-day average, band {self.band:.1%}"},
+            info={
+                "rule": f"daily close vs {self.ma_days}-day average, band {self.band:.1%}",
+                "ma_days": self.ma_days,
+                "band_pct": self.band * 100,
+            },
         )
 
     def get_description(self) -> str:

@@ -601,6 +601,21 @@ def _pattern_description(name: str, signal) -> str:
             return reasoning[:120] + ("..." if len(reasoning) > 120 else "")
         return f"LLM signal: {d}"
 
+    if "trend" in name_lower:
+        ind = signal.indicators or {}
+        days = info.get("ma_days", 100)
+        dist = ind.get("distance_pct", 0.0)
+        close = ind.get("daily_close")
+        if close is None:
+            return f"{d.capitalize()} signal"
+        side = "above" if dist >= 0 else "below"
+        text = f"Daily close ${close:,.0f} is {abs(dist):.1f}% {side} its {days}-day average"
+        if d == "bullish":
+            return text + f" — hold BTC; sells on a daily close below ${ind.get('sell_below', 0):,.0f}"
+        if d == "bearish":
+            return text + f" — stay in cash; buys on a daily close above ${ind.get('buy_above', 0):,.0f}"
+        return text + " — inside the band, no change"
+
     return f"{d.capitalize()} signal"
 
 
