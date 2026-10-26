@@ -783,6 +783,22 @@
     line-height: 1;
   }
   .legend-shape.buy { color: var(--accent-green); }
+  .legend-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+  }
+  .legend-dot.buy { background: linear-gradient(#2ecc71, #1e8f4e); }
+  .legend-dot.sell { background: linear-gradient(#ff5e57, #c0392b); }
+  .legend-tri {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+  }
+  .legend-tri.up { border-bottom: 8px solid var(--accent-green); }
+  .legend-tri.down { border-top: 8px solid var(--accent-red); margin-left: -0.25rem; }
   .legend-shape.sell { color: var(--accent-red); }
 </style>
 {% endblock %}
@@ -1114,6 +1130,85 @@
         'Unknown': '#808080',              // Gray (fallback)
       };
       
+      // ---- Trade markers ---------------------------------------------------
+      // A round badge with a chevron and a pointer whose tip sits exactly on
+      // the trade price: buys below the price pointing up, sells above
+      // pointing down. Drawn once at device resolution so they stay crisp.
+      const MARKER_W = 26, MARKER_H = 56;   // CSS px; tip is at the centre
+      const tradeMarkerCache = {};
+
+      function tradeMarkerImage(side, ringColor) {
+        const key = side + '|' + (ringColor || '');
+        if (tradeMarkerCache[key]) return tradeMarkerCache[key];
+
+        const dpr = Math.max(2, window.devicePixelRatio || 1);
+        const cv = document.createElement('canvas');
+        cv.width = MARKER_W * dpr;
+        cv.height = MARKER_H * dpr;
+        const g = cv.getContext('2d');
+        g.scale(dpr, dpr);
+
+        const buy = side === 'buy';
+        const cx = MARKER_W / 2, tipY = MARKER_H / 2;
+        const r = 10;
+        const cy = buy ? tipY + 6 + r : tipY - 6 - r;   // badge centre
+        const base = buy ? '#2ecc71' : '#ff5e57';
+        const dark = buy ? '#1e8f4e' : '#c0392b';
+
+        // Pointer from the badge to the price
+        g.beginPath();
+        g.moveTo(cx, tipY);
+        g.lineTo(cx - 5, buy ? tipY + 8 : tipY - 8);
+        g.lineTo(cx + 5, buy ? tipY + 8 : tipY - 8);
+        g.closePath();
+        g.fillStyle = base;
+        g.fill();
+
+        // Badge with soft glow
+        g.save();
+        g.shadowColor = buy ? 'rgba(46, 204, 113, 0.55)' : 'rgba(255, 94, 87, 0.55)';
+        g.shadowBlur = 8;
+        const grad = g.createLinearGradient(0, cy - r, 0, cy + r);
+        grad.addColorStop(0, base);
+        grad.addColorStop(1, dark);
+        g.beginPath();
+        g.arc(cx, cy, r, 0, Math.PI * 2);
+        g.fillStyle = grad;
+        g.fill();
+        g.restore();
+
+        // Thin highlight ring, or the strategy colour when it says something
+        g.beginPath();
+        g.arc(cx, cy, r - 0.75, 0, Math.PI * 2);
+        g.lineWidth = ringColor ? 2 : 1.5;
+        g.strokeStyle = ringColor || 'rgba(255, 255, 255, 0.55)';
+        g.stroke();
+
+        // Chevron: "^" for buy, "v" for sell
+        g.beginPath();
+        const d = buy ? -1 : 1;
+        g.moveTo(cx - 4.5, cy - d * 2);
+        g.lineTo(cx, cy + d * 2.5);
+        g.lineTo(cx + 4.5, cy - d * 2);
+        g.lineWidth = 2.2;
+        g.lineCap = 'round';
+        g.lineJoin = 'round';
+        g.strokeStyle = '#ffffff';
+        g.stroke();
+
+        const img = new Image(MARKER_W, MARKER_H);  // drawn at CSS size, crisp on retina
+        img.onload = () => { if (typeof chart !== 'undefined' && chart) chart.update('none'); };
+        img.src = cv.toDataURL();
+        tradeMarkerCache[key] = img;
+        return img;
+      }
+
+      // Strategy colour as a ring only when it tells strategies apart
+      function markerRingColor(strategyName) {
+        if (!strategyName || strategyName === 'Aggregated' || strategyName === 'Unknown') return null;
+        return getStrategyColor(strategyName);
+      }
+
       function getStrategyColor(strategyName) {
         if (!strategyName) return STRATEGY_COLORS['Unknown'];
         return STRATEGY_COLORS[strategyName] || STRATEGY_COLORS['Unknown'];
@@ -1270,7 +1365,8 @@
                   
                   // For signal markers
                   if (context.dataset.label === "Signals") {
-                    return `💡 Signal Price: $${context.parsed.y.toFixed(2)}`;
+                    const dir = context.raw && context.raw.dir === "bearish" ? "Bearish" : "Bullish";
+                    return `Signal turned ${dir} @ $${context.parsed.y.toFixed(2)}`;
                   }
                   
                   // For trade markers (Buy/Sell) - Enhanced with comprehensive details
@@ -1473,8 +1569,9 @@
             </div>
           `;
         }).join('') + `
-          <div class="legend-item"><span class="legend-shape buy">▲</span><span>Buy</span></div>
-          <div class="legend-item"><span class="legend-shape sell">▼</span><span>Sell</span></div>`;
+          <div class="legend-item"><span class="legend-dot buy"></span><span>Buy</span></div>
+          <div class="legend-item"><span class="legend-dot sell"></span><span>Sell</span></div>
+          <div class="legend-item"><span class="legend-tri up"></span><span class="legend-tri down"></span><span>Signal change</span></div>`;
       }
       
       // Add trade marker datasets to chart
@@ -1553,15 +1650,13 @@
               type: 'scatter',
               data: trades.buy,
               yAxisID: 'y',
-              pointStyle: 'triangle',
-              pointRadius: 12,
-              pointRotation: 0,
-              backgroundColor: strategyColor,
-              borderColor: '#ffffff',
-              borderWidth: 3,
-              pointHoverRadius: 16,
-              pointHoverBorderWidth: 4,
+              pointStyle: tradeMarkerImage('buy', markerRingColor(strategyName)),
+              pointRadius: 10,
+              pointHoverRadius: 10,
+              hitRadius: 20,  // the badge sits ~16px from the price tip
+              backgroundColor: '#2ecc71',
               showLine: false,
+              clip: false,
               order: 0,
             });
           }
@@ -1573,15 +1668,13 @@
               type: 'scatter',
               data: trades.sell,
               yAxisID: 'y',
-              pointStyle: 'triangle',
-              pointRadius: 12,
-              pointRotation: 180,
-              backgroundColor: strategyColor,
-              borderColor: '#ffffff',
-              borderWidth: 3,
-              pointHoverRadius: 16,
-              pointHoverBorderWidth: 4,
+              pointStyle: tradeMarkerImage('sell', markerRingColor(strategyName)),
+              pointRadius: 10,
+              pointHoverRadius: 10,
+              hitRadius: 20,  // the badge sits ~16px from the price tip
+              backgroundColor: '#ff5e57',
               showLine: false,
+              clip: false,
               order: 0,
             });
           }
@@ -1836,13 +1929,22 @@
             try {
               const signalResp = await fetch("/history", {credentials: 'include'});
               const signalBody = await signalResp.json();
+              // Mark only the hours where the signal changed direction;
+              // a steady "bullish" every hour would bury the candles.
+              let prevDir = null;
               signalPoints = (signalBody.history || [])
-                .filter((row) => row.signal_direction !== "neutral")
+                .slice()
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                .filter((row) => {
+                  const dir = row.signal_direction;
+                  const changed = dir !== prevDir;
+                  prevDir = dir;
+                  return changed && dir !== "neutral";
+                })
                 .map((row) => ({
                   x: new Date(row.timestamp).getTime(),
                   y: row.price,
-                  backgroundColor:
-                    row.signal_direction === "bullish" ? "#33ff8a" : "#ff5e57",
+                  dir: row.signal_direction,
                 }));
             } catch (error) {
               console.error("Error fetching signals:", error);
@@ -1969,7 +2071,15 @@
             label: "Signals",
             type: "scatter",
             pointStyle: "triangle",
-            pointRadius: 8,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            hitRadius: 8,
+            // Scriptable: colour and direction come from each point
+            rotation: (ctx) => (ctx.raw && ctx.raw.dir === "bearish" ? 180 : 0),
+            backgroundColor: (ctx) =>
+              ctx.raw && ctx.raw.dir === "bearish" ? "rgba(255, 94, 87, 0.85)" : "rgba(46, 204, 113, 0.85)",
+            borderColor: "rgba(13, 17, 23, 0.9)",
+            borderWidth: 1.5,
             data: [],
             showLine: false,
             yAxisID: "y",
