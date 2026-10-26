@@ -105,3 +105,14 @@ def test_registered_in_config_and_names():
     assert configs["trend_hold"]["enabled"] is False
     assert StrategyNames.TREND_HOLD in StrategyNames.all_names()
     assert StrategyNames.get_config_key(StrategyNames.TREND_HOLD) == "strategy_trend_enabled"
+
+
+def test_forming_candle_in_last_hour_of_day_uses_last_closed_day(monkeypatch):
+    # It's 23:30 on day 5; the forming 23:00 candle "closes" at the end of
+    # day 5, which hasn't happened yet. The signal must use day 4.
+    ex = FakeExchange([100, 100, 100, 100, 90, 1000])
+    candle = hourly_candle_closing_at(5)
+    now = (candle[0] + HOUR // 2) / 1000
+    monkeypatch.setattr("strategies.trend_hold_strategy.time.time", lambda: now)
+    sig = strategy().compute_signal(ex, "BTC/USDT", "1h", [candle])
+    assert sig.indicators["daily_close"] == 90

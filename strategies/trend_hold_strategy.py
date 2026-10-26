@@ -93,7 +93,11 @@ class TrendHoldStrategy(BaseStrategy):
     ) -> StrategySignal:
         if candle_data:
             last = candle_data[-1]
-            as_of_ms = int(last[0]) + _timeframe_ms(timeframe)  # close time of last candle
+            # Close time of the last candle, but never later than now: at
+            # startup the last candle can still be forming, and in the last
+            # hour of a UTC day its close time would point at a day that
+            # hasn't closed yet.
+            as_of_ms = min(int(last[0]) + _timeframe_ms(timeframe), int(time.time() * 1000))
             price = float(last[4])
         else:
             as_of_ms = int(time.time() * 1000)
