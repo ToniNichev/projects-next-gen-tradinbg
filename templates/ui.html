@@ -375,202 +375,236 @@
     flex-direction: column;
   }
   
-  /* Manual Trading Panel */
+  /* Manual Trading Panel (glass, collapsible) */
   .manual-trading-panel {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.75rem;
-    padding: 1.5rem;
     margin-bottom: 2rem;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background:
+      radial-gradient(700px 240px at 0% 0%, rgba(255, 215, 0, 0.05), transparent 60%),
+      radial-gradient(700px 240px at 100% 100%, rgba(83, 155, 245, 0.07), transparent 60%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)),
+      var(--bg-secondary);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 20px 50px -20px rgba(0, 0, 0, 0.7);
   }
-  
-  .manual-trading-panel h2 {
-    margin: 0 0 1rem 0;
-    font-size: 1.25rem;
+  .mt-head {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.85rem;
+    width: 100%;
+    padding: 1.05rem 1.25rem;
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 18px;
   }
-  
+  .mt-head:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: -2px; }
+  .mt-icon {
+    display: grid; place-items: center; flex: none;
+    width: 36px; height: 36px; border-radius: 11px;
+    color: #ffd76a;
+    background: linear-gradient(180deg, rgba(255, 215, 0, 0.18), rgba(255, 215, 0, 0.05));
+    border: 1px solid rgba(255, 215, 0, 0.3);
+  }
+  .mt-icon svg { width: 18px; height: 18px; }
+  .mt-title { font-size: 1.2rem; font-weight: 650; letter-spacing: -0.01em; }
+  .mt-sub { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.1rem; }
+  .mt-summary { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+  .mt-pill {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.3rem 0.7rem; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 600; white-space: nowrap;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.09);
+  }
+  .mt-pill b { color: var(--text-primary); font-weight: 650; }
+  .mt-pill .up { color: var(--accent-green); }
+  .mt-pill .down { color: var(--accent-red); }
+  .mt-chevron {
+    display: grid; place-items: center;
+    width: 30px; height: 30px; border-radius: 9px;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: transform 0.25s ease;
+  }
+  .mt-chevron svg { width: 16px; height: 16px; }
+  .manual-trading-panel.open .mt-chevron { transform: rotate(180deg); }
+  #manual-trading-body { padding: 0 1.25rem 1.25rem; }
+
   .manual-trading-content {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 1.5rem;
+    grid-template-columns: 1.1fr 1fr 0.9fr;
+    gap: 0.9rem;
   }
-  
   @media (max-width: 1024px) {
-    .manual-trading-content {
-      grid-template-columns: 1fr;
-    }
+    .manual-trading-content { grid-template-columns: 1fr; }
   }
-  
-  .position-status-box {
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0.5rem;
-    padding: 1rem;
+  @media (max-width: 720px) {
+    .mt-head { padding: 0.9rem 0.75rem; }
+    #manual-trading-body { padding: 0 0.75rem 0.9rem; }
+    .mt-summary .mt-pill.secondary { display: none; }
+    .mt-sub { display: none; }
   }
-  
-  .position-status-box h3 {
-    margin: 0 0 0.75rem 0;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    font-weight: 500;
-  }
-  
-  .position-info-item {
-    display: flex;
-    justify-content: space-between;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  }
-  
-  .position-info-item:last-child {
-    border-bottom: none;
-  }
-  
-  .position-info-label {
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-  }
-  
-  .position-info-value {
-    font-weight: 600;
-    font-size: 0.875rem;
-  }
-  
-  .position-info-value.positive {
-    color: var(--accent-green);
-  }
-  
-  .position-info-value.negative {
-    color: #ff5e57;
-  }
-  
-  .no-position-message {
-    text-align: center;
-    padding: 2rem 1rem;
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-  }
-  
-  .trade-controls-box {
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0.5rem;
-    padding: 1rem;
-  }
-  
-  .control-group {
-    margin-bottom: 1rem;
-  }
-  
-  .control-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-  
-  .control-group input[type="number"] {
-    width: 100%;
-    padding: 0.75rem;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 0.5rem;
-    color: white;
-    font-size: 1rem;
-    font-weight: 600;
-  }
-  
-  .control-group input[type="number"]:focus {
-    outline: none;
-    border-color: var(--accent-blue);
-  }
-  
-  .button-group {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
-    margin-top: 1rem;
-  }
-  
-  .trade-btn {
-    padding: 1rem;
-    border: none;
-    border-radius: 0.5rem;
-    font-size: 1rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  
-  .trade-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-  
-  .trade-btn:active:not(:disabled) {
-    transform: translateY(0);
-  }
-  
-  .trade-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  
-  .buy-btn {
-    background: linear-gradient(135deg, #58D68D 0%, #2ECC71 100%);
-    color: white;
-  }
-  
-  .buy-btn:hover:not(:disabled) {
-    background: linear-gradient(135deg, #6FE09D 0%, #3FDD81 100%);
-  }
-  
-  .sell-btn {
-    background: linear-gradient(135deg, #ff5e57 0%, #d63031 100%);
-    color: white;
-  }
-  
-  .sell-btn:hover:not(:disabled) {
-    background: linear-gradient(135deg, #ff6e67 0%, #e64041 100%);
-  }
-  
+
+  .position-status-box,
+  .trade-controls-box,
   .trade-preview-box {
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0.5rem;
-    padding: 1rem;
+    padding: 1rem 1.1rem;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.14));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
-  
+  .position-status-box h3,
+  .trade-controls-box h3,
   .trade-preview-box h3 {
-    margin: 0 0 0.75rem 0;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
+    margin: 0 0 0.8rem 0;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    font-weight: 500;
+    color: var(--text-secondary);
   }
-  
+
+  /* Position: P&L up top, details below */
+  .pos-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.8rem; }
+  .pos-side {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.18rem 0.55rem; border-radius: 999px;
+    color: var(--accent-green); background: rgba(88, 214, 141, 0.1); border: 1px solid rgba(88, 214, 141, 0.3);
+  }
+  .pos-amount { font-size: 1.1rem; font-weight: 650; margin-top: 0.35rem; font-variant-numeric: tabular-nums; }
+  .pos-pnl { text-align: right; }
+  .pos-pnl b { display: block; font-size: 1.35rem; font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .pos-pnl span { font-size: 0.78rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pos-pnl.positive { color: var(--accent-green); }
+  .pos-pnl.negative { color: var(--accent-red); }
+
+  .position-info-item,
   .preview-item {
     display: flex;
     justify-content: space-between;
-    padding: 0.5rem 0;
-    font-size: 0.875rem;
+    gap: 0.75rem;
+    padding: 0.45rem 0;
+    font-size: 0.84rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
   }
-  
-  .preview-label {
+  .position-info-label,
+  .preview-label { color: var(--text-secondary); }
+  .position-info-value,
+  .preview-value { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .position-info-value.positive { color: var(--accent-green); }
+  .position-info-value.negative { color: var(--accent-red); }
+  .position-info-value.muted { color: var(--text-secondary); font-weight: 500; }
+  .preview-item.total { border-top-color: rgba(255, 255, 255, 0.12); }
+  .preview-item.total .preview-value { font-size: 0.95rem; }
+
+  .no-position-message {
+    display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+    text-align: center; padding: 1.75rem 1rem;
+    color: var(--text-secondary); font-size: 0.85rem;
+  }
+  .no-position-message svg { width: 26px; height: 26px; opacity: 0.5; }
+
+  /* Size: slider + number + quick picks */
+  .control-group { margin-bottom: 0.9rem; }
+  .control-group label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 0.55rem; font-size: 0.82rem; color: var(--text-secondary); font-weight: 500;
+  }
+  .size-row { display: flex; align-items: center; gap: 0.7rem; }
+  .size-row input[type="range"] {
+    flex: 1; height: 6px; appearance: none; -webkit-appearance: none;
+    border-radius: 999px; outline: none; cursor: pointer;
+    background: linear-gradient(90deg, var(--accent-blue) var(--fill, 20%), rgba(255, 255, 255, 0.1) var(--fill, 20%));
+  }
+  .size-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; border: 3px solid var(--accent-blue);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+  .size-row input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; border: 3px solid var(--accent-blue);
+  }
+  .size-num {
+    display: flex; align-items: center;
+    border-radius: 10px; background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding-right: 0.55rem;
+  }
+  .size-num:focus-within { border-color: var(--accent-blue); }
+  .size-num input[type="number"] {
+    width: 3.6rem; padding: 0.45rem 0.2rem 0.45rem 0.6rem;
+    background: transparent; border: 0; outline: none;
+    color: var(--text-primary); font: inherit; font-size: 0.95rem; font-weight: 650; text-align: right;
+    -moz-appearance: textfield;
+  }
+  .size-num input::-webkit-outer-spin-button,
+  .size-num input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .size-num span { color: var(--text-secondary); font-size: 0.85rem; }
+  .size-chips { display: flex; gap: 0.35rem; margin-top: 0.6rem; }
+  .size-chips button {
+    flex: 1; height: 28px; border-radius: 8px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 0;
+    font: inherit; font-size: 0.75rem; font-weight: 600;
     color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
   }
-  
-  .preview-value {
-    font-weight: 600;
+  .size-chips button:hover:not(:disabled) { color: var(--text-primary); background: rgba(255, 255, 255, 0.08); }
+  .size-chips button.active { color: #dbe9ff; background: rgba(83, 155, 245, 0.18); border-color: rgba(83, 155, 245, 0.45); }
+  .size-chips button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .button-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 1rem; }
+  .trade-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+    height: 46px; border-radius: 12px; cursor: pointer;
+    font: inherit; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.02em;
+    color: #fff;
+    border: 1px solid transparent;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 8px 20px -10px var(--btn-glow);
+    transition: transform 0.12s, box-shadow 0.2s, filter 0.2s;
   }
-  
+  .trade-btn svg { width: 17px; height: 17px; }
+  .trade-btn:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 12px 26px -10px var(--btn-glow); }
+  .trade-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+  .trade-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .trade-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; filter: saturate(0.5); }
+  .buy-btn {
+    --btn-glow: rgba(46, 204, 113, 0.7);
+    background: linear-gradient(180deg, #34d27a, #1e9e57);
+    border-color: rgba(88, 214, 141, 0.6);
+  }
+  .sell-btn {
+    --btn-glow: rgba(255, 94, 87, 0.7);
+    background: linear-gradient(180deg, #ff6b64, #d23a33);
+    border-color: rgba(255, 94, 87, 0.6);
+  }
+  .mt-note { margin-top: 0.7rem; font-size: 0.72rem; color: var(--text-secondary); line-height: 1.45; }
+
+  /* Paper-mode "fresh session" strip */
+  .fresh-session-bar {
+    margin-bottom: 1rem;
+    padding: 0.65rem 0.8rem 0.65rem 1rem;
+    border-radius: 12px;
+    background: linear-gradient(90deg, rgba(255, 165, 0, 0.1), rgba(255, 165, 0, 0.03));
+    border: 1px solid rgba(255, 165, 0, 0.22);
+    align-items: center; justify-content: space-between; gap: 1rem;
+  }
+  .fresh-session-bar span { font-size: 0.84rem; color: var(--text-secondary); }
+  .fresh-session-bar b { color: #ffc266; font-weight: 650; }
+  .fresh-session-bar button {
+    height: 32px; padding: 0 0.9rem; border-radius: 9px; cursor: pointer; white-space: nowrap;
+    font: inherit; font-size: 0.8rem; font-weight: 600; color: #ffb84d;
+    background: rgba(255, 165, 0, 0.12); border: 1px solid rgba(255, 165, 0, 0.4);
+  }
+  .fresh-session-bar button:hover { background: rgba(255, 165, 0, 0.2); }
+
   /* Notification Toast */
   .notification-toast {
     position: fixed;
@@ -660,7 +694,9 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(5, 8, 12, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     display: none;
     align-items: center;
     justify-content: center;
@@ -672,12 +708,13 @@
   }
   
   .modal-content {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.75rem;
-    padding: 2rem;
-    max-width: 500px;
-    width: 90%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)), var(--bg-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 30px 80px -20px rgba(0, 0, 0, 0.8);
+    padding: 1.6rem;
+    max-width: 480px;
+    width: calc(100% - 32px);
   }
   
   .modal-content h3 {
@@ -697,21 +734,26 @@
   }
   
   .modal-btn {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 0.5rem;
-    font-weight: 600;
+    height: 40px;
+    padding: 0 1.2rem;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    font: inherit;
+    font-weight: 650;
     cursor: pointer;
     transition: all 0.2s;
   }
   
   .modal-btn-cancel {
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
   }
   
   .modal-btn-confirm {
-    background: var(--accent-blue);
+    background: linear-gradient(180deg, #5ea6ff, #3a7ee0);
+    border-color: rgba(83, 155, 245, 0.6);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
     color: white;
   }
   
@@ -846,80 +888,86 @@
 </div>
 
 <!-- Start Fresh Session (paper/dry_run only) -->
-<div id="fresh-session-bar" style="display:none; margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(255,165,0,0.08); border: 1px solid rgba(255,165,0,0.25); border-radius: 0.5rem; display:none; align-items:center; justify-content:space-between; gap:1rem;">
-  <span style="font-size:0.85rem; color:var(--text-secondary);">
-    Paper trading mode — clear history to start a fresh session
-  </span>
-  <button onclick="confirmClearTrades()" style="background:rgba(255,165,0,0.15); border:1px solid rgba(255,165,0,0.4); color:#FFA500; padding:0.4rem 1rem; border-radius:0.375rem; cursor:pointer; font-size:0.82rem; white-space:nowrap;">
-    Start Fresh Session
-  </button>
+<div id="fresh-session-bar" class="fresh-session-bar" style="display:none;">
+  <span><b>Paper trading</b> — clear the history to start a fresh session</span>
+  <button onclick="confirmClearTrades()">Start Fresh Session</button>
 </div>
 
 <!-- Manual Trading Panel -->
-<div class="manual-trading-panel">
-  <h2 onclick="toggleManualTrading()" style="cursor:pointer; user-select:none; display:flex; align-items:center;">
-    🎯 Manual Trading
-    <span id="manual-trading-chevron" style="margin-left:auto; font-size:0.85rem; transition:transform 0.2s; opacity:0.6;">▼</span>
-  </h2>
+<section class="manual-trading-panel" id="manual-trading-panel">
+  <button class="mt-head" type="button" onclick="toggleManualTrading()" aria-expanded="false" aria-controls="manual-trading-body">
+    <span class="mt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+    <span>
+      <div class="mt-title">Manual Trading</div>
+      <div class="mt-sub">Place a trade yourself — the bot keeps running</div>
+    </span>
+    <span class="mt-summary" id="mt-summary"></span>
+    <span class="mt-chevron" id="manual-trading-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
+  </button>
   <div id="manual-trading-body" style="display:none;">
   <div class="manual-trading-content">
     <!-- Current Position Status -->
     <div class="position-status-box">
-      <h3>Current Position</h3>
+      <h3>Current position</h3>
       <div id="position-info">
-        <div class="no-position-message">
-          Loading position status...
-        </div>
+        <div class="no-position-message">Loading position…</div>
       </div>
     </div>
-    
+
     <!-- Trade Controls -->
     <div class="trade-controls-box">
-      <h3>Execute Trade</h3>
-      
+      <h3>Place a trade</h3>
       <div class="control-group">
         <label for="position-size">
-          Position Size (%)
-          <span id="position-size-range" style="color: var(--text-secondary); font-weight: normal; font-size: 0.875rem;"></span>
+          <span>Size of available cash</span>
+          <span id="position-size-range"></span>
         </label>
-        <input type="number" id="position-size" min="10" max="100" value="20" step="5">
+        <div class="size-row">
+          <input type="range" id="position-size-slider" min="10" max="100" value="20" step="1" aria-label="Position size">
+          <div class="size-num">
+            <input type="number" id="position-size" min="10" max="100" value="20" step="5">
+            <span>%</span>
+          </div>
+        </div>
+        <div class="size-chips" id="size-chips">
+          <button type="button" data-pct="25">25%</button>
+          <button type="button" data-pct="50">50%</button>
+          <button type="button" data-pct="75">75%</button>
+          <button type="button" data-pct="max">Max</button>
+        </div>
       </div>
-      
       <div class="button-group">
-        <button id="buy-btn" class="trade-btn buy-btn" onclick="executeBuy()">
-          🟢 Buy
-        </button>
-        <button id="sell-btn" class="trade-btn sell-btn" onclick="executeSell()">
-          🔴 Sell
-        </button>
+        <button id="buy-btn" class="trade-btn buy-btn" onclick="executeBuy()">Buy</button>
+        <button id="sell-btn" class="trade-btn sell-btn" onclick="executeSell()">Sell</button>
       </div>
+      <div class="mt-note">Every trade asks you to confirm first. Sell closes the whole position.</div>
     </div>
-    
+
     <!-- Trade Preview -->
     <div class="trade-preview-box">
-      <h3>Trade Estimate</h3>
+      <h3>Estimate</h3>
       <div id="trade-estimate">
         <div class="preview-item">
-          <span class="preview-label">Current Price:</span>
+          <span class="preview-label">BTC price</span>
           <span class="preview-value" id="preview-price">--</span>
         </div>
         <div class="preview-item">
-          <span class="preview-label">Available USDT:</span>
+          <span class="preview-label">Available cash</span>
           <span class="preview-value" id="preview-balance">--</span>
         </div>
-        <div class="preview-item">
-          <span class="preview-label">Position Value:</span>
+        <div class="preview-item total">
+          <span class="preview-label">Order value</span>
           <span class="preview-value" id="preview-value">--</span>
         </div>
         <div class="preview-item">
-          <span class="preview-label">Est. Amount:</span>
+          <span class="preview-label">You'd get about</span>
           <span class="preview-value" id="preview-amount">--</span>
         </div>
       </div>
     </div>
   </div>
   </div>
-</div>
+</section>
 
 
 
@@ -2957,51 +3005,85 @@
             input.value = maxPct;
           }
           
-          rangeLabel.textContent = `(${minPct}-${maxPct}%)`;
+          rangeLabel.textContent = `${minPct}–${maxPct}%`;
+          const slider = document.getElementById('position-size-slider');
+          slider.min = minPct;
+          slider.max = maxPct;
+          document.querySelectorAll('#size-chips button').forEach(btn => {
+            const v = btn.dataset.pct === 'max' ? maxPct : Number(btn.dataset.pct);
+            btn.disabled = v < minPct || v > maxPct;
+          });
+          syncSizeControls();
         }
       }
       
+      const fmtUsd = (v, d = 2) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+      // Trend Hold sets placeholder stop/target far away; show them as "None"
+      function levelOrNone(level, entry, kind) {
+        if (!level || !entry) return ['None', 'muted'];
+        if (kind === 'stop' && level < entry * 0.2) return ['None — exits on trend', 'muted'];
+        if (kind === 'target' && level > entry * 10) return ['None', 'muted'];
+        return [fmtUsd(level), ''];
+      }
+
       // Update position display
       function updatePositionDisplay(status) {
         const positionInfo = document.getElementById('position-info');
-        
+        const summary = document.getElementById('mt-summary');
+        const cash = status.balances ? status.balances.USDT : 0;
+
         if (status.position) {
           const pos = status.position;
-          const pnlClass = pos.unrealized_pnl >= 0 ? 'positive' : 'negative';
-          const pnlSign = pos.unrealized_pnl >= 0 ? '+' : '';
-          
+          const cost = pos.entry_price * pos.amount;
+          const pnlPct = cost ? (pos.unrealized_pnl / cost) * 100 : 0;
+          const up = pos.unrealized_pnl >= 0;
+          const sign = up ? '+' : '−';
+          const [stopText, stopCls] = levelOrNone(pos.stop_loss, pos.entry_price, 'stop');
+          const [tpText, tpCls] = levelOrNone(pos.take_profit, pos.entry_price, 'target');
+
           positionInfo.innerHTML = `
-            <div class="position-info-item">
-              <span class="position-info-label">Side:</span>
-              <span class="position-info-value">${pos.side.toUpperCase()}</span>
+            <div class="pos-hero">
+              <div>
+                <span class="pos-side">${pos.side === 'long' ? 'Holding BTC' : escapeHtml(pos.side)}</span>
+                <div class="pos-amount">${pos.amount.toFixed(6)} BTC</div>
+              </div>
+              <div class="pos-pnl ${up ? 'positive' : 'negative'}">
+                <b>${sign}${fmtUsd(Math.abs(pos.unrealized_pnl))}</b>
+                <span>${sign}${Math.abs(pnlPct).toFixed(2)}%</span>
+              </div>
             </div>
             <div class="position-info-item">
-              <span class="position-info-label">Entry Price:</span>
-              <span class="position-info-value">$${pos.entry_price.toFixed(2)}</span>
+              <span class="position-info-label">Bought at</span>
+              <span class="position-info-value">${fmtUsd(pos.entry_price)}</span>
             </div>
             <div class="position-info-item">
-              <span class="position-info-label">Current Price:</span>
-              <span class="position-info-value">$${pos.current_price.toFixed(2)}</span>
+              <span class="position-info-label">Price now</span>
+              <span class="position-info-value">${fmtUsd(pos.current_price)}</span>
             </div>
             <div class="position-info-item">
-              <span class="position-info-label">Amount:</span>
-              <span class="position-info-value">${pos.amount.toFixed(6)} BTC</span>
+              <span class="position-info-label">Value now</span>
+              <span class="position-info-value">${fmtUsd(pos.current_price * pos.amount)}</span>
             </div>
             <div class="position-info-item">
-              <span class="position-info-label">Unrealized P&L:</span>
-              <span class="position-info-value ${pnlClass}">${pnlSign}$${pos.unrealized_pnl.toFixed(2)}</span>
+              <span class="position-info-label">Stop loss</span>
+              <span class="position-info-value ${stopCls}">${stopText}</span>
             </div>
             <div class="position-info-item">
-              <span class="position-info-label">Stop Loss:</span>
-              <span class="position-info-value">$${pos.stop_loss.toFixed(2)}</span>
-            </div>
-            <div class="position-info-item">
-              <span class="position-info-label">Take Profit:</span>
-              <span class="position-info-value">$${pos.take_profit.toFixed(2)}</span>
+              <span class="position-info-label">Take profit</span>
+              <span class="position-info-value ${tpCls}">${tpText}</span>
             </div>
           `;
+          summary.innerHTML = `
+            <span class="mt-pill"><b>${pos.amount.toFixed(6)} BTC</b><span class="${up ? 'up' : 'down'}">${sign}${Math.abs(pnlPct).toFixed(2)}%</span></span>
+            <span class="mt-pill secondary">Cash <b>${fmtUsd(cash)}</b></span>`;
         } else {
-          positionInfo.innerHTML = '<div class="no-position-message">No open position</div>';
+          positionInfo.innerHTML = `<div class="no-position-message">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>
+              No open position — all in cash
+            </div>`;
+          summary.innerHTML = `<span class="mt-pill">No position</span>
+            <span class="mt-pill secondary">Cash <b>${fmtUsd(cash)}</b></span>`;
         }
       }
       
@@ -3009,13 +3091,13 @@
       function updateTradePreview(status) {
         const positionSize = parseFloat(document.getElementById('position-size').value) / 100;
         
-        document.getElementById('preview-price').textContent = `$${status.current_price.toFixed(2)}`;
-        document.getElementById('preview-balance').textContent = `$${status.balances.USDT.toFixed(2)}`;
+        document.getElementById('preview-price').textContent = fmtUsd(status.current_price);
+        document.getElementById('preview-balance').textContent = fmtUsd(status.balances.USDT);
         
         const positionValue = status.balances.USDT * positionSize;
         const estimatedAmount = positionValue / status.current_price;
         
-        document.getElementById('preview-value').textContent = `$${positionValue.toFixed(2)}`;
+        document.getElementById('preview-value').textContent = fmtUsd(positionValue);
         document.getElementById('preview-amount').textContent = `${estimatedAmount.toFixed(6)} BTC`;
       }
       
@@ -3028,11 +3110,10 @@
         sellBtn.disabled = !status.can_sell;
         
         // Update button text based on position status
-        if (status.position && status.position.side === 'long') {
-          buyBtn.innerHTML = '🔼 Add to Long';
-        } else {
-          buyBtn.innerHTML = '🟢 Buy';
-        }
+        const icoUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+        const icoDown = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
+        buyBtn.innerHTML = icoUp + (status.position && status.position.side === 'long' ? 'Buy more' : 'Buy');
+        sellBtn.innerHTML = icoDown + 'Sell all';
       }
       
       // Execute buy
@@ -3379,12 +3460,29 @@
         }
       }
       
-      // Update position size preview
-      document.getElementById('position-size').addEventListener('input', () => {
-        if (manualTradingStatus) {
-          updateTradePreview(manualTradingStatus);
-        }
-      });
+      // Size controls: slider, number box and quick-pick chips stay in step
+      function syncSizeControls(from) {
+        const num = document.getElementById('position-size');
+        const slider = document.getElementById('position-size-slider');
+        if (from === 'slider') num.value = slider.value;
+        else slider.value = num.value;
+        const lo = Number(slider.min), hi = Number(slider.max);
+        const fill = hi > lo ? ((Number(slider.value) - lo) / (hi - lo)) * 100 : 100;
+        slider.style.setProperty('--fill', `${Math.max(0, Math.min(100, fill))}%`);
+        document.querySelectorAll('#size-chips button').forEach(btn => {
+          const v = btn.dataset.pct === 'max' ? hi : Number(btn.dataset.pct);
+          btn.classList.toggle('active', Number(num.value) === v);
+        });
+        if (manualTradingStatus) updateTradePreview(manualTradingStatus);
+      }
+      document.getElementById('position-size').addEventListener('input', () => syncSizeControls('number'));
+      document.getElementById('position-size-slider').addEventListener('input', () => syncSizeControls('slider'));
+      document.querySelectorAll('#size-chips button').forEach(btn => btn.addEventListener('click', () => {
+        const slider = document.getElementById('position-size-slider');
+        document.getElementById('position-size').value = btn.dataset.pct === 'max' ? slider.max : btn.dataset.pct;
+        syncSizeControls('number');
+      }));
+      syncSizeControls('number');
       
       // Close modal on overlay click
       document.getElementById('confirmation-modal').addEventListener('click', (e) => {
@@ -3652,11 +3750,12 @@
       setInterval(checkTradingMode, 60000);
 
       function toggleManualTrading() {
+        const panel = document.getElementById('manual-trading-panel');
         const body = document.getElementById('manual-trading-body');
-        const chevron = document.getElementById('manual-trading-chevron');
         const opening = body.style.display === 'none';
         body.style.display = opening ? 'block' : 'none';
-        chevron.style.transform = opening ? 'rotate(180deg)' : '';
+        panel.classList.toggle('open', opening);
+        panel.querySelector('.mt-head').setAttribute('aria-expanded', String(opening));
       }
       
     </script>
