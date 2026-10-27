@@ -10,7 +10,7 @@ This module provides business logic for backtesting operations, including:
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Callable, Any, List
 
 from config import BotConfig
@@ -177,6 +177,10 @@ class BacktestManager:
                 backtest_id = str(uuid.uuid4())
             timestamp = datetime.utcnow()
 
+            window_end_dt = end_date or datetime.now(timezone.utc)
+            window_end_iso = window_end_dt.strftime("%Y-%m-%d")
+            window_start_iso = (window_end_dt - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
             # Create configuration snapshot
             config_snapshot = self._create_config_snapshot(config_overrides)
 
@@ -192,8 +196,8 @@ class BacktestManager:
                 display_parameters["window_start"] = window_start.strftime("%Y-%m-%d")
                 display_parameters["window_end"] = window_end.strftime("%Y-%m-%d")
             
-            # Extract strategy information
-            strategies_used = self._extract_strategies_used()
+            # Extract strategy information (overrides win over saved settings)
+            strategies_used = self._extract_strategies_used(effective_overrides)
             aggregation_mode = self.config.strategy_aggregation_mode
             
             # Calculate trade statistics
@@ -251,6 +255,10 @@ class BacktestManager:
                     "pnl_pct": result.get("pnl_pct", 0.0),
                     "buy_hold_pct": result.get("buy_hold_pct", 0.0),
                     "final_value": result.get("final_value", 0.0),
+                    "max_drawdown_pct": result.get("max_drawdown_pct"),
+                    "sharpe_ratio": result.get("sharpe_ratio"),
+                    "window_start": window_start_iso,
+                    "window_end": window_end_iso,
                     "strategies_used": strategies_used,
                     "aggregation_mode": aggregation_mode,
                     "config_snapshot": config_snapshot,
@@ -279,6 +287,17 @@ class BacktestManager:
         except Exception as e:
             self.logger.error(f"Backtest execution failed: {e}", exc_info=True)
             
+            # Record the failure so the page can show it instead of waiting
+            if backtest_id is not None:
+                self.app_state.add_backtest_result({
+                    "id": backtest_id,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "days_back": days_back,
+                    "status": "failed",
+                    "error": str(e),
+                    "parameters": dict(config_overrides or {}),
+                })
+
             # Mark backtest as failed
             self.update_progress(running=False, progress=0.0)
             
@@ -465,37 +484,22 @@ class BacktestManager:
         
         return snapshot
     
-    def _extract_strategies_used(self) -> List[str]:
-        """
-        Extract list of enabled strategies from configuration.
-        
-        Returns:
-            List of strategy names that are enabled
-        """
-        strategies = []
-        
-        if self.config.use_multi_strategy:
-            if self.config.strategy_ema_enabled:
-                strategies.append("EMA Crossover")
-            
-            if self.config.strategy_rsi_bb_enabled:
-                strategies.append("RSI + Bollinger Bands")
-            
-            if self.config.strategy_macd_enabled:
-                strategies.append("MACD + Volume")
+    def _extract_strategies_used(self, config_overrides: Optional[Dict[str, Any]] = None) -> List[str]:
+        """Names of the strategies a backtest ran with (overrides win)."""
+        overrides = config_overrides or {}
 
-            if self.config.strategy_trend_enabled:
-                strategies.append("Trend Hold")
-            
-            # Check for LLM strategy
-            try:
-                from strategies import LLM_AVAILABLE
-                if LLM_AVAILABLE and hasattr(self.config, 'strategy_llm_enabled'):
-                    if self.config.strategy_llm_enabled:
-                        strategies.append("LLM Pattern Analysis")
-            except ImportError:
-                pass
-        else:
-            strategies.append("Legacy Single Strategy")
-        
+        def on(key: str) -> bool:
+            return bool(overrides.get(key, getattr(self.config, key, False)))
+
+        if not self.config.use_multi_strategy:
+            return ["Legacy Single Strategy"]
+
+        names = [
+            ("strategy_ema_enabled", "EMA Crossover"),
+            ("strategy_rsi_bb_enabled", "RSI + Bollinger Bands"),
+            ("strategy_macd_enabled", "MACD + Volume"),
+            ("strategy_trend_enabled", "Trend Hold"),
+            ("strategy_llm_enabled", "LLM Pattern Analysis"),
+        ]
+        strategies = [label for key, label in names if on(key)]
         return strategies if strategies else ["No strategies enabled"]

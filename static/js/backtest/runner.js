@@ -34,11 +34,22 @@ function getElements() {
 function setRunningState(els, running) {
   els.btn.disabled = running;
   els.btn.classList.toggle('btn-running', running);
-  if (els.cancelBtn) els.cancelBtn.style.display = running ? '' : 'none';
+  if (els.cancelBtn) {
+    els.cancelBtn.style.display = running ? '' : 'none';
+    els.cancelBtn.disabled = false;
+    els.cancelBtn.textContent = 'Cancel';
+  }
   if (!running) {
-    els.text.textContent = '🚀 Run Backtest';
+    els.text.textContent = 'Run backtest';
     loadCurrentStrategyConfig();
   }
+}
+
+function showMessage(els, kind, text) {
+  const p = document.createElement('p');
+  p.className = `bt-msg ${kind}`;
+  p.textContent = text;
+  els.status.replaceChildren(p);
 }
 
 function updateProgressBar(els, pct, statusText, timeText) {
@@ -78,6 +89,7 @@ export async function runQuickBacktest() {
   let configOverrides = null;
   if (document.getElementById('override_strategies')?.checked) {
     configOverrides = {
+      strategy_trend_enabled: document.getElementById('override_trend').checked,
       strategy_ema_enabled: document.getElementById('override_ema').checked,
       strategy_rsi_bb_enabled: document.getElementById('override_rsi_bb').checked,
       strategy_macd_enabled: document.getElementById('override_macd').checked,
@@ -88,11 +100,11 @@ export async function runQuickBacktest() {
   const startTime = Date.now();
 
   setRunningState(els, true);
-  els.text.textContent = '⏳ Running...';
+  els.text.textContent = 'Running…';
   els.progressDiv.style.display = 'block';
   els.status.innerHTML = '';
 
-  await populateProgressInfo(daysBack, endDate);
+  await populateProgressInfo(daysBack, endDate, configOverrides);
 
   updateProgressBar(els, 0, 'Initializing backtest...', `~${Math.round(estimatedDuration)}s estimated`);
 
@@ -138,7 +150,7 @@ export async function runQuickBacktest() {
   } catch (error) {
     clearInterval(progressInterval);
     if (error.name === 'AbortError') return;
-    els.status.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+    showMessage(els, 'err', `Could not start the backtest: ${error.message}`);
     els.progressDiv.style.display = 'none';
     setRunningState(els, false);
   }
@@ -204,15 +216,11 @@ function pollBacktestStatus(backtestId, progressInterval, startTime, daysBack, s
         sessionStorage.removeItem('activeBacktestId');
         sessionStorage.removeItem('activeBacktestStart');
         sessionStorage.removeItem('activeBacktestDays');
-        updateProgressBar(els, 100, '✓ Backtest completed successfully!', 'Complete!');
-        els.progressTime.style.color = 'var(--accent-green)';
-        els.progressStatus.style.color = 'var(--accent-green)';
-        els.status.innerHTML = `<p class="text-success">✓ Completed in ${actualDuration.toFixed(1)}s</p>`;
+        updateProgressBar(els, 100, 'Done. The result is below.', 'Complete');
+        showMessage(els, 'ok', `Finished in ${actualDuration.toFixed(1)}s. The result is at the top of Results.`);
 
         setTimeout(() => {
           els.progressDiv.style.display = 'none';
-          els.progressTime.style.color = '';
-          els.progressStatus.style.color = '';
           els.status.innerHTML = '';
           setRunningState(els, false);
         }, 3000);
@@ -223,13 +231,14 @@ function pollBacktestStatus(backtestId, progressInterval, startTime, daysBack, s
       } else if (result && result.status === 'failed') {
         clearInterval(interval);
         clearInterval(progressInterval);
-        els.status.innerHTML = `<p class="text-danger">✗ Backtest failed: ${result.error || 'Unknown error'}</p>`;
+        sessionStorage.removeItem('activeBacktestId');
+        showMessage(els, 'err', `The backtest failed: ${result.error || 'unknown error'}`);
         els.progressDiv.style.display = 'none';
         setRunningState(els, false);
       } else if (attempts >= MAX_POLL_ATTEMPTS) {
         clearInterval(interval);
         clearInterval(progressInterval);
-        els.status.innerHTML = '<p class="text-danger">Timeout waiting for results</p>';
+        showMessage(els, 'err', 'Gave up waiting for the result.');
         els.progressDiv.style.display = 'none';
         setRunningState(els, false);
       }
@@ -267,7 +276,7 @@ export async function cancelBacktest() {
             sessionStorage.removeItem('activeBacktestId');
       sessionStorage.removeItem('activeBacktestStart');
       sessionStorage.removeItem('activeBacktestDays');
-      els.status.innerHTML = '<p class="text-warning">Backtest cancelled.</p>';
+      showMessage(els, 'warn', 'Backtest cancelled.');
             els.progressDiv.style.display = 'none';
             setRunningState(els, false);
           }
@@ -278,7 +287,7 @@ export async function cancelBacktest() {
     console.error('Cancel failed:', e);
     if (els.cancelBtn) {
       els.cancelBtn.disabled = false;
-      els.cancelBtn.textContent = '✕ Cancel';
+      els.cancelBtn.textContent = 'Cancel';
     }
   }
 }

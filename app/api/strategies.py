@@ -352,6 +352,7 @@ def debug_config():
             "database_configs_count": db_count,
             "has_database": DATABASE_AVAILABLE,
             "config_summary": {
+                "symbol": c.symbol, "timeframe": c.timeframe,
                 "stop_loss_pct": c.stop_loss_pct, "take_profit_pct": c.take_profit_pct,
                 "order_pct": c.order_pct, "strategy_aggregation_mode": c.strategy_aggregation_mode,
                 "min_signal_confidence": c.min_signal_confidence,

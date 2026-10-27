@@ -8,6 +8,16 @@
  */
 
 let backtestChart = null;
+
+const BUY_COLOR = '#2ecc71';
+const SELL_COLOR = '#ff5e57';
+const EXIT_REASONS = {
+  signal: 'strategy signal',
+  backtest_end: 'end of test (valued at the last price)',
+  stop_loss: 'stop loss',
+  take_profit: 'take profit',
+  trailing_stop: 'trailing stop',
+};
 let currentChartData = null;
 
 const STRATEGY_COLORS = {
@@ -21,7 +31,8 @@ const STRATEGY_COLORS = {
 };
 
 const STRATEGY_DISPLAY_NAMES = {
-  'Aggregated': 'Multi-Strategy',
+  'Aggregated': 'Bot',
+  'Trend_Hold': 'Trend Hold',
   'EMA_Crossover': 'EMA Crossover',
   'RSI_BB_MeanReversion': 'RSI+BB',
   'MACD_Volume_Momentum': 'MACD+Vol',
@@ -200,12 +211,15 @@ function renderPriceChart(chartData) {
   }));
 
   hodLodPlugin._levels = calculateDailyLevels(chartData.candles);
+  // Daily candles (long runs) have no intraday high/low lines to draw
+  const showHodLod = hodLodPlugin._levels.some(l => l.end > l.start);
+  document.querySelectorAll('.legend-foot .hodlod').forEach(el => { el.style.display = showHodLod ? '' : 'none'; });
   const tradesByStrategy = groupTradesByStrategy(chartData.trades);
   const strategyStats = calculateStrategyStats(tradesByStrategy);
 
   const datasets = [
     {
-      label: 'BTC/USDT',
+      label: 'BTC price',
       data: candleData,
       yAxisID: 'y',
       color: { up: '#58D68D', down: '#ff5e57', unchanged: '#999' },
@@ -216,7 +230,7 @@ function renderPriceChart(chartData) {
       order: 10,
     },
     {
-      label: 'Portfolio Value',
+      label: 'Portfolio value',
       type: 'line',
       data: portfolioData,
       yAxisID: 'y1',
@@ -232,24 +246,22 @@ function renderPriceChart(chartData) {
   ];
 
   for (const [strategyName, trades] of Object.entries(tradesByStrategy)) {
-    const color = getStrategyColor(strategyName);
-    const displayName = getStrategyDisplayName(strategyName);
 
     if (trades.buy.length > 0) {
       datasets.push({
-        label: `🟢 ${displayName}`,
+        label: 'Buy',
         type: 'scatter',
         data: trades.buy,
         yAxisID: 'y',
         pointStyle: 'triangle',
-        pointRadius: 14,
+        pointRadius: 10,
         pointRotation: 0,
-        backgroundColor: color,
+        backgroundColor: BUY_COLOR,
         borderColor: '#ffffff',
-        borderWidth: 3,
-        pointHoverRadius: 25,
+        borderWidth: 2,
+        pointHoverRadius: 14,
         pointHoverBorderWidth: 4,
-        pointHoverBackgroundColor: color,
+        pointHoverBackgroundColor: BUY_COLOR,
         pointHoverBorderColor: '#ffffff',
         showLine: false,
         order: 0,
@@ -258,19 +270,19 @@ function renderPriceChart(chartData) {
 
     if (trades.sell.length > 0) {
       datasets.push({
-        label: `🔴 ${displayName}`,
+        label: 'Sell',
         type: 'scatter',
         data: trades.sell,
         yAxisID: 'y',
         pointStyle: 'triangle',
-        pointRadius: 14,
+        pointRadius: 10,
         pointRotation: 180,
-        backgroundColor: color,
+        backgroundColor: SELL_COLOR,
         borderColor: '#ffffff',
-        borderWidth: 3,
-        pointHoverRadius: 25,
+        borderWidth: 2,
+        pointHoverRadius: 14,
         pointHoverBorderWidth: 4,
-        pointHoverBackgroundColor: color,
+        pointHoverBackgroundColor: SELL_COLOR,
         pointHoverBorderColor: '#ffffff',
         showLine: false,
         order: 0,
@@ -317,20 +329,19 @@ function renderPriceChart(chartData) {
               const label = context.dataset.label || '';
               const raw = context.raw;
 
-              if (label.includes('🟢') || label.includes('🔴')) {
+              if (label === 'Buy' || label === 'Sell') {
                 const lines = [label];
-                if (raw.strategy_name) lines.push(`Strategy: ${getStrategyDisplayName(raw.strategy_name)}`);
                 lines.push(`Price: $${raw.y.toFixed(2)}`);
                 if (raw.confidence) lines.push(`Confidence: ${(raw.confidence * 100).toFixed(0)}%`);
                 if (raw.pnl != null) {
                   const sign = raw.pnl >= 0 ? '+' : '';
                   lines.push(`P&L: ${sign}$${raw.pnl.toFixed(2)}`);
                 }
-                if (raw.reason) lines.push(`Reason: ${raw.reason}`);
+                if (raw.reason) lines.push(`Why: ${EXIT_REASONS[raw.reason] || raw.reason.replace(/_/g, ' ')}`);
                 return lines;
               }
 
-              if (label === 'Portfolio Value') {
+              if (label === 'Portfolio value') {
                 return `💰 $${context.parsed.y.toFixed(0)}`;
               }
 
@@ -348,7 +359,7 @@ function renderPriceChart(chartData) {
           },
         },
         legend: {
-          display: true,
+          display: false,
           position: 'top',
           labels: {
             color: '#e1e8ff',
@@ -377,8 +388,8 @@ function renderPriceChart(chartData) {
           min: minTime,
           max: maxTime,
           time: {
-            unit: 'hour',
-            displayFormats: { hour: 'MMM dd HH:mm' },
+            // Let Chart.js pick hours, days or months to fit the zoom level
+            displayFormats: { hour: 'MMM dd HH:mm', day: 'MMM dd', week: 'MMM dd', month: 'MMM yyyy' },
             tooltipFormat: 'MMM dd, yyyy HH:mm',
           },
           ticks: { color: '#e1e8ff', autoSkip: true, maxRotation: 0 },
@@ -396,7 +407,7 @@ function renderPriceChart(chartData) {
           type: 'linear',
           position: 'right',
           beginAtZero: false,
-          title: { display: true, text: 'Portfolio Value (USD)', color: '#FFD700' },
+          title: { display: true, text: 'Portfolio value (USD)', color: '#FFD700' },
           ticks: {
             color: '#FFD700',
             callback(value) { return '$' + value.toFixed(0); },
@@ -407,7 +418,8 @@ function renderPriceChart(chartData) {
     },
   });
 
-  updateStrategyLegend(Object.keys(tradesByStrategy), strategyStats);
+  // The result card already shows these numbers
+  document.getElementById('strategy-legend').style.display = 'none';
   setupDragPan(backtestChart, 'backtestChart');
 }
 

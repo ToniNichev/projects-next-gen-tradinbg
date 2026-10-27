@@ -7,124 +7,74 @@
 {% endblock %}
 
 {% block content %}
-<h1>Backtest Runner</h1>
-<p class="text-muted">Test different parameter configurations on historical data</p>
+<div class="bt-head">
+  <div>
+    <h1>Backtest</h1>
+    <p>Replay a strategy on past BTC prices and see how it would have done next to simply holding.</p>
+  </div>
+</div>
 
-<section class="backtest-controls" aria-label="Backtest configuration">
-  <h2>Quick Backtest</h2>
-
-  <div class="backtest-form-grid">
-    <div class="form-group">
-      <label for="days_back">
-        Days of History
-        <span class="info-icon">i
-          <span class="info-tooltip">
-            Amount of historical data to test the strategy on. More days = more reliable results but longer processing time.
-            <hr>
-            <strong>⚠️ LLM Strategy:</strong> Minimum 3 days (50+ candles needed)<br>
-            <strong>Recommended ranges:</strong><br>
-            <span class="risk-low">7-14 days</span> Quick test<br>
-            <span class="risk-medium">30 days</span> Balanced validation<br>
-            <span class="risk-high">60-90 days</span> Thorough analysis
-          </span>
-        </span>
-      </label>
-      <select id="days_back">
-        <option value="3">3 days (Minimum for LLM)</option>
-        <option value="7">7 days</option>
-        <option value="14">14 days</option>
-        <option value="30" selected>30 days</option>
-        <option value="60">60 days</option>
+<section class="bt-panel bt-setup" aria-label="Backtest setup">
+  <div class="bt-setup-grid">
+    <div class="bt-field">
+      <span class="bt-label" id="period-label">Period</span>
+      <div class="bt-seg" id="days-seg" role="radiogroup" aria-labelledby="period-label">
+        <button type="button" role="radio" data-days="30">30 days</button>
+        <button type="button" role="radio" data-days="90">90 days</button>
+        <button type="button" role="radio" data-days="180">6 months</button>
+        <button type="button" role="radio" data-days="365">1 year</button>
+      </div>
+      <select id="days_back" hidden>
+        <option value="30">30 days</option>
         <option value="90">90 days</option>
+        <option value="180">6 months</option>
+        <option value="365" selected>1 year</option>
       </select>
     </div>
 
-    <div class="form-group">
-      <label for="end_date">
-        End Date (optional)
-        <span class="info-icon">i
-          <span class="info-tooltip">
-            Anchors the "Days of History" window to end on this date instead of now —
-            for walk-forward testing against a specific historical period (e.g. a past
-            rally or crash) instead of always re-testing the most recent data.
-            <hr>
-            Leave blank for the normal "N days ending today" behavior.
-          </span>
-        </span>
+    <div class="bt-field">
+      <label class="bt-label" for="end_date">Ending on <span class="bt-optional">optional</span></label>
+      <input type="date" id="end_date" class="bt-input">
+      <span class="bt-hint">Leave empty to end today. Pick a date to test an older stretch, like a past crash.</span>
+    </div>
+  </div>
+
+  <div class="bt-field">
+    <div class="bt-label-row">
+      <span class="bt-label">Strategies</span>
+      <label class="bt-toggle">
+        <input type="checkbox" id="override_strategies">
+        <i aria-hidden="true"></i>
+        Try others for this run
       </label>
-      <input type="date" id="end_date">
+    </div>
+    <div id="active-strategies-list" class="bt-chips">
+      <span class="bt-chip skeleton-chip">Loading…</span>
+    </div>
+    <div id="strategy-override-controls" class="bt-chips bt-override" style="display:none;">
+      <label class="bt-pick"><input type="checkbox" id="override_trend"><span>Trend Hold</span></label>
+      <label class="bt-pick"><input type="checkbox" id="override_ema"><span>EMA Crossover</span></label>
+      <label class="bt-pick"><input type="checkbox" id="override_rsi_bb"><span>RSI + Bollinger</span></label>
+      <label class="bt-pick"><input type="checkbox" id="override_macd"><span>MACD + Volume</span></label>
     </div>
   </div>
 
-  <div class="strategy-override-panel">
-    <label for="override_strategies">
-      <input type="checkbox" id="override_strategies">
-      Override strategies for this run only
-      <span class="info-icon">i
-        <span class="info-tooltip">
-          Test a different strategy combination without changing your saved dashboard
-          configuration in Strategy Center. Unchecked (default) uses whatever is
-          currently enabled there.
-        </span>
-      </span>
-    </label>
-    <div id="strategy-override-controls" class="strategy-override-controls" style="display:none;">
-      <label><input type="checkbox" id="override_ema" checked> EMA Crossover</label>
-      <label><input type="checkbox" id="override_rsi_bb"> RSI + Bollinger Bands</label>
-      <label><input type="checkbox" id="override_macd"> MACD + Volume</label>
-    </div>
+  <div class="bt-note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <span>Trend Hold trades only a few times a year, so <strong>1 year</strong> gives the most meaningful result.
+      A backtest shows how the rules behaved in the past. It doesn't predict future returns.</span>
   </div>
 
-  <div class="config-section">
-    <div class="config-section-inner">
-      <div>
-        <h3>Run backtest with your current configuration</h3>
-        <p class="config-subtitle">
-          Configured in <a href="/strategy-config">Strategy Center</a>
-        </p>
-      </div>
-      <div>
-        <a href="/strategy-config" class="btn secondary btn-preset">
-          🎯 Browse Presets
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <div class="strategy-status-panel" aria-label="Strategy status">
-    <div class="strategy-status-header">
-      <strong>🧠 Multi-Strategy System</strong>
-      <span id="multi-strategy-badge" class="badge badge-info">Loading...</span>
-    </div>
-
-    <div class="strategy-stats-grid">
-      <div>
-        <div class="stat-label">Aggregation Mode</div>
-        <div class="stat-value-highlight" id="aggregation-mode">-</div>
-      </div>
-      <div>
-        <div class="stat-label">Min Confidence</div>
-        <div class="stat-value-highlight" id="min-confidence">-</div>
-      </div>
-    </div>
-
-    <div class="strategy-divider">
-      <strong>Active Strategies:</strong>
-      <div id="active-strategies-list">
-        <div class="text-muted">Loading strategy status...</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="action-buttons">
-    <button id="run-current-btn" class="success btn-run" data-action="run-backtest">
-      <span id="run-current-text">🚀 Run Backtest</span>
+  <div class="bt-actions">
+    <button type="button" class="bt-btn ghost" data-action="view-config">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+      Settings used
     </button>
-    <button id="cancel-backtest-btn" class="danger btn-cancel" style="display:none" data-action="cancel-backtest">
-      ✕ Cancel
-    </button>
-    <button class="secondary btn-config" data-action="view-config">
-      ℹ️ View Config
+    <span class="bt-spacer"></span>
+    <button type="button" id="cancel-backtest-btn" class="bt-btn danger" style="display:none" data-action="cancel-backtest">Cancel</button>
+    <button type="button" id="run-current-btn" class="bt-btn primary" data-action="run-backtest">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.6-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14z"/></svg>
+      <span id="run-current-text">Run backtest</span>
     </button>
   </div>
 
@@ -132,109 +82,100 @@
 
   <div id="backtest-progress" class="progress-panel" aria-label="Backtest progress">
     <div class="progress-header">
-      <span class="progress-title">Backtest Progress</span>
-      <span id="progress-time">Estimating...</span>
+      <span class="progress-title">Running backtest</span>
+      <span id="progress-time">Estimating…</span>
     </div>
-
-    <div id="progress-info" class="progress-info-grid">
-      <div>
-        <span class="progress-info-label">Symbol:</span>
-        <strong id="progress-symbol" class="progress-info-value">-</strong>
-      </div>
-      <div>
-        <span class="progress-info-label">Timeframe:</span>
-        <strong id="progress-timeframe" class="progress-info-value">-</strong>
-      </div>
-      <div>
-        <span class="progress-info-label">Period:</span>
-        <strong id="progress-period" class="progress-info-value">-</strong>
-      </div>
-      <div>
-        <span class="progress-info-label">Strategies:</span>
-        <strong id="progress-strategies" class="progress-info-value strategies">-</strong>
-      </div>
-    </div>
-
     <div class="progress-track">
-      <div id="progress-bar" class="progress-fill">
-        <span id="progress-percent"></span>
-      </div>
+      <div id="progress-bar" class="progress-fill"><span id="progress-percent"></span></div>
     </div>
-    <div id="progress-status">Analyzing historical data...</div>
+    <div id="progress-info" class="progress-info-grid">
+      <div><span class="progress-info-label">Pair</span><strong id="progress-symbol" class="progress-info-value">-</strong></div>
+      <div><span class="progress-info-label">Candles</span><strong id="progress-timeframe" class="progress-info-value">-</strong></div>
+      <div><span class="progress-info-label">Period</span><strong id="progress-period" class="progress-info-value">-</strong></div>
+      <div><span class="progress-info-label">Strategies</span><strong id="progress-strategies" class="progress-info-value strategies">-</strong></div>
+    </div>
+    <div id="progress-status">Analyzing historical data…</div>
   </div>
 </section>
 
-<section id="chart-section" class="chart-section" aria-label="Backtest chart">
+<section id="chart-section" class="chart-section bt-panel" aria-label="Backtest chart">
   <div class="chart-section-header">
-    <h2>Backtest Chart</h2>
-    <button class="secondary" data-action="close-chart">Close Chart</button>
+    <div>
+      <h2>Chart</h2>
+      <p class="bt-sub">Price candles, the strategy's buys and sells, and the portfolio value (gold line).</p>
+    </div>
+    <button type="button" class="bt-icon-btn" data-action="close-chart" title="Close chart" aria-label="Close chart">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
   </div>
 
-  <div class="chart-container">
-    <div class="chart-controls">
-      <div class="nav-group">
-        <button data-action="pan-left" title="Pan left">◀ Left</button>
-        <button data-action="pan-right" title="Pan right">Right ▶</button>
-        <span class="kbd-hint">💡 Drag to scroll | Wheel to zoom</span>
-      </div>
-      <div class="zoom-group">
-        <button data-action="reset-zoom">Reset</button>
-        <button data-action="zoom-in" title="Zoom in">+ Zoom</button>
-        <button data-action="zoom-out" title="Zoom out">- Zoom</button>
-      </div>
+  <div class="chart-controls">
+    <div class="bt-seg compact">
+      <button type="button" data-action="pan-left" title="Pan left" aria-label="Pan left">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <button type="button" data-action="pan-right" title="Pan right" aria-label="Pan right">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
     </div>
+    <span class="kbd-hint">Drag to move · scroll to zoom</span>
+    <div class="bt-seg compact">
+      <button type="button" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+      </button>
+      <button type="button" data-action="zoom-in" title="Zoom in" aria-label="Zoom in">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button type="button" data-action="reset-zoom" title="Show everything">Reset</button>
+    </div>
+  </div>
 
-    <div id="strategy-legend" class="strategy-legend" style="display: none;">
-      <span class="legend-title">Strategies:</span>
-      <div id="legend-items" class="legend-items-row"></div>
-    </div>
+  <div id="strategy-legend" class="strategy-legend" style="display: none;">
+    <div id="legend-items" class="legend-items-row"></div>
+  </div>
 
-    <div class="strategy-legend mt-sm">
-      <span class="legend-title">Support/Resistance:</span>
-      <div class="legend-items-row">
-        <div class="legend-item">
-          <div class="legend-line-hod"></div>
-          <span>HOD (High of Day)</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-line-lod"></div>
-          <span>LOD (Low of Day)</span>
-        </div>
-        <div class="legend-item legend-hint">
-          💡 Marker size = Signal confidence
-        </div>
-      </div>
-    </div>
+  <div class="chart-canvas-wrapper">
+    <canvas id="backtestChart"></canvas>
+  </div>
 
-    <div class="chart-canvas-wrapper">
-      <canvas id="backtestChart"></canvas>
-    </div>
+  <div class="legend-foot">
+    <span class="legend-item"><span class="legend-tri buy"></span>Buy</span>
+    <span class="legend-item"><span class="legend-tri sell"></span>Sell</span>
+    <span class="legend-item hodlod"><span class="legend-line-hod"></span>High of day</span>
+    <span class="legend-item hodlod"><span class="legend-line-lod"></span>Low of day</span>
+    <span class="legend-item"><span class="legend-line-pf"></span>Portfolio value</span>
   </div>
 </section>
 
-<section aria-label="Backtest results">
+<section class="bt-results" aria-label="Backtest results">
   <div class="results-section-header">
-    <h2>Results History</h2>
+    <div>
+      <h2>Results</h2>
+      <p class="bt-sub">Kept until the bot restarts. Select two or more to compare.</p>
+    </div>
     <div class="results-actions">
-      <button class="secondary" id="compare-btn" data-action="compare-selected" disabled>
-        Compare Selected (<span id="selected-count">0</span>)
+      <button type="button" class="bt-btn" id="compare-btn" data-action="compare-selected" disabled>
+        <span>Compare (<span id="selected-count">0</span>)</span>
       </button>
-      <button class="secondary" data-action="clear-results">Clear All</button>
+      <button type="button" class="bt-btn ghost" data-action="clear-results">Clear all</button>
     </div>
   </div>
 
   <div id="results-container">
-    <p class="text-muted results-empty">
-      No backtests run yet. Start a backtest above to see results.
-    </p>
+    <div class="results-empty">
+      <strong>No backtests yet</strong>
+      <span>Pick a period above and press Run backtest.</span>
+    </div>
   </div>
 </section>
 
 <div id="comparison-modal" class="comparison-overlay" aria-label="Backtest comparison">
   <div class="comparison-dialog">
     <div class="comparison-header">
-      <h2>Backtest Comparison</h2>
-      <button class="secondary" data-action="close-comparison">Close</button>
+      <h2>Compare results</h2>
+      <button type="button" class="bt-icon-btn" data-action="close-comparison" title="Close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
     </div>
     <div id="comparison-content"></div>
   </div>
@@ -242,34 +183,20 @@
 
 <template id="config-info-template">
   <div class="config-info-panel">
-    <h3>Current Configuration</h3>
-    <div class="config-source">
-      <strong>Configuration Source:</strong> <span data-field="source"></span>
+    <div class="config-info-head">
+      <h3>Settings a backtest uses</h3>
+      <span class="config-source">From <span data-field="source"></span></span>
     </div>
     <div class="config-grid">
-      <div>
-        <h4 class="green">Risk Management</h4>
-        <table>
-          <tr><td>Stop Loss:</td><td><strong data-field="stop_loss"></strong></td></tr>
-          <tr><td>Take Profit:</td><td><strong data-field="take_profit"></strong></td></tr>
-          <tr><td>Position Size:</td><td><strong data-field="position_size"></strong></td></tr>
-        </table>
-      </div>
-      <div>
-        <h4 class="blue">Multi-Strategy</h4>
-        <table>
-          <tr><td>Aggregation:</td><td><strong data-field="aggregation"></strong></td></tr>
-          <tr><td>Min Confidence:</td><td><strong data-field="confidence"></strong></td></tr>
-        </table>
-      </div>
+      <div><span>Stop loss</span><b data-field="stop_loss"></b></div>
+      <div><span>Take profit</span><b data-field="take_profit"></b></div>
+      <div><span>Position size</span><b data-field="position_size"></b></div>
+      <div><span>Combine signals</span><b data-field="aggregation"></b></div>
+      <div><span>Min confidence</span><b data-field="confidence"></b></div>
     </div>
-    <div>
-      <h4>Strategy Status</h4>
-      <div class="config-strategy-pills" data-field="strategy-pills"></div>
-    </div>
-    <div class="config-note">
-      <p>Backtests run with the <strong>"Current Config"</strong> tab will use these settings.</p>
-    </div>
+    <div class="config-strategy-pills" data-field="strategy-pills"></div>
+    <p class="config-note">Trend Hold ignores stop loss and take profit; it sells only on a daily close below its band.
+      Change these on the <a href="/strategy-config">Strategies</a> page.</p>
   </div>
 </template>
 
@@ -308,32 +235,46 @@
   window.BacktestChart = Chart;
   window.BacktestStrategyConfig = StrategyConfig;
 
+  // Period buttons drive the hidden <select> the scripts read
+  const daysSelect = document.getElementById('days_back');
+  const seg = document.getElementById('days-seg');
+  function syncSeg() {
+    seg.querySelectorAll('button').forEach((b) => {
+      const on = b.dataset.days === daysSelect.value;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+  }
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-days]');
+    if (!b) return;
+    daysSelect.value = b.dataset.days;
+    Timing.saveDaysBackSelection(daysSelect.value);
+    syncSeg();
+  });
+
   window.addEventListener('DOMContentLoaded', () => {
     StrategyConfig.loadCurrentStrategyConfig();
     Timing.restoreDaysBackSelection();
+    syncSeg();
     Results.loadResults();
     Runner.resumeIfRunning();
 
-    const daysBackDropdown = document.getElementById('days_back');
-    if (daysBackDropdown) {
-      daysBackDropdown.addEventListener('change', () => {
-        Timing.saveDaysBackSelection(daysBackDropdown.value);
-      });
-    }
-
     const overrideToggle = document.getElementById('override_strategies');
     const overrideControls = document.getElementById('strategy-override-controls');
-    if (overrideToggle && overrideControls) {
-      overrideToggle.addEventListener('change', async () => {
-        overrideControls.style.display = overrideToggle.checked ? 'block' : 'none';
-        if (overrideToggle.checked) {
-          const current = await StrategyConfig.getCurrentStrategyEnabledMap();
-          document.getElementById('override_ema').checked = current.ema;
-          document.getElementById('override_rsi_bb').checked = current.rsi_bb;
-          document.getElementById('override_macd').checked = current.macd;
-        }
-      });
-    }
+    const currentList = document.getElementById('active-strategies-list');
+    overrideToggle.addEventListener('change', async () => {
+      const on = overrideToggle.checked;
+      overrideControls.style.display = on ? 'flex' : 'none';
+      currentList.style.display = on ? 'none' : 'flex';
+      if (on) {
+        const current = await StrategyConfig.getCurrentStrategyEnabledMap();
+        document.getElementById('override_trend').checked = current.trend;
+        document.getElementById('override_ema').checked = current.ema;
+        document.getElementById('override_rsi_bb').checked = current.rsi_bb;
+        document.getElementById('override_macd').checked = current.macd;
+      }
+    });
 
     setInterval(Results.loadResults, 5000);
   });

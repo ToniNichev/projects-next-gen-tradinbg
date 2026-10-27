@@ -150,6 +150,29 @@ def _save_backtest_report(
     return path
 
 
+CHART_MAX_CANDLES = 2000
+
+
+def _daily_chart_series(candles: list, portfolio_values: list):
+    """Merge chart candles into one per UTC day; keep each day's last portfolio value."""
+    days: dict = {}
+    for c in candles:
+        key = c["timestamp"][:10]
+        d = days.get(key)
+        if d is None:
+            days[key] = {**c, "timestamp": f"{key}T00:00:00Z"}
+        else:
+            d["high"] = max(d["high"], c["high"])
+            d["low"] = min(d["low"], c["low"])
+            d["close"] = c["close"]
+            d["volume"] = (d.get("volume") or 0) + (c.get("volume") or 0)
+    values: dict = {}
+    for pv in portfolio_values:
+        key = pv["timestamp"][:10]
+        values[key] = {"timestamp": f"{key}T00:00:00Z", "value": pv["value"]}
+    return list(days.values()), list(values.values())
+
+
 def run_backtest(
     days_back: int = 30,
     use_database: bool = False,
@@ -597,8 +620,9 @@ def run_backtest(
                 "usdt_balance": trade.usdt_balance,
                 "base_balance": trade.base_balance,
                 "reason": "signal",
-                "exit_reason": None,
-                "pnl": None,
+                "exit_reason": getattr(trade, "exit_reason", None),
+                # Sells carry their realized P&L so win rates count them
+                "pnl": getattr(trade, "pnl", None) if trade.side == "sell" else None,
                 "strategy_name": strategy_name,
                 "confidence": confidence,
                 "rsi": rsi,
@@ -741,19 +765,13 @@ def run_backtest(
     logging.info(f"Trade log saved to: {trader.log_path}")
     logging.info("=" * 80)
     
-    # Limit chart data to last 2000 candles to show more context with trades
-    if len(chart_data["candles"]) > 2000:
-        # Get the timestamp of the first candle we're keeping
-        cutoff_timestamp = chart_data["candles"][-2000]["timestamp"]
-        
-        # Limit candles and portfolio values
-        chart_data["candles"] = chart_data["candles"][-500:]
-        chart_data["portfolio_values"] = chart_data["portfolio_values"][-500:]
-        
-        # Keep all trades for the chart (don't filter by time range)
-        # All trades will be displayed regardless of candle limit
-        # chart_data["trades"] remains unchanged
-    
+    # Long runs: merge candles into daily ones so the chart covers the whole
+    # period (and every trade) without sending thousands of points.
+    if len(chart_data["candles"]) > CHART_MAX_CANDLES:
+        chart_data["candles"], chart_data["portfolio_values"] = _daily_chart_series(
+            chart_data["candles"], chart_data["portfolio_values"]
+        )
+
     result = {
         "trades": trade_count,
         "final_value": total_value,

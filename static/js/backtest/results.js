@@ -1,11 +1,12 @@
 /**
  * Backtest Results Module
- * Handles results display, selection, and comparison with DOM diffing.
+ * Shows finished backtests as cards, lets you pick some to compare.
  */
 
 let selectedResults = new Set();
 let previousResultIds = new Set();
 let renderedCards = new Map();
+let firstLoad = true;
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -13,79 +14,108 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function showLoadingSkeleton(container) {
-  container.innerHTML = `
-    <div class="result-card">
-      <div class="skeleton skeleton-line" style="width:40%"></div>
-      <div class="skeleton skeleton-line short"></div>
-      <div class="result-stats">
-        <div class="stat"><div class="skeleton skeleton-line"></div></div>
-        <div class="stat"><div class="skeleton skeleton-line"></div></div>
-        <div class="stat"><div class="skeleton skeleton-line"></div></div>
-        <div class="stat"><div class="skeleton skeleton-line"></div></div>
-      </div>
-    </div>`;
+const money = (v) => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signed = (v, digits = 2) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(digits)}`;
+const tone = (v) => (v >= 0 ? 'pos' : 'neg');
+
+function periodLabel(days) {
+  const d = Number(days);
+  if (d === 365) return '1 year';
+  if (d === 180) return '6 months';
+  return `${d} days`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(`${iso}T00:00:00Z`);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+function windowText(result) {
+  const r = result.result;
+  const start = r.window_start || result.parameters?.window_start;
+  const end = r.window_end || result.parameters?.window_end;
+  return start && end ? `${fmtDate(start)} → ${fmtDate(end)}` : '';
+}
+
+/** Win rate over closed round trips (sells), not over every fill. */
+function winRate(r) {
+  const closed = (r.winning_trades || 0) + (r.losing_trades || 0);
+  return closed > 0 ? (r.winning_trades / closed) * 100 : null;
+}
+
+/** A bar from the middle: right for gains, left for losses. */
+function barHtml(pct, scale) {
+  const w = Math.min(Math.abs(pct) / scale, 1) * 50;
+  const side = pct >= 0 ? `left:50%` : `right:50%`;
+  return `<div class="rc-bar"><i class="${tone(pct)}" style="${side};width:${w.toFixed(1)}%"></i></div>`;
 }
 
 function buildResultCardHtml(result) {
   const r = result.result;
-  const pnlClass = r.pnl >= 0 ? 'text-success' : 'text-danger';
-  const hasChart = r.chart_data && r.chart_data.candles && r.chart_data.candles.length > 0;
+  const edge = r.pnl_pct - r.buy_hold_pct;
+  const hasChart = r.chart_data?.candles?.length > 0;
+  const scale = Math.max(Math.abs(r.pnl_pct), Math.abs(r.buy_hold_pct), 1);
+  const startValue = r.final_value - r.pnl;
+  const wr = winRate(r);
+  const strategies = (r.strategies_used || []).map(s => `<span>${escapeHtml(s)}</span>`).join('');
+  const selected = selectedResults.has(result.id);
 
-  const presetBadge = result.preset_name
-    ? `<span class="badge badge-info" style="margin-left:0.5rem;">🎨 ${escapeHtml(result.preset_name)}</span>`
-    : '';
-
-  const chartButton = hasChart
-    ? `<button data-action="show-chart" data-backtest-id="${escapeHtml(result.id)}" class="secondary" style="margin-left:1rem;padding:0.25rem 0.75rem;font-size:0.875rem;">📊 View Chart</button>`
-    : '';
-
-  const paramsHtml = Object.keys(result.parameters).length > 0
-    ? `<details style="margin-top:1rem;">
-        <summary style="cursor:pointer;color:var(--text-secondary);">Custom Parameters</summary>
+  const params = Object.entries(result.parameters || {})
+    .filter(([k]) => k !== 'window_start' && k !== 'window_end');
+  const paramsHtml = params.length
+    ? `<details class="rc-params">
+        <summary>Settings changed for this run</summary>
         <table class="params-table">
-          ${Object.entries(result.parameters).map(([k, v]) =>
-            `<tr><td>${escapeHtml(k.replace(/_/g, ' '))}</td><td>${escapeHtml(typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v)}</td></tr>`
+          ${params.map(([k, v]) =>
+            `<tr><td>${escapeHtml(k.replace(/^strategy_/, '').replace(/_/g, ' '))}</td><td>${escapeHtml(typeof v === 'boolean' ? (v ? 'On' : 'Off') : v)}</td></tr>`
           ).join('')}
         </table>
       </details>`
     : '';
 
   return `
-    <div class="result-header">
-      <div>
-        <strong>${escapeHtml(new Date(result.timestamp).toLocaleString())}</strong>
-        <span class="text-muted"> · ${escapeHtml(result.days_back)} days</span>
-        ${presetBadge}
-        ${chartButton}
+    <div class="rc-top">
+      <div class="rc-title">
+        <strong>${escapeHtml(periodLabel(result.days_back))}</strong>
+        <span class="rc-dates">${escapeHtml(windowText(result))}</span>
+        <div class="rc-strats">${strategies}</div>
       </div>
-      <div>
-        <span class="status ${r.pnl >= 0 ? 'success' : 'danger'}">
-          ${r.pnl >= 0 ? '+' : ''}${r.pnl_pct.toFixed(2)}%
-        </span>
+      <span class="rc-verdict">${edge >= 0 ? 'Beat' : 'Trailed'} holding by ${Math.abs(edge).toFixed(1)} pts</span>
+    </div>
+    <div class="rc-compare">
+      <div class="rc-big">
+        <span>Strategy</span>
+        <b class="${tone(r.pnl_pct)}">${signed(r.pnl_pct)}%</b>
+        ${barHtml(r.pnl_pct, scale)}
+      </div>
+      <div class="rc-big">
+        <span>Just holding BTC</span>
+        <b class="${tone(r.buy_hold_pct)}">${signed(r.buy_hold_pct)}%</b>
+        ${barHtml(r.buy_hold_pct, scale)}
       </div>
     </div>
-    <div class="result-stats">
-      <div class="stat">
-        <div class="stat-label">Final Value</div>
-        <div class="stat-value">$${r.final_value.toFixed(2)}</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Total P&L</div>
-        <div class="stat-value ${pnlClass}">${r.pnl >= 0 ? '+' : ''}$${r.pnl.toFixed(2)}</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Trades</div>
-        <div class="stat-value">${r.trades}</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">vs Buy & Hold</div>
-        <div class="stat-value ${r.pnl_pct > r.buy_hold_pct ? 'text-success' : 'text-danger'}">
-          ${(r.pnl_pct - r.buy_hold_pct).toFixed(2)}%
-        </div>
-      </div>
+    <div class="rc-stats">
+      <div><span>Ending value</span><b>${money(r.final_value)}</b></div>
+      <div><span>Profit / loss</span><b class="${tone(r.pnl)}">${r.pnl >= 0 ? '+' : '−'}${money(Math.abs(r.pnl))}</b></div>
+      <div><span>Trades</span><b>${r.trades}</b></div>
+      <div><span>Win rate</span><b>${wr === null ? '—' : `${wr.toFixed(0)}%`}</b></div>
+      <div title="Largest fall from a high point during the run"><span>Worst drop</span><b>${r.max_drawdown_pct == null ? '—' : `−${Number(r.max_drawdown_pct).toFixed(1)}%`}</b></div>
+    </div>
+    <div class="rc-foot">
+      ${hasChart ? `<button type="button" class="bt-btn sm" data-action="show-chart" data-backtest-id="${escapeHtml(result.id)}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-6"/></svg>
+        View chart</button>` : ''}
+      <button type="button" class="bt-btn sm ${selected ? 'on' : ''}" data-action="select-result" data-result-id="${escapeHtml(result.id)}" aria-pressed="${selected}">
+        ${selected ? 'Selected' : 'Select'}
+      </button>
+      <span class="rc-when">Started with ${money(startValue)} · run ${escapeHtml(new Date(result.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</span>
     </div>
     ${paramsHtml}`;
+}
+
+function emptyHtml() {
+  return `<div class="results-empty"><strong>No backtests yet</strong><span>Pick a period above and press Run backtest.</span></div>`;
 }
 
 export async function loadResults() {
@@ -96,84 +126,76 @@ export async function loadResults() {
     const data = await response.json();
 
     const results = (data.data?.results || data.results || [])
-      .filter(r => r.status === 'completed' && r.result);
+      .filter(r => r.status === 'completed' && r.result)
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     if (results.length === 0) {
-      container.innerHTML = '<p class="text-muted results-empty">No backtests run yet. Start a backtest above to see results.</p>';
+      container.innerHTML = emptyHtml();
       renderedCards.clear();
+      previousResultIds = new Set();
+      firstLoad = false;
       return;
     }
 
-    const currentResultIds = new Set(results.map(r => r.id));
-    const newResultIds = new Set();
-    currentResultIds.forEach(id => {
-      if (!previousResultIds.has(id)) newResultIds.add(id);
-    });
+    const currentIds = new Set(results.map(r => r.id));
+    const newIds = firstLoad ? new Set() : new Set([...currentIds].filter(id => !previousResultIds.has(id)));
 
-    const staleIds = new Set(renderedCards.keys());
-    results.forEach(r => staleIds.delete(r.id));
-    staleIds.forEach(id => {
-      const el = renderedCards.get(id);
-      if (el && el.parentNode) el.parentNode.removeChild(el);
-      renderedCards.delete(id);
-    });
+    // Drop cards that no longer exist and the empty message
+    for (const [id, el] of renderedCards) {
+      if (!currentIds.has(id)) { el.remove(); renderedCards.delete(id); selectedResults.delete(id); }
+    }
+    container.querySelectorAll('.results-empty').forEach(el => el.remove());
 
     results.forEach((result, index) => {
-      const hasChart = result.result.chart_data?.candles?.length > 0;
       let card = renderedCards.get(result.id);
-
       if (!card) {
         card = document.createElement('div');
         card.className = 'result-card';
         card.dataset.resultId = result.id;
         card.innerHTML = buildResultCardHtml(result);
+        const edge = result.result.pnl_pct - result.result.buy_hold_pct;
+        card.classList.add(edge >= 0 ? 'beat' : 'trail');
         renderedCards.set(result.id, card);
-
-        if (newResultIds.has(result.id)) {
-          card.classList.add('new-result');
-          setTimeout(() => card.classList.remove('new-result'), 2000);
-        }
+        if (newIds.has(result.id)) card.classList.add('new-result');
       }
-
       card.classList.toggle('selected', selectedResults.has(result.id));
-      card.classList.toggle('has-chart', hasChart);
-
       const ref = container.children[index];
-      if (ref !== card) {
-        container.insertBefore(card, ref || null);
-      }
+      if (ref !== card) container.insertBefore(card, ref || null);
     });
 
-    // Remove any leftover text nodes / old empty messages
-    while (container.children.length > results.length) {
-      container.removeChild(container.lastChild);
-    }
+    previousResultIds = currentIds;
+    firstLoad = false;
+    updateCompareButton();
 
-    previousResultIds = currentResultIds;
-
-    if (newResultIds.size > 0) {
-      setTimeout(() => {
-        const firstNew = container.querySelector('.result-card.new-result');
-        if (firstNew) firstNew.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 100);
+    if (newIds.size > 0) {
+      const first = container.querySelector('.result-card.new-result');
+      if (first) setTimeout(() => first.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
     }
   } catch (error) {
     console.error('Error loading results:', error);
   }
 }
 
-export function toggleSelection(id) {
-  if (selectedResults.has(id)) {
-    selectedResults.delete(id);
-  } else {
-    selectedResults.add(id);
-  }
-
+function updateCompareButton() {
   document.getElementById('selected-count').textContent = selectedResults.size;
   document.getElementById('compare-btn').disabled = selectedResults.size < 2;
+}
+
+export function toggleSelection(id) {
+  if (selectedResults.has(id)) selectedResults.delete(id);
+  else selectedResults.add(id);
+  updateCompareButton();
 
   const card = renderedCards.get(id);
-  if (card) card.classList.toggle('selected', selectedResults.has(id));
+  if (!card) return;
+  const on = selectedResults.has(id);
+  card.classList.toggle('selected', on);
+  const btn = card.querySelector('[data-action="select-result"]');
+  if (btn) {
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? 'Selected' : 'Select';
+  }
 }
 
 export async function compareSelected() {
@@ -183,47 +205,38 @@ export async function compareSelected() {
   const data = await response.json();
   const allResults = data.data?.results || data.results || [];
   const results = allResults.filter(r => selectedResults.has(r.id) && r.status === 'completed');
-
   if (results.length < 2) return;
 
-  // Find best values for highlighting
-  const pnls = results.map(r => r.result.pnl);
-  const bestPnl = Math.max(...pnls);
-  const worstPnl = Math.min(...pnls);
+  const best = (key, pickMax = true) => {
+    const vals = results.map(r => r.result[key]).filter(v => v != null);
+    return pickMax ? Math.max(...vals) : Math.min(...vals);
+  };
+  const bestPct = best('pnl_pct');
+  const bestDd = best('max_drawdown_pct', false);
+  const mark = (cond) => (cond ? 'metric-best' : '');
 
-  const comparison = document.getElementById('comparison-content');
-  comparison.innerHTML = `
+  document.getElementById('comparison-content').innerHTML = `
     <div class="comparison-grid">
       ${results.map(result => {
         const r = result.result;
-        const pnlRank = r.pnl === bestPnl ? 'metric-best' : (r.pnl === worstPnl && results.length > 2 ? 'metric-worst' : '');
-        const vsHold = r.pnl_pct - r.buy_hold_pct;
-        const vsHoldClass = vsHold >= 0 ? 'text-success' : 'text-danger';
-
+        const edge = r.pnl_pct - r.buy_hold_pct;
+        const wr = winRate(r);
         return `
           <div class="comparison-card">
-            <h3>${escapeHtml(new Date(result.timestamp).toLocaleString())}</h3>
-            <p class="text-muted">${escapeHtml(result.days_back)} days backtest</p>
+            <h3>${escapeHtml(periodLabel(result.days_back))}</h3>
+            <p class="cmp-dates">${escapeHtml(windowText(result))} · ${escapeHtml((r.strategies_used || []).join(', '))}</p>
             <table class="params-table">
-              <tr><td>P&L</td><td class="${pnlRank || (r.pnl >= 0 ? 'text-success' : 'text-danger')}">${r.pnl >= 0 ? '+' : ''}$${r.pnl.toFixed(2)}</td></tr>
-              <tr><td>P&L %</td><td class="${r.pnl_pct >= 0 ? 'text-success' : 'text-danger'}">${r.pnl_pct.toFixed(2)}%</td></tr>
+              <tr><td>Strategy</td><td class="${mark(r.pnl_pct === bestPct)} ${tone(r.pnl_pct)}">${signed(r.pnl_pct)}%</td></tr>
+              <tr><td>Just holding</td><td class="${tone(r.buy_hold_pct)}">${signed(r.buy_hold_pct)}%</td></tr>
+              <tr><td>Difference</td><td class="${tone(edge)}">${signed(edge, 1)} pts</td></tr>
+              <tr><td>Ending value</td><td>${money(r.final_value)}</td></tr>
               <tr><td>Trades</td><td>${r.trades}</td></tr>
-              <tr><td>Final Value</td><td>$${r.final_value.toFixed(2)}</td></tr>
-              <tr><td>vs Buy & Hold</td><td class="${vsHoldClass}">${vsHold >= 0 ? '+' : ''}${vsHold.toFixed(2)}%</td></tr>
+              <tr><td>Win rate</td><td>${wr === null ? '—' : `${wr.toFixed(0)}%`}</td></tr>
+              <tr><td>Worst drop</td><td class="${mark(r.max_drawdown_pct === bestDd)}">${r.max_drawdown_pct == null ? '—' : `−${Number(r.max_drawdown_pct).toFixed(1)}%`}</td></tr>
             </table>
-            ${Object.keys(result.parameters).length > 0 ? `
-              <h4 style="margin-top:1rem;">Parameters</h4>
-              <table class="params-table">
-                ${Object.entries(result.parameters).map(([k, v]) =>
-                  `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v)}</td></tr>`
-                ).join('')}
-              </table>
-            ` : ''}
-          </div>
-        `;
+          </div>`;
       }).join('')}
-    </div>
-  `;
+    </div>`;
 
   document.getElementById('comparison-modal').style.display = 'block';
 }
@@ -233,48 +246,46 @@ export function closeComparison() {
 }
 
 export async function clearResults() {
-  if (!confirm('Are you sure you want to clear all backtest results?')) return;
+  if (!confirm('Clear all backtest results?')) return;
 
+  const status = document.getElementById('backtest-status');
   try {
     const response = await fetch('/api/backtest/clear', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
     });
-
     if (!response.ok) throw new Error('Failed to clear results');
 
     const data = await response.json();
     selectedResults.clear();
     renderedCards.clear();
     previousResultIds.clear();
-    document.getElementById('selected-count').textContent = '0';
-    document.getElementById('compare-btn').disabled = true;
+    updateCompareButton();
 
-    const status = document.getElementById('backtest-status');
-    status.innerHTML = `<p class="text-success">✓ ${escapeHtml(data.message)}</p>`;
+    status.innerHTML = `<p class="bt-msg ok">${escapeHtml(data.message || 'Results cleared')}</p>`;
     setTimeout(() => { status.innerHTML = ''; }, 3000);
-
     loadResults();
   } catch (error) {
     console.error('Error clearing results:', error);
-    alert('Failed to clear results. Please try again.');
+    status.innerHTML = '<p class="bt-msg err">Could not clear results. Please try again.</p>';
   }
 }
 
-// Event delegation for result card clicks
+// Card buttons
 document.addEventListener('click', (e) => {
-  const showChartBtn = e.target.closest('[data-action="show-chart"]');
-  if (showChartBtn) {
-    e.stopPropagation();
-    const backtestId = showChartBtn.dataset.backtestId;
-    if (window.BacktestChart && window.BacktestChart.showChart) {
-      window.BacktestChart.showChart(backtestId);
-    }
+  const chartBtn = e.target.closest('[data-action="show-chart"]');
+  if (chartBtn) {
+    window.BacktestChart?.showChart?.(chartBtn.dataset.backtestId);
     return;
   }
+  const pick = e.target.closest('[data-action="select-result"]');
+  if (pick) toggleSelection(pick.dataset.resultId);
+});
 
-  const card = e.target.closest('.result-card[data-result-id]');
-  if (card) {
-    toggleSelection(card.dataset.resultId);
-  }
+// Close the compare view with Escape or a click on the backdrop
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeComparison();
+});
+document.getElementById('comparison-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'comparison-modal') closeComparison();
 });

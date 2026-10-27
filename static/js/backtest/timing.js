@@ -39,8 +39,8 @@ export function getEstimatedDuration(daysBack) {
   const durations = history[daysBack];
   
   if (!durations || durations.length === 0) {
-    // Default estimates based on days_back (1.5s per day as baseline)
-    return daysBack * 1.5;
+    // Without the AI strategy a run takes seconds: ~4s for a year of 1h candles
+    return 3 + daysBack * 0.02;
   }
   
   // Calculate average (like Jenkins does)
