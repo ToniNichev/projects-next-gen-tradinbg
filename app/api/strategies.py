@@ -396,6 +396,9 @@ def update_strategy_config():
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "No data provided"}), 400
+        for key in ("symbol", "timeframe"):
+            if key in data and not str(data[key] or "").strip():
+                return jsonify({"error": f"{key} can't be empty"}), 400
         db = get_database()
         configs_to_save, count = _batch_save_config(data, db)
         return jsonify({"success": True, "message": f"Updated {count} parameters",

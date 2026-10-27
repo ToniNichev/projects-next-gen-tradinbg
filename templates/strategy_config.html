@@ -911,14 +911,253 @@
     0%, 100% { opacity: 0.6; }
     50% { opacity: 1; }
   }
+
+  /* ================================================================
+     Glass theme for the Strategy Center (overrides the rules above)
+     ================================================================ */
+  .sc-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
+  .sc-head h1 { margin: 0; letter-spacing: -0.02em; }
+  .sc-head p { margin: 0.35rem 0 0; color: var(--text-secondary); font-size: 0.9rem; }
+
+  /* Status: a row of glass pills */
+  .status-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem;
+    padding: 0; margin: 0 0 1.75rem; background: none; border: 0;
+    font-size: 0.78rem; color: var(--text-secondary);
+  }
+  .status-bar > span:not(.sep) {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    padding: 0.32rem 0.75rem; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  .status-bar > span#systemStatus { padding: 0.2rem; background: none; border: 0; box-shadow: none; }
+  .status-bar .sep { display: none; }
+  .status-bar strong { color: var(--text-primary); font-weight: 650; }
+  .badge { border-radius: 999px; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  .badge-enabled { background: rgba(88, 214, 141, 0.12); color: var(--accent-green); border: 1px solid rgba(88, 214, 141, 0.35); }
+
+  /* Section headers: glass bars */
+  .collapsible-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.85rem 1.1rem; margin: 1.75rem 0 1rem;
+    border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+  .collapsible-header:hover { background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.025)); }
+  .collapsible-header h2 { margin: 0; font-size: 1.1rem !important; color: var(--text-primary) !important; letter-spacing: -0.01em; }
+  .collapse-icon {
+    display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px;
+    font-size: 0.7rem; color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Panels */
+  .config-section, .strategy-section, .info-box, #presetSection > div > div:first-child {
+    border-radius: 16px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
+      var(--bg-secondary) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 36px -22px rgba(0, 0, 0, 0.8);
+  }
+  .config-section { border-left-width: 1px !important; }
+  .config-section h3, .strategy-section h3 { font-size: 1rem; letter-spacing: -0.01em; }
+  .info-box h6 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-blue); }
+
+  /* Inputs */
+  .form-label { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); }
+  .form-control, .form-select {
+    border-radius: 10px !important;
+    background: rgba(0, 0, 0, 0.28) !important;
+    border: 1px solid rgba(255, 255, 255, 0.11) !important;
+    color: var(--text-primary) !important;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .form-control:focus, .form-select:focus {
+    border-color: rgba(83, 155, 245, 0.7) !important;
+    box-shadow: 0 0 0 3px rgba(83, 155, 245, 0.18) !important;
+  }
+
+  /* Sliders: filled track, white thumb with blue ring */
+  .form-range {
+    height: 6px; border-radius: 999px; cursor: pointer;
+    background: linear-gradient(90deg, var(--accent-blue) var(--fill, 0%), rgba(255, 255, 255, 0.1) var(--fill, 0%));
+  }
+  .form-range::-webkit-slider-thumb {
+    width: 18px; height: 18px; background: #fff;
+    border: 3px solid var(--accent-blue); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  }
+  .form-range::-moz-range-thumb { width: 14px; height: 14px; background: #fff; border: 3px solid var(--accent-blue); }
+  .range-value {
+    min-width: 0; margin-right: 0.35rem; padding: 0.05rem 0.45rem; border-radius: 6px;
+    background: rgba(83, 155, 245, 0.12); color: #9cc4ff;
+  }
+
+  /* Strategy tabs: segmented glass control */
+  .strategy-tabs {
+    display: flex; gap: 3px; padding: 4px; border-radius: 14px;
+    background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35); overflow-x: auto;
+  }
+  .strategy-tab, .strategy-tab:first-child, .strategy-tab:last-child {
+    flex: 1; white-space: nowrap; border: 1px solid transparent !important; border-radius: 10px !important;
+    background: transparent; color: var(--text-secondary); font-weight: 600; font-size: 0.85rem;
+    display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+  }
+  .strategy-tab:hover { color: var(--text-primary); background: rgba(255, 255, 255, 0.06); }
+  .strategy-tab.active, .strategy-tab.active.tab-ema, .strategy-tab.active.tab-rsi,
+  .strategy-tab.active.tab-macd, .strategy-tab.active.tab-llm, .strategy-tab.active.tab-trend {
+    color: #fff; border-color: rgba(83, 155, 245, 0.45) !important;
+    background: linear-gradient(180deg, rgba(83, 155, 245, 0.3), rgba(83, 155, 245, 0.12));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 14px -4px rgba(83, 155, 245, 0.45);
+  }
+  .strategy-tab-panel { margin-top: 0.9rem; }
+
+  /* Buttons */
+  .sc-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+    height: 40px; padding: 0 1.05rem; border-radius: 11px; cursor: pointer;
+    font: inherit; font-size: 0.86rem; font-weight: 650; white-space: nowrap;
+    color: var(--text-primary);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 8px -2px rgba(0, 0, 0, 0.5);
+    transition: transform 0.12s, filter 0.15s, border-color 0.15s;
+  }
+  .sc-btn:hover { border-color: rgba(255, 255, 255, 0.22); filter: brightness(1.1); }
+  .sc-btn:active { transform: scale(0.97); }
+  .sc-btn svg { width: 16px; height: 16px; }
+  .sc-btn.primary {
+    color: #fff; border-color: rgba(88, 214, 141, 0.6);
+    background: linear-gradient(180deg, #34d27a, #1e9e57);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 8px 22px -10px rgba(46, 204, 113, 0.7);
+  }
+  .sc-btn.ghost { background: transparent; box-shadow: none; color: var(--text-secondary); }
+  .action-buttons { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: flex-end; margin: 1.5rem 0 1rem; }
+  .action-buttons .spacer { flex: 1; }
+
+  /* Strategy overview cards */
+  .strategy-overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.9rem; }
+  .so-card {
+    --tone: #8b949e;
+    position: relative; display: flex; flex-direction: column; gap: 0.75rem;
+    padding: 1rem 1.1rem; border-radius: 16px; overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      radial-gradient(360px 140px at 100% 0%, color-mix(in srgb, var(--tone) 12%, transparent), transparent 70%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012)),
+      var(--bg-secondary);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .so-card.on { --tone: var(--accent-green); border-color: rgba(88, 214, 141, 0.32); }
+  .so-card.off .so-desc, .so-card.off .so-stats { opacity: 0.6; }
+  .so-top { display: flex; align-items: flex-start; gap: 0.7rem; }
+  .so-icon {
+    display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 11px;
+    color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
+  }
+  .so-icon svg { width: 19px; height: 19px; }
+  .so-name { font-weight: 650; font-size: 1rem; line-height: 1.2; display: flex; align-items: center; gap: 0.35rem; }
+  .so-name .info-icon { font-size: 0.65rem; }
+  .so-type { font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem; }
+  .so-switch {
+    margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 0.45rem;
+    height: 30px; padding: 0 0.6rem 0 0.35rem; border-radius: 999px; cursor: pointer;
+    font: inherit; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .so-switch i {
+    position: relative; width: 30px; height: 18px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.15); transition: background 0.2s;
+  }
+  .so-switch i::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+  .so-card.on .so-switch { color: var(--accent-green); border-color: rgba(88, 214, 141, 0.35); background: rgba(88, 214, 141, 0.08); }
+  .so-card.on .so-switch i { background: var(--accent-green); }
+  .so-card.on .so-switch i::after { transform: translateX(12px); }
+  .so-switch:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+  .so-desc { margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--text-secondary); }
+  .so-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; }
+  .so-stats div {
+    padding: 0.45rem 0.55rem; border-radius: 10px;
+    background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .so-stats span { display: block; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-secondary); }
+  .so-stats b { display: block; margin-top: 0.1rem; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+  .so-link {
+    align-self: flex-start; font-size: 0.78rem; font-weight: 600; color: var(--accent-blue);
+    cursor: pointer; text-decoration: none;
+  }
+  .so-link:hover { text-decoration: underline; }
+
+  /* Preset cards */
+  .preset-card {
+    --tone: #7f8c8d;
+    position: relative; cursor: pointer; padding: 0.95rem 1rem; border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      radial-gradient(300px 120px at 100% 0%, color-mix(in srgb, var(--tone) 12%, transparent), transparent 70%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.01));
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .preset-card:hover { border-color: color-mix(in srgb, var(--tone) 55%, transparent); transform: translateY(-1px); }
+  .preset-card.active {
+    border-color: var(--tone);
+    box-shadow: 0 0 0 1px var(--tone), 0 10px 30px -12px color-mix(in srgb, var(--tone) 60%, transparent);
+  }
+  .preset-card h4 { margin: 0; font-size: 0.92rem; color: var(--text-primary); line-height: 1.3; }
+  .preset-card .cat {
+    display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.5rem; border-radius: 999px;
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--tone); background: color-mix(in srgb, var(--tone) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
+  }
+  .preset-card p { color: var(--text-secondary); font-size: 0.8rem; margin: 0.55rem 0 0; line-height: 1.45; }
+  .preset-card .active-tag {
+    position: absolute; top: 0.7rem; right: 0.7rem; font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--tone);
+  }
+
+  /* Older buttons elsewhere on the page get the same glass look */
+  main button.btn, main button.secondary, main button.success,
+  main button.btn-primary, main button.btn-secondary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    min-height: 36px; padding: 0 0.9rem !important; border-radius: 10px !important;
+    font: inherit; font-size: 0.84rem !important; font-weight: 650; cursor: pointer;
+    color: var(--text-primary); opacity: 1 !important;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.13) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+  main button.btn:hover, main button.secondary:hover, main button.btn-secondary:hover { border-color: rgba(255, 255, 255, 0.24) !important; }
+  main button.success, main button.btn-primary {
+    color: #fff; border-color: rgba(83, 155, 245, 0.55) !important;
+    background: linear-gradient(180deg, #5ea6ff, #3a7ee0) !important;
+  }
+
+  @media (max-width: 720px) {
+    .action-buttons { justify-content: stretch; }
+    .action-buttons .sc-btn { flex: 1 1 45%; }
+    .action-buttons .spacer { display: none; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1>🧠 Strategy Center</h1>
-<p style="color: var(--text-secondary); margin-bottom: 2rem;">
-  Monitor performance, enable/disable strategies, and configure all parameters in one place. Changes apply <strong>instantly</strong>.
-</p>
+<div class="sc-head">
+  <div>
+    <h1>Strategy Center</h1>
+    <p>Turn strategies on or off and tune their settings. Most changes apply instantly.</p>
+  </div>
+</div>
 
 <!-- Toast Notification Container -->
 <div id="toastContainer" class="toast-container"></div>
@@ -942,7 +1181,7 @@
 <!-- STRATEGY OVERVIEW CARDS (with toggles) -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div class="collapsible-header" onclick="toggleSection('strategyOverview')">
-  <h2>📊 Strategy Overview</h2>
+  <h2>Strategies</h2>
   <span class="collapse-icon">▼</span>
 </div>
 <div id="strategyOverview" class="collapsible-content">
@@ -960,9 +1199,7 @@
 <!-- PRESET SELECTOR -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <div class="collapsible-header" onclick="toggleSection('presetSection')">
-  <h2 style="color: var(--accent-green); display: flex; align-items: center; gap: 0.5rem;">
-    <span>🎨 Configuration Presets</span>
-  </h2>
+  <h2>Presets</h2>
   <span class="collapse-icon">▼</span>
 </div>
 <div id="presetSection" class="collapsible-content">
@@ -1030,9 +1267,7 @@
   
   <!-- GENERAL SETTINGS HEADER -->
   <div class="collapsible-header" onclick="toggleSection('generalSettings')">
-    <h2 style="color: var(--accent-green); display: flex; align-items: center; gap: 0.5rem;">
-      <span>⚙️ General Bot Settings</span>
-    </h2>
+    <h2>General Settings</h2>
     <span class="collapse-icon">▼</span>
   </div>
   <div id="generalSettings" class="collapsible-content">
@@ -1058,6 +1293,9 @@
           </span>
         </label>
         <select class="form-select" id="symbol" name="symbol">
+          <option value="BTC/USD">BTC/USD</option>
+          <option value="ETH/USD">ETH/USD</option>
+          <option value="SOL/USD">SOL/USD</option>
           <option value="BTC/USDT">BTC/USDT</option>
           <option value="ETH/USDT">ETH/USDT</option>
           <option value="SOL/USDT">SOL/USDT</option>
@@ -1124,9 +1362,7 @@
   
   <!-- STRATEGY SETTINGS SEPARATOR -->
   <div class="collapsible-header" onclick="toggleSection('strategySettings')" style="margin-top: 2rem;">
-    <h2 style="color: var(--accent-blue); display: flex; align-items: center; gap: 0.5rem;">
-      <span>🎯 Strategy Configuration</span>
-    </h2>
+    <h2>Strategy Settings</h2>
     <span class="collapse-icon">▼</span>
   </div>
   <div id="strategySettings" class="collapsible-content">
@@ -1432,19 +1668,19 @@
     </div>
     <div class="strategy-tabs" id="strategyTabBar">
       <div class="strategy-tab tab-ema active" onclick="switchStrategyTab('ema')" id="tab-btn-ema">
-        <span class="tab-dot on" id="tab-dot-ema"></span> 📈 EMA
+        <span class="tab-dot on" id="tab-dot-ema"></span> EMA
       </div>
       <div class="strategy-tab tab-rsi" onclick="switchStrategyTab('rsi')" id="tab-btn-rsi">
-        <span class="tab-dot on" id="tab-dot-rsi"></span> 🌊 RSI+BB
+        <span class="tab-dot on" id="tab-dot-rsi"></span> RSI + BB
       </div>
       <div class="strategy-tab tab-macd" onclick="switchStrategyTab('macd')" id="tab-btn-macd">
-        <span class="tab-dot on" id="tab-dot-macd"></span> 📊 MACD
+        <span class="tab-dot on" id="tab-dot-macd"></span> MACD
       </div>
       <div class="strategy-tab tab-llm" onclick="switchStrategyTab('llm')" id="tab-btn-llm">
-        <span class="tab-dot" id="tab-dot-llm"></span> 🤖 LLM
+        <span class="tab-dot" id="tab-dot-llm"></span> LLM
       </div>
       <div class="strategy-tab tab-trend" onclick="switchStrategyTab('trend')" id="tab-btn-trend">
-        <span class="tab-dot" id="tab-dot-trend"></span> 🧭 Trend
+        <span class="tab-dot" id="tab-dot-trend"></span> Trend Hold
       </div>
     </div>
   </div>
@@ -2252,20 +2488,17 @@
 
   <!-- Action Buttons -->
   <div class="action-buttons">
-    <button type="button" class="secondary" onclick="loadCurrentConfig()">
-      🔄 Reset to Current
+    <button type="button" class="sc-btn ghost" onclick="debugConfig()" title="Show what configuration is currently active">Debug</button>
+    <button type="button" class="sc-btn ghost" onclick="generateEnvFile()" title="Export parameter settings as .env backup (strategy enable/disable states are stored in database)">Export backup</button>
+    <span class="spacer"></span>
+    <button type="button" class="sc-btn" onclick="loadCurrentConfig()" title="Discard unsaved edits and reload the saved settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Reset
     </button>
-    <button type="button" class="btn" onclick="debugConfig()" title="Show what configuration is currently active">
-      🐛 Debug Config
+    <button type="button" class="sc-btn" onclick="previewChanges()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Preview changes
     </button>
-    <button type="button" class="btn" onclick="previewChanges()">
-      👁️ Preview Changes
-    </button>
-    <button type="button" class="success" onclick="applyConfig()" id="applyBtn">
-      ✅ Apply Configuration
-    </button>
-    <button type="button" class="btn" style="opacity: 0.7;" onclick="generateEnvFile()" title="Export parameter settings as .env backup (strategy enable/disable states are stored in database)">
-      📄 Export Backup
+    <button type="button" class="sc-btn primary" onclick="applyConfig()" id="applyBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>Apply configuration
     </button>
   </div>
 
@@ -2385,7 +2618,12 @@
       }
       
       // Trading Parameters
-      if (config.symbol) document.getElementById('symbol').value = config.symbol;
+      if (config.symbol) {
+        // Keep whatever pair is saved selectable, even if it isn't in the list
+        const sel = document.getElementById('symbol');
+        if (![...sel.options].some(o => o.value === config.symbol)) sel.add(new Option(config.symbol, config.symbol), 0);
+        sel.value = config.symbol;
+      }
       if (config.timeframe) document.getElementById('timeframe').value = config.timeframe;
       if (config.initial_usdt) document.getElementById('initialUsdt').value = config.initial_usdt;
       
@@ -2849,7 +3087,8 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
 
       document.getElementById('systemStatus').innerHTML = 
         '<span class="badge badge-enabled">Active</span>';
-      document.getElementById('systemAggMode').textContent = data.aggregation_mode;
+      document.getElementById('systemAggMode').textContent =
+        String(data.aggregation_mode || '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
       document.getElementById('activeCount').textContent = 
         data.strategies.filter(s => s.enabled).length + '/' + data.strategies.length;
       document.getElementById('systemMinConf').textContent = 
@@ -2907,20 +3146,24 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       
       // Render strategy overview cards
       const container = document.getElementById('strategyOverviewContainer');
-      container.innerHTML = data.strategies.map(strategy => {
-        let icon = '🌊';
-        if (strategy.name.includes('EMA')) icon = '📈';
-        else if (strategy.name.includes('MACD')) icon = '📊';
-        else if (strategy.name.includes('llm')) icon = '🤖';
-        else if (strategy.name === 'Trend_Hold') icon = '🧭';
-        const statusClass = strategy.enabled ? 'enabled' : 'disabled';
-        const toggleBtnClass = strategy.enabled ? 'disable' : 'enable';
-        const toggleBtnText = strategy.enabled ? '🔴 Disable' : '🟢 Enable';
-        
-        // Get strategy info
+      const SO_NAMES = { EMA_Crossover: 'EMA Crossover', RSI_BB_MeanReversion: 'RSI + Bollinger Bands',
+                         MACD_Volume_Momentum: 'MACD + Volume', llm_pattern: 'LLM Pattern', Trend_Hold: 'Trend Hold' };
+      const SO_ICONS = {
+        EMA_Crossover: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+        RSI_BB_MeanReversion: '<path d="M2 12c2.5-5 5-5 7.5 0s5 5 7.5 0 3.5-3 5-2"/><path d="M2 6h20M2 18h20" opacity=".45"/>',
+        MACD_Volume_Momentum: '<path d="M4 20V10M9 20V4M14 20v-8M19 20v-5"/>',
+        llm_pattern: '<rect x="5" y="7" width="14" height="11" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01M9 15h6"/>',
+        Trend_Hold: '<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',
+      };
+      // Active strategies first
+      const ordered = [...data.strategies].sort((a, b) => Number(b.enabled) - Number(a.enabled));
+      container.innerHTML = ordered.map(strategy => {
+        const on = strategy.enabled;
         const info = strategyInfo[strategy.name] || {};
+        const name = SO_NAMES[strategy.name] || strategy.name;
+        const icon = SO_ICONS[strategy.name] || '<circle cx="12" cy="12" r="8"/>';
         const infoTooltip = info.howItWorks ? `
-          <span class="info-icon strategy-info-icon" style="position: relative; margin-left: 0.5rem; font-size: 0.7rem;">i
+          <span class="info-icon strategy-info-icon" style="position: relative;">i
             <span class="info-tooltip strategy-info-tooltip">
               <strong style="color: var(--accent-blue); display: block; margin-bottom: 0.5rem;">${info.type || 'Strategy'}</strong>
               <strong>How it works:</strong><br>
@@ -2928,47 +3171,29 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
               <strong style="color: #58D68D;">✓ Best for:</strong> ${info.bestFor}<br>
               <strong style="color: #e74c3c;">✗ Avoids:</strong> ${info.avoids}<br><br>
               <strong>Key Parameters:</strong> ${info.keyParams}<br>
-              <strong>Risk Level:</strong> <span style="color: ${info.riskLevel === 'Low-Medium' ? '#58D68D' : info.riskLevel === 'Medium' ? '#f39c12' : '#e74c3c'};">${info.riskLevel}</span>
-              <hr style="margin: 0.5rem 0; border-color: var(--border-color);">
-              <a href="#strategy-${strategy.name.includes('EMA') ? 'ema' : strategy.name.includes('MACD') ? 'macd' : strategy.name === 'Trend_Hold' ? 'trend' : 'rsi-bb'}-settings" 
-                 style="color: var(--accent-blue); text-decoration: none; font-size: 0.8rem;">
-                ⚙️ Configure this strategy →
-              </a>
+              <strong>Risk Level:</strong> ${info.riskLevel}
             </span>
-          </span>
-        ` : '';
-        
+          </span>` : '';
         return `
-          <div class="strategy-overview-card ${statusClass}">
-            <div class="strategy-overview-header">
-              <div class="strategy-overview-title">
-                <span class="strategy-overview-icon">${icon}</span>
-                <div>
-                  <h3>${strategy.name}${infoTooltip}</h3>
-                </div>
+          <div class="so-card ${on ? 'on' : 'off'}">
+            <div class="so-top">
+              <span class="so-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg></span>
+              <div style="min-width:0">
+                <div class="so-name">${name}${infoTooltip}</div>
+                <div class="so-type">${info.type || ''}</div>
               </div>
-              <button class="toggle-btn ${toggleBtnClass}" onclick="toggleStrategy('${strategy.name}', ${strategy.enabled})" id="toggle-${strategy.name}">
-                ${toggleBtnText}
+              <button class="so-switch toggle-btn" role="switch" aria-checked="${on}" title="${on ? 'Turn off' : 'Turn on'} ${name}"
+                      onclick="toggleStrategy('${strategy.name}', ${on})" id="toggle-${strategy.name}">
+                <i></i>${on ? 'On' : 'Off'}
               </button>
             </div>
-            <p style="color: var(--text-secondary); font-size: 0.85rem; margin: 0.5rem 0 1rem 0;">
-              ${strategy.description}
-            </p>
-            <div class="strategy-overview-stats">
-              <div class="strategy-overview-stat">
-                <div class="label">Weight</div>
-                <div class="value">${strategy.weight}</div>
-              </div>
-              <div class="strategy-overview-stat">
-                <div class="label">Signals</div>
-                <div class="value" id="signals-${strategy.name}">-</div>
-              </div>
-              <div class="strategy-overview-stat">
-                <div class="label">Confidence</div>
-                <div class="value" id="conf-${strategy.name}">-</div>
-              </div>
+            <p class="so-desc">${strategy.description}</p>
+            <div class="so-stats">
+              <div><span>Weight</span><b>${strategy.weight}</b></div>
+              <div><span>Signals</span><b id="signals-${strategy.name}">-</b></div>
+              <div><span>Confidence</span><b id="conf-${strategy.name}">-</b></div>
             </div>
-            <a class="configure-tab-link" onclick="goConfigureStrategy('${strategy.name}')">⚙️ Configure parameters →</a>
+            <a class="so-link configure-tab-link" onclick="goConfigureStrategy('${strategy.name}')">Configure settings →</a>
           </div>
         `;
       }).join('');
@@ -3035,7 +3260,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
   async function toggleStrategy(strategyName, currentlyEnabled) {
     // Client-side validation: prevent disabling last active strategy
     if (currentlyEnabled) {
-      const enabledCount = document.querySelectorAll('.strategy-overview-card.enabled').length;
+      const enabledCount = document.querySelectorAll('.so-card.on').length;
       if (enabledCount <= 1) {
         showAlert('⚠️ Cannot disable the last active strategy. At least one strategy must remain enabled.', 'warning');
         return;
@@ -3050,7 +3275,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     toggleDebounce[strategyName] = true;
     
     const button = document.getElementById(`toggle-${strategyName}`);
-    const card = button.closest('.strategy-overview-card');
+    const card = button.closest('.so-card');
     const badge = card.querySelector('.badge');
     const originalHTML = button.innerHTML;
     const originalButtonClass = button.className;
@@ -3060,20 +3285,22 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
     
     // Optimistic UI update - update immediately for better UX
     button.disabled = true;
-    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ...';
     
     const newEnabled = !currentlyEnabled;
+    // Flip the switch straight away; reverted below if the server says no
+    button.innerHTML = '<i></i>' + (newEnabled ? 'On' : 'Off');
+    button.setAttribute('aria-checked', String(newEnabled));
     if (newEnabled) {
-      card.classList.remove('disabled');
-      card.classList.add('enabled');
+      card.classList.remove('off');
+      card.classList.add('on');
       if (badge) {
         badge.classList.remove('badge-disabled');
         badge.classList.add('badge-enabled');
         badge.textContent = 'ENABLED';
       }
     } else {
-      card.classList.remove('enabled');
-      card.classList.add('disabled');
+      card.classList.remove('on');
+      card.classList.add('off');
       if (badge) {
         badge.classList.remove('badge-enabled');
         badge.classList.add('badge-disabled');
@@ -3409,33 +3636,13 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       };
       
       const color = categoryColors[preset.category] || categoryColors.custom;
-      const icon = preset.is_builtin ? '🎯' : '✨';
       const isActive = currentPresetName === preset.name;
-      
-      // Add active state styling
-      const activeStyles = isActive 
-        ? `border: 3px solid ${color}; box-shadow: 0 0 20px rgba(83, 155, 245, 0.4); background: rgba(83, 155, 245, 0.08);` 
-        : '';
-      const activeBadge = isActive 
-        ? `<span style="position: absolute; top: -10px; right: 10px; background: ${color}; color: #000; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.65rem; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">✓ ACTIVE</span>` 
-        : '';
-      
       return `
-        <div class="strategy-overview-card" style="border-left-color: ${color}; cursor: pointer; position: relative; ${activeStyles}" onclick="selectPresetFromGrid('${preset.name}')">
-          ${activeBadge}
-          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
-            <div>
-              <h4 style="margin: 0; font-size: 0.95rem; color: var(--text-primary);">
-                ${icon} ${preset.display_name}
-              </h4>
-              <span class="badge badge-info" style="background: ${color}; font-size: 0.65rem; margin-top: 0.25rem;">
-                ${preset.category}
-              </span>
-            </div>
-          </div>
-          <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0; line-height: 1.4;">
-            ${preset.description}
-          </p>
+        <div class="preset-card ${isActive ? 'active' : ''}" style="--tone: ${color};" onclick="selectPresetFromGrid('${preset.name}')">
+          ${isActive ? '<span class="active-tag">✓ Active</span>' : ''}
+          <h4>${preset.display_name}</h4>
+          <span class="cat">${String(preset.category || 'custom').replace(/_/g, ' ')}</span>
+          <p>${preset.description}</p>
         </div>
       `;
     }).join('');
@@ -4579,4 +4786,18 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
 
 <!-- Chart.js Library -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+<script>
+  // Filled slider tracks: colour the part left of the thumb
+  function paintRanges() {
+    document.querySelectorAll('.form-range').forEach(r => {
+      const lo = parseFloat(r.min || 0), hi = parseFloat(r.max || 100), v = parseFloat(r.value);
+      const pct = hi > lo ? ((v - lo) / (hi - lo)) * 100 : 0;
+      r.style.setProperty('--fill', Math.max(0, Math.min(100, pct)) + '%');
+    });
+  }
+  document.addEventListener('input', e => { if (e.target.classList && e.target.classList.contains('form-range')) paintRanges(); });
+  // Values also change when settings or presets load, without input events
+  setInterval(paintRanges, 700);
+  paintRanges();
+</script>
 {% endblock %}
