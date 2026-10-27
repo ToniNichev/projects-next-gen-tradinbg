@@ -2661,13 +2661,13 @@
       // Wheel, buttons and arrow keys set a target view; the chart eases
       // toward it every frame, so movement is gradual instead of jumpy.
       // Bigger *_EASE_MS = slower, softer movement.
-      const WHEEL_EASE_MS = 120;      // wheel zoom / sideways scroll
-      const BUTTON_EASE_MS = 170;     // toolbar buttons
-      const WHEEL_ZOOM_SENS = 0.0006; // zoom per wheel pixel (~6% per mouse notch)
-      const WHEEL_PAN_SENS = 1 / 1600;  // share of the view per sideways wheel pixel
-      const KEY_PAN_STEP = 0.03;      // share of the view per arrow-key repeat (every 50ms)
+      const WHEEL_EASE_MS = 80;       // wheel zoom / sideways scroll
+      const BUTTON_EASE_MS = 115;     // toolbar buttons
+      const WHEEL_ZOOM_SENS = 0.0009; // zoom per wheel pixel (~9% per mouse notch)
+      const WHEEL_PAN_SENS = 1 / 1100;  // share of the view per sideways wheel pixel
+      const KEY_PAN_STEP = 0.045;     // share of the view per arrow-key repeat (every 50ms)
       const MOMENTUM_DECAY_MS = 325;  // glide after a drag: bigger = longer glide
-      const MAX_FLING_PX_PER_MS = 2.5;
+      const MAX_FLING_PX_PER_MS = 3.5;
 
       let viewAnim = null;
       let viewTarget = null;
