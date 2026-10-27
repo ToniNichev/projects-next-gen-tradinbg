@@ -35,16 +35,64 @@ market_bp = Blueprint("market", __name__)
 # State / history (consumed directly by the existing UI templates)
 # ---------------------------------------------------------------------------
 
+def _current_bot_signal(app_state):
+    """What the enabled strategies say right now (None before the first check)."""
+    sm = app_state.get_strategy_manager()
+    if sm is None:
+        return None
+    signals = [
+        (strategy, sm.last_signals.get(strategy.name))
+        for strategy in sm.strategies
+        if strategy.is_enabled() and sm.last_signals.get(strategy.name) is not None
+    ]
+    if not signals:
+        return None
+    directions = {sig.direction for _, sig in signals}
+    newest = max((sig for _, sig in signals), key=lambda sig: sig.timestamp)
+    return {
+        "signal_direction": directions.pop() if len(directions) == 1 else "mixed",
+        "price": float(newest.price),
+        "timestamp": newest.timestamp.isoformat() if newest.timestamp else None,
+        "strategies": [getattr(st, "display_name", st.name) for st, _ in signals],
+    }
+
+
+def _latest_trade():
+    """Most recent executed trade from the database (None if there are none)."""
+    if not DATABASE_AVAILABLE:
+        return None
+    try:
+        trades = get_database().get_trades(limit=1)
+    except Exception as exc:
+        logger.warning("Could not read latest trade: %s", exc)
+        return None
+    if not trades:
+        return None
+    t = trades[0]
+    when = t.timestamp
+    if when is not None and when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return {
+        "side": t.side,
+        "timestamp": when.isoformat() if when else None,
+        "price": float(t.price),
+        "amount": float(t.amount),
+        "notional": float(t.notional),
+        "pnl": float(t.pnl) if t.pnl is not None else None,
+        "exit_reason": t.exit_reason,
+        "usdt_balance": float(t.usdt_balance),
+    }
+
+
 @market_bp.route("/state")
 @require_auth
 def get_state():
     """Return current trading state in the format expected by the UI."""
     app_state = get_app_state()
     ts = app_state.get_trading_state()
-    history = app_state.get_history(limit=1)
 
-    last_signal = history[0].get("last_signal") if history else None
-    last_trade = history[0].get("last_trade") if history else None
+    last_signal = _current_bot_signal(app_state)
+    last_trade = _latest_trade()
 
     return jsonify({
         "balances": {

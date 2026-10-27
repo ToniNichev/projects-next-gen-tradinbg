@@ -4,33 +4,80 @@
 
 {% block extra_styles %}
 <style>
+  /* Top summary: three glass stat cards */
   .summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-bottom: 1.25rem;
+  }
+  @media (max-width: 900px) {
+    .summary { grid-template-columns: 1fr; }
+  }
+  .stat-card {
+    --tone: var(--accent-blue);
+    position: relative;
     display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    margin-bottom: 2rem;
+    flex-direction: column;
+    gap: 0.55rem;
+    min-width: 0;
+    padding: 1rem 1.15rem 1.05rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background:
+      radial-gradient(420px 160px at 100% 0%, color-mix(in srgb, var(--tone) 13%, transparent), transparent 70%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)),
+      var(--bg-secondary);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.11), 0 14px 36px -18px rgba(0, 0, 0, 0.7);
   }
-  .summary .card {
-    flex: 1;
-    min-width: 200px;
+  .stat-card.tone-up { --tone: var(--accent-green); }
+  .stat-card.tone-down { --tone: var(--accent-red); }
+  .stat-card.tone-muted { --tone: #8b949e; }
+  .stat-top { display: flex; align-items: center; gap: 0.55rem; }
+  .stat-icon {
+    display: grid; place-items: center; flex: none;
+    width: 30px; height: 30px; border-radius: 9px;
+    color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
   }
-  .summary .card h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.875rem;
+  .stat-icon svg { width: 16px; height: 16px; }
+  .stat-label {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--text-secondary);
-    text-transform: uppercase;
-    font-weight: 500;
   }
-  .summary .card .value {
-    font-size: 1.75rem;
-    font-weight: 600;
-    margin: 0;
+  .stat-top .info-icon { margin-left: auto; }
+  .stat-value {
+    font-size: 1.75rem; font-weight: 750; letter-spacing: -0.02em; line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .summary .card .detail {
-    font-size: 0.875rem;
+  .stat-value.toned { color: var(--tone); }
+  .stat-detail {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem;
+    font-size: 0.8rem; color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.12rem 0.5rem; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 600;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-secondary);
-    margin: 0.5rem 0 0 0;
   }
+  .stat-chip b { color: var(--text-primary); font-weight: 650; }
+  .stat-chip.up { color: var(--accent-green); border-color: rgba(88, 214, 141, 0.3); background: rgba(88, 214, 141, 0.08); }
+  .stat-chip.down { color: var(--accent-red); border-color: rgba(255, 94, 87, 0.3); background: rgba(255, 94, 87, 0.08); }
+  .alloc {
+    display: flex; height: 6px; border-radius: 999px; overflow: hidden;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .alloc i { display: block; height: 100%; transition: width 0.5s ease; }
+  .alloc .btc { background: linear-gradient(90deg, #f7931a, #ffb54d); }
+  .alloc .cash { background: rgba(83, 155, 245, 0.75); }
+  .alloc-key { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-secondary); }
+  .alloc-key .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 0.3rem; vertical-align: 1px; }
+
   .chart-container {
     /* Glass panel. Column layout: header, toolbar and legend take what
        they need, the chart gets the rest so it can't spill below. */
@@ -849,41 +896,39 @@
 <h1>Live Dashboard</h1>
 
 <div class="summary">
-  <div class="card">
-    <h3>
-      Last Signal
+  <div class="stat-card tone-muted" id="signal-card">
+    <div class="stat-top">
+      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span>
+      <span class="stat-label">Bot signal</span>
       <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-        <span class="info-tooltip">
-          Most recent trading signal from the strategy. BULLISH suggests upward momentum (potential buy), BEARISH suggests downward momentum (potential sell), NEUTRAL means no clear direction.
+          <span class="info-tooltip">What the active strategies say right now. Bullish = hold or buy BTC, Bearish = sell or stay in cash, Neutral = no change.</span>
         </span>
-      </span>
-    </h3>
-    <div class="value" id="signal-text">--</div>
-    <div class="detail" id="signal-detail"></div>
+    </div>
+    <div class="stat-value toned" id="signal-text">--</div>
+    <div class="stat-detail" id="signal-detail">Waiting for the first check…</div>
   </div>
-  <div class="card">
-    <h3>
-      Last Trade
+  <div class="stat-card tone-muted" id="trade-card">
+    <div class="stat-top">
+      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M7 4l-3 3M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></svg></span>
+      <span class="stat-label">Last trade</span>
       <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-        <span class="info-tooltip">
-          Most recent executed trade action. BUY = entered position, SELL = exited position or short. Shows timestamp and resulting balance. Tracks actual trading activity.
+          <span class="info-tooltip">The most recent buy or sell the bot (or you) made, with its price, size and, for sells, the profit or loss.</span>
         </span>
-      </span>
-    </h3>
-    <div class="value" id="trade-text">--</div>
-    <div class="detail" id="trade-detail"></div>
+    </div>
+    <div class="stat-value toned" id="trade-text">--</div>
+    <div class="stat-detail" id="trade-detail">No trades yet</div>
   </div>
-  <div class="card">
-    <h3>
-      Balance
+  <div class="stat-card" id="balance-card">
+    <div class="stat-top">
+      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1.2" fill="currentColor"/></svg></span>
+      <span class="stat-label">Portfolio</span>
       <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-        <span class="info-tooltip">
-          Current total portfolio value in USD. Includes both USDT stablecoin holdings and cryptocurrency positions valued at current market price. Tracks overall account performance.
+          <span class="info-tooltip">Total value: cash plus BTC at the current price. The bar shows how much is in BTC versus cash.</span>
         </span>
-      </span>
-    </h3>
-    <div class="value" id="balance-text">--</div>
-    <div class="detail" id="balance-detail"></div>
+    </div>
+    <div class="stat-value" id="balance-text">--</div>
+    <div class="alloc" aria-hidden="true"><i class="btc" id="alloc-btc" style="width:0%"></i><i class="cash" id="alloc-cash" style="width:0%"></i></div>
+    <div class="alloc-key" id="balance-detail"></div>
   </div>
 </div>
 
@@ -2116,29 +2161,8 @@
           // Fetch state and signal info
           const state = await (await fetch('/state', {credentials: 'include'})).json();
           
-          // Update signal info (only show on 1h since that's the trading timeframe)
-          if (currentTimeframe === '1h' && state.last_signal) {
-            const lastSignal = state.last_signal;
-            document.getElementById("signal-text").textContent =
-              lastSignal.signal_direction?.toUpperCase() || lastSignal.direction?.toUpperCase() || "N/A";
-            // Format time in local timezone
-            const signalTime = new Date(lastSignal.timestamp);
-            document.getElementById(
-              "signal-detail"
-            ).textContent = `${signalTime.toLocaleString()} · price $${lastSignal.price.toFixed(2)}`;
-          }
-          
-          // Always update last trade (regardless of timeframe)
-          if (state.last_trade) {
-            const lastTrade = state.last_trade;
-            document.getElementById("trade-text").textContent =
-              lastTrade.side.toUpperCase();
-            // Format time in local timezone
-            const tradeTime = new Date(lastTrade.timestamp);
-            document.getElementById(
-              "trade-detail"
-            ).textContent = `${tradeTime.toLocaleString()} · ${lastTrade.usdt_balance.toFixed(2)} USDT`;
-          }
+          renderSignalCard(state.last_signal);
+          renderTradeCard(state.last_trade);
           
           // Update chart info display
           updateChartInfo();
@@ -2176,15 +2200,79 @@
             }
             
             if (state.balances) {
-              const totalUSDT = state.balances.USDT + (state.balances.BASE * latestPrice);
-              document.getElementById("balance-text").textContent = `$${totalUSDT.toFixed(2)}`;
-              document.getElementById("balance-detail").textContent = 
-                `${state.balances.USDT.toFixed(2)} USDT + ${state.balances.BASE.toFixed(6)} BTC`;
+              renderBalanceCard(state.balances, state.current_price || latestPrice);
             }
           } catch (balanceErr) {
             console.error("Error updating balance:", balanceErr);
           }
         }
+      }
+
+      // ---- Top summary cards -------------------------------------------
+      const fmtMoney = (v, d = 2) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+      const fmtWhen = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const STRAT_NAMES = { Trend_Hold: 'Trend Hold', EMA_Crossover: 'EMA Crossover', RSI_BB_MeanReversion: 'RSI + BB',
+                            MACD_Volume_Momentum: 'MACD + Volume', llm_pattern: 'LLM Pattern' };
+
+      function setCardTone(id, tone) {
+        const el = document.getElementById(id);
+        el.classList.remove('tone-up', 'tone-down', 'tone-muted');
+        if (tone) el.classList.add(tone);
+      }
+
+      function renderSignalCard(sig) {
+        const text = document.getElementById('signal-text');
+        const detail = document.getElementById('signal-detail');
+        if (!sig) {
+          setCardTone('signal-card', 'tone-muted');
+          text.textContent = '--';
+          detail.textContent = 'Waiting for the first check…';
+          return;
+        }
+        const dir = sig.signal_direction || 'neutral';
+        const label = { bullish: 'Bullish', bearish: 'Bearish', neutral: 'Neutral', mixed: 'Mixed' }[dir] || dir;
+        setCardTone('signal-card', dir === 'bullish' ? 'tone-up' : dir === 'bearish' ? 'tone-down' : 'tone-muted');
+        text.textContent = label;
+        const who = (sig.strategies || []).map(n => STRAT_NAMES[n] || n).join(', ');
+        detail.innerHTML =
+          (who ? `<span class="stat-chip"><b>${escapeHtml(who)}</b></span>` : '') +
+          `<span>${fmtWhen(sig.timestamp)}</span><span>·</span><span>${fmtMoney(sig.price, 0)}</span>`;
+      }
+
+      function renderTradeCard(t) {
+        const text = document.getElementById('trade-text');
+        const detail = document.getElementById('trade-detail');
+        if (!t) {
+          setCardTone('trade-card', 'tone-muted');
+          text.textContent = '--';
+          detail.textContent = 'No trades yet';
+          return;
+        }
+        const buy = t.side === 'buy';
+        setCardTone('trade-card', buy ? 'tone-up' : 'tone-down');
+        text.textContent = `${buy ? 'Bought' : 'Sold'} ${fmtMoney(t.notional)}`;
+        let html = `<span>${t.amount.toFixed(6)} BTC @ ${fmtMoney(t.price, 0)}</span><span>·</span><span>${fmtWhen(t.timestamp)}</span>`;
+        if (!buy && t.pnl !== null && t.pnl !== undefined) {
+          const up = t.pnl >= 0;
+          html += `<span class="stat-chip ${up ? 'up' : 'down'}">${up ? '+' : '−'}${fmtMoney(Math.abs(t.pnl))}</span>`;
+        }
+        if (t.exit_reason) {
+          html += `<span class="stat-chip">${escapeHtml(t.exit_reason.replace(/_/g, ' '))}</span>`;
+        }
+        detail.innerHTML = html;
+      }
+
+      function renderBalanceCard(balances, price) {
+        const cash = Number(balances.USDT) || 0;
+        const btcValue = (Number(balances.BASE) || 0) * (Number(price) || 0);
+        const total = cash + btcValue;
+        document.getElementById('balance-text').textContent = fmtMoney(total);
+        const btcPct = total > 0 ? (btcValue / total) * 100 : 0;
+        document.getElementById('alloc-btc').style.width = `${btcPct}%`;
+        document.getElementById('alloc-cash').style.width = `${total > 0 ? 100 - btcPct : 0}%`;
+        document.getElementById('balance-detail').innerHTML =
+          `<span><span class="dot" style="background:#f7931a"></span>BTC ${fmtMoney(btcValue)} · ${Number(balances.BASE).toFixed(6)}</span>` +
+          `<span><span class="dot" style="background:rgba(83,155,245,0.9)"></span>Cash ${fmtMoney(cash)}</span>`;
       }
 
       // Swap in fresh candles without moving the user's view. The visible range

@@ -443,8 +443,11 @@
         margin: 0.5rem 0;
       }
       
-      {% block extra_styles %}{% endblock %}
     </style>
+    {# Pages pass their own <style> element here. It must sit outside the
+       style element above, or the browser reads the nested <style> tag as
+       CSS and drops the page's first rule. #}
+    {% block extra_styles %}{% endblock %}
   </head>
   <body>
     <nav>
