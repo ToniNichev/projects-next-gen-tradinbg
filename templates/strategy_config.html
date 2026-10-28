@@ -3,6 +3,8 @@
 {% block title %}Strategy Center - Crypto Bot{% endblock %}
 
 {% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/help.css') }}">
+<script src="{{ url_for('static', filename='js/help.js') }}" defer></script>
 <style>
   /* Status Overview Cards */
   .status-grid {
@@ -1154,10 +1156,52 @@
 {% block content %}
 <div class="sc-head">
   <div>
-    <h1>Strategy Center</h1>
+    <h1>Strategy Center <button type="button" class="help-btn" data-help-open="help-dialog" title="How this page works" aria-label="How this page works" aria-haspopup="dialog">?</button></h1>
     <p>Turn strategies on or off and tune their settings. Most changes apply instantly.</p>
   </div>
 </div>
+
+<dialog id="help-dialog" class="help-dialog" aria-labelledby="help-title">
+  <div class="help-head">
+    <h2 id="help-title">About the Strategy Center</h2>
+    <button type="button" class="help-close" data-help-close title="Close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+
+  <h3>What this page does</h3>
+  <p>This is where you choose which strategies the bot uses and how it trades: position size, stop loss,
+    take profit and each strategy's own settings. The bot reads these settings from its database;
+    they win over the values in the <b>.env</b> file.</p>
+
+  <h3>Changes affect the running bot</h3>
+  <ul>
+    <li><b>Strategy on/off switches apply instantly.</b> The very next hourly check uses the new mix. At least one strategy must stay on.</li>
+    <li><b>Apply configuration</b> saves the form and applies it right away. <b>Preview changes</b> shows what would change first; <b>Reset</b> throws away unsaved edits.</li>
+    <li><b>Trading pair and timeframe</b> only take effect after the bot restarts.</li>
+    <li>While a paper or dry-run test is going, avoid changes here. Changing settings mid-test means the results no longer show one setup.</li>
+  </ul>
+
+  <h3>Presets</h3>
+  <ul>
+    <li>Clicking a preset card only <b>fills in the form</b>. Nothing changes until you press Apply.</li>
+    <li><b>Apply &amp; Run Backtest</b> is different: it applies the preset to the bot right away, then runs a 30-day backtest.</li>
+    <li>Some presets were made for a different pair or timeframe. Check both before applying one.</li>
+  </ul>
+
+  <h3>Trend Hold</h3>
+  <ul>
+    <li>Trend Hold is meant to run <b>alone</b>, with the trailing stop off. Turning on other strategies mixes their signals in and changes how it trades.</li>
+    <li>It holds BTC while the daily close stays above its 100-day average (with a 1% band) and sells when it closes below.
+      The general stop loss and take profit don't apply to it.</li>
+  </ul>
+
+  <h3>Before you change anything</h3>
+  <ul>
+    <li>Try the idea on the <a href="/backtest">Backtest</a> page first. Backtests use their own simulated money and never change these settings.</li>
+    <li><b>Export backup</b> saves the current numbers as a .env file, so you can go back.</li>
+  </ul>
+</dialog>
 
 <!-- Toast Notification Container -->
 <div id="toastContainer" class="toast-container"></div>

@@ -4,12 +4,14 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/backtest.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/help.css') }}">
+<script src="{{ url_for('static', filename='js/help.js') }}" defer></script>
 {% endblock %}
 
 {% block content %}
 <div class="bt-head">
   <div>
-    <h1>Backtest <button type="button" class="bt-help-btn" id="help-open" title="How backtests work" aria-label="How backtests work" aria-haspopup="dialog">?</button></h1>
+    <h1>Backtest <button type="button" class="help-btn" data-help-open="help-dialog" title="How backtests work" aria-label="How backtests work" aria-haspopup="dialog">?</button></h1>
     <p>Replay a strategy on past BTC prices and see how it would have done next to simply holding.</p>
   </div>
 </div>
@@ -169,10 +171,10 @@
   </div>
 </section>
 
-<dialog id="help-dialog" class="bt-help" aria-labelledby="help-title">
-  <div class="comparison-header">
+<dialog id="help-dialog" class="help-dialog" aria-labelledby="help-title">
+  <div class="help-head">
     <h2 id="help-title">About backtests</h2>
-    <button type="button" class="bt-icon-btn" id="help-close" title="Close" aria-label="Close">
+    <button type="button" class="help-close" data-help-close title="Close" aria-label="Close">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
     </button>
   </div>
@@ -267,12 +269,6 @@
       actions[action]();
     }
   });
-
-  // Help window
-  const help = document.getElementById('help-dialog');
-  document.getElementById('help-open').addEventListener('click', () => help.showModal());
-  document.getElementById('help-close').addEventListener('click', () => help.close());
-  help.addEventListener('click', (e) => { if (e.target === help) help.close(); });
 
   window.BacktestResults = Results;
   window.BacktestChart = Chart;
