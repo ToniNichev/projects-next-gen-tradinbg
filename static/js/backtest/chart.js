@@ -206,14 +206,8 @@ function render(result) {
   }));
   const portfolio = (data.portfolio_values || []).map(p => ({ x: new Date(p.timestamp).getTime(), y: p.value }));
   const step = candleStepMs(candles);
-  const trades = data.trades
-    .map(t => ({ ...t, x: new Date(t.timestamp).getTime() }))
-    .sort((a, b) => a.x - b.x);
-  let openBuy = null;
-  for (const t of trades) {
-    if (t.side === 'buy') openBuy = t;
-    else { t.$buy = openBuy; openBuy = null; }
-  }
+  // Oldest first, each sale linked to the purchase it closes
+  const trades = window.TradeWords.pairTrades(data.trades.map(t => ({ ...t, x: new Date(t.timestamp).getTime() })));
 
   // Header: pair, candle size, dates, and how the run did
   const daily = step >= 20 * 3600e3;
@@ -271,7 +265,7 @@ function render(result) {
   chart.update('none');
 }
 
-const signedPct = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
+const signedPct = (v) => window.TradeWords.signedPct(v);
 
 const baseTooltip = () => ({
   enabled: true,
@@ -510,66 +504,8 @@ function tooltipLabel(ctx) {
   return ctx.formattedValue;
 }
 
-// ---------- Trades in plain words ----------
-
-const dayMs = 864e5;
-const shortDate = (x) => new Date(x).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-function whyLines(t) {
-  const reason = t.exit_reason || t.reason;
-  // Trades from a Trend Hold-only run are labelled 'Aggregated', so also check the run
-  const trend = t.strategy_name === 'Trend_Hold' || chart?.$trendOnly;
-  if (t.side === 'buy') {
-    return trend
-      ? ["Why: BTC's trend turned up", '(its daily price rose above its long-term average)']
-      : ["Why: the strategy's signals said buy"];
-  }
-  switch (reason) {
-    case 'backtest_end':
-      return ['Not a real sale: the test ended here,', 'so the BTC is counted at this price'];
-    case 'stop_loss':
-      return ['Why: the price fell to the stop-loss level', '(a safety exit that limits the loss)'];
-    case 'take_profit':
-      return ['Why: the price reached the profit target'];
-    case 'trailing_stop':
-      return ['Why: the price fell back from its recent high', '(the trailing stop closed the trade)'];
-    default:
-      return trend
-        ? ["Why: BTC's trend turned down", '(its daily price fell below its long-term average)']
-        : ["Why: the strategy's signals said sell"];
-  }
-}
-
-function describeTrade(t) {
-  const price = money(t.price ?? t.y, 0);
-  const lines = [];
-  if (t.side === 'buy') {
-    lines.push(`🟢 Bought BTC at ${price}`);
-    if (t.notional) lines.push(`Spent ${money(t.notional + (t.fee || 0))} (including a ${money(t.fee || 0)} fee)`);
-    lines.push(...whyLines(t));
-    return lines;
-  }
-
-  const ended = (t.exit_reason || t.reason) === 'backtest_end';
-  lines.push(ended ? `🏁 End of test — BTC at ${price}` : `🔴 Sold BTC at ${price}`);
-  const received = t.notional ? t.notional - (t.fee || 0) : null;
-  if (received != null) lines.push(`${ended ? 'Worth' : 'Got back'} ${money(received)} after fees`);
-
-  // Result of the whole trade, after the buying and selling fees
-  const b = t.$buy;
-  if (b?.notional && received != null) {
-    const cost = b.notional + (b.fee || 0);
-    const net = received - cost;
-    const verb = net >= 0 ? '✅ Made' : '❌ Lost';
-    lines.push(`${verb} ${money(Math.abs(net))} (${signedPct((net / cost) * 100)}) on this trade`);
-    const days = Math.max(1, Math.round((t.x - b.x) / dayMs));
-    lines.push(`Held ${days} day${days === 1 ? '' : 's'}, bought ${shortDate(b.x)} at ${money(b.price, 0)}`);
-  } else if (t.pnl != null) {
-    lines.push(`${t.pnl >= 0 ? '✅ Made' : '❌ Lost'} ${money(Math.abs(t.pnl))} on this trade`);
-  }
-  lines.push(...whyLines(t));
-  return lines;
-}
+// Plain-words trade text is shared with the Dashboard chart (static/js/trade-words.js)
+const describeTrade = (t) => window.TradeWords.describe(t, { trendOnly: chart?.$trendOnly });
 
 // ---------- Helpers ----------
 
