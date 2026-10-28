@@ -1395,7 +1395,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="orderPct" name="order_pct" 
-               min="0.1" max="1.0" step="0.05" value="0.25">
+               min="0.1" max="1.0" step="0.01" value="0.25">
         <span class="form-text">
           <span class="range-value" id="orderPctValue">25%</span> of portfolio per trade
         </span>
@@ -1453,7 +1453,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="minConfidence" name="min_confidence" 
-               min="0.1" max="0.8" step="0.05" value="0.3">
+               min="0.1" max="0.8" step="0.01" value="0.3">
         <span class="form-text">
           <span class="range-value" id="minConfidenceValue">30%</span> - Higher = fewer but stronger signals
         </span>
@@ -1518,7 +1518,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="atrStopMultiplier" name="atr_stop_multiplier" 
-               min="1.0" max="5.0" step="0.5" value="2.5">
+               min="1.0" max="5.0" step="0.1" value="2.5">
         <span class="form-text">
           <span class="range-value" id="atrStopMultiplierValue">2.5x</span> ATR for stops
         </span>
@@ -1556,7 +1556,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="stopLossPct" name="stop_loss_pct" 
-               min="0.5" max="10" step="0.5" value="2.5">
+               min="0.5" max="10" step="0.1" value="2.5">
         <span class="form-text">
           <span class="range-value" id="stopLossPctValue">2.5%</span> max loss per trade
         </span>
@@ -1572,7 +1572,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="takeProfitPct" name="take_profit_pct" 
-               min="1" max="20" step="0.5" value="4">
+               min="1" max="20" step="0.1" value="4">
         <span class="form-text">
           <span class="range-value" id="takeProfitPctValue">4.0%</span> target profit
         </span>
@@ -1588,7 +1588,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="trailingStopPct" name="trailing_stop_pct" 
-               min="0.5" max="5" step="0.5" value="1.5">
+               min="0.5" max="5" step="0.1" value="1.5">
         <span class="form-text">
           <span class="range-value" id="trailingStopPctValue">1.5%</span> trailing distance
         </span>
@@ -1626,7 +1626,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="minPositionSize" name="min_position_size" 
-               min="5" max="50" step="5" value="15">
+               min="5" max="50" step="1" value="15">
         <span class="form-text">
           <span class="range-value" id="minPositionSizeValue">15%</span> minimum allocation
         </span>
@@ -1642,7 +1642,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="maxPositionSize" name="max_position_size" 
-               min="10" max="100" step="5" value="35">
+               min="10" max="100" step="1" value="35">
         <span class="form-text">
           <span class="range-value" id="maxPositionSizeValue">35%</span> maximum allocation
         </span>
@@ -2086,7 +2086,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="macdStopLoss" name="macd_stop_loss" 
-               min="0.01" max="0.05" step="0.005" value="0.025">
+               min="0.01" max="0.05" step="0.001" value="0.025">
         <span class="form-text">
           <span class="range-value" id="macdStopLossValue">2.5%</span>
         </span>
@@ -2106,7 +2106,7 @@
           </span>
         </label>
         <input type="range" class="form-range" id="macdTakeProfit" name="macd_take_profit" 
-               min="0.03" max="0.10" step="0.005" value="0.05">
+               min="0.03" max="0.10" step="0.001" value="0.05">
         <span class="form-text">
           <span class="range-value" id="macdTakeProfitValue">5.0%</span>
         </span>
@@ -2613,6 +2613,26 @@
     'volumeThreshold': (v) => parseFloat(v).toFixed(1) + 'x'
   };
   
+  // Sliders snap values to their step (e.g. 99% -> 100%), and "Apply" would then
+  // save the snapped number. When code sets a value the step can't hold, keep it exact.
+  (function keepExactSliderValues() {
+    const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    document.querySelectorAll('input[type="range"]').forEach((el) => {
+      Object.defineProperty(el, 'value', {
+        configurable: true,
+        get() { return desc.get.call(el); },
+        set(v) {
+          desc.set.call(el, v);
+          const want = parseFloat(v), got = parseFloat(desc.get.call(el));
+          if (Number.isFinite(want) && Math.abs(got - want) > 1e-9) {
+            el.step = 'any';
+            desc.set.call(el, v);
+          }
+        },
+      });
+    });
+  })();
+
   // Trend Hold helpers
   let trendStrategyEnabled = false;
 
@@ -3771,6 +3791,21 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
           'strategyMacdWeight': 'macdWeight',                         // strategy_macd_weight → macdWeight
           'strategyMacdVolumeMultiplier': 'macdVolumeMultiplier',     // strategy_macd_volume_multiplier → macdVolumeMultiplier
           'strategyMacdRequireZeroCross': 'macdRequireZeroCross',     // strategy_macd_require_zero_cross → macdRequireZeroCross
+          // Per-strategy fields whose form ids don't follow the camelCase pattern
+          'shortWindow': 'emaShortWindow',
+          'longWindow': 'emaLongWindow',
+          'minTrendStrength': 'emaTrendStrength',
+          'strategyRsiBbRsiOversold': 'rsiOversoldRsiBb',
+          'strategyRsiBbRsiOverbought': 'rsiOverboughtRsiBb',
+          'strategyRsiBbBbPeriod': 'bbPeriod',
+          'strategyRsiBbBbStdDev': 'bbStdDev',
+          'strategyRsiBbStopLossPct': 'rsiBbStopLoss',
+          'strategyRsiBbTakeProfitPct': 'rsiBbTakeProfit',
+          'strategyMacdFastPeriod': 'macdFastPeriod',
+          'strategyMacdSlowPeriod': 'macdSlowPeriod',
+          'strategyMacdSignalPeriod': 'macdSignalPeriod',
+          'strategyMacdStopLossPct': 'macdStopLoss',
+          'strategyMacdTakeProfitPct': 'macdTakeProfit',
         };
         
         // Step 1: Reset all fields to default values
