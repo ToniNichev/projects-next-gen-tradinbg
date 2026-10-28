@@ -337,6 +337,33 @@ a.bt-chip.link:hover { border-style: solid; }
 .config-note { margin: 0.75rem 0 0; font-size: 0.78rem; color: var(--text-secondary); }
 .config-note a { color: var(--accent-blue); }
 
+/* --- Help button and window --- */
+
+.bt-head h1 { display: flex; align-items: center; gap: 0.55rem; }
+.bt-help-btn {
+  width: 26px; height: 26px; padding: 0; border-radius: 50%; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 700 0.85rem/1 inherit; color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.14);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.bt-help-btn:hover, .bt-help-btn:focus-visible { color: var(--text-primary); border-color: var(--accent-blue); background: rgba(59, 130, 246, 0.12); outline: none; }
+.bt-help {
+  width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto;
+  padding: 1.4rem; border-radius: 20px; color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)), var(--bg-secondary);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.bt-help::backdrop { background: rgba(3, 6, 12, 0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.bt-help h3 { margin: 1.1rem 0 0.4rem; font-size: 0.78rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-secondary); }
+.bt-help h3:first-of-type { margin-top: 0.2rem; }
+.bt-help p, .bt-help li { font-size: 0.88rem; line-height: 1.5; }
+.bt-help p { margin: 0; }
+.bt-help ul { margin: 0; padding-left: 1.1rem; }
+.bt-help li { margin: 0.3rem 0; }
+.bt-help li b { color: var(--text-primary); }
+
 @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 
 /* --- Phones --- */
