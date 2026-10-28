@@ -5,6 +5,7 @@
 {% block extra_styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/price-chart.css') }}">
 <script src="{{ url_for('static', filename='js/trade-words.js') }}"></script>
+<script src="{{ url_for('static', filename='js/compare-hover.js') }}"></script>
 <style>
   /* Top summary: three glass stat cards */
   .summary {
@@ -36,6 +37,10 @@
   .stat-card.tone-down { --tone: var(--accent-red); }
   .stat-card.tone-muted { --tone: #8b949e; }
   .stat-top { display: flex; align-items: center; gap: 0.55rem; }
+  /* The "i" sits at the card's right edge: open its tooltip leftward so it
+     never sticks out past a phone screen */
+  .stat-top .info-tooltip { left: auto; right: -6px; transform: none; width: min(280px, calc(100vw - 48px)); }
+  .stat-top .info-tooltip::after { left: auto; right: 10px; margin-left: 0; }
   .stat-icon {
     display: grid; place-items: center; flex: none;
     width: 30px; height: 30px; border-radius: 9px;
@@ -815,6 +820,12 @@
   .sig-spark-cap .zone { color: rgba(255, 94, 87, 0.8); }
   .sig-spark .waiting { font-size: 0.72rem; color: var(--text-secondary); padding: 0.6rem 0.2rem; display: block; }
   .sig-desc { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
+  .sig-next {
+    font-size: 0.82rem; line-height: 1.5; color: var(--text-primary);
+    padding: 0.55rem 0.7rem; border-radius: 10px;
+    background: rgba(83, 155, 245, 0.08); border: 1px solid rgba(83, 155, 245, 0.2);
+  }
+  .sig-next b { font-weight: 700; }
 
   /* Strategies that are switched off: one quiet row */
   .sig-off {
@@ -934,6 +945,252 @@
   </div>
   <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
 </div>
+
+<!-- Paper test so far: the bot vs. just holding BTC since the first paper trade -->
+<style>
+  .paper-panel .sig-tiles { margin-bottom: 0.9rem; }
+  .paper-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; }
+  .paper-legend .legend-line { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: var(--c); }
+  .paper-note { flex: 1 1 260px; font-size: 0.76rem; color: var(--text-secondary); line-height: 1.4; }
+  .paper-chart-wrap {
+    position: relative; height: 280px; padding: 0.6rem 0.4rem 0.2rem 0.2rem; border-radius: 14px;
+    background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+  .paper-caveat { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--text-secondary); opacity: 0.85; }
+  .consensus-pill.ahead { color: var(--accent-green); background: rgba(88, 214, 141, 0.1); border-color: rgba(88, 214, 141, 0.3); }
+  .consensus-pill.behind { color: var(--accent-red); background: rgba(255, 94, 87, 0.1); border-color: rgba(255, 94, 87, 0.3); }
+  .sig-tile b.gold { color: #FFD700; }
+  .sig-tile b.blue { color: #539bf5; }
+  @media (max-width: 720px) { .paper-chart-wrap { height: 240px; } }
+</style>
+
+<section class="signals-panel paper-panel" id="paper-panel" aria-label="Paper test so far">
+  <div class="signals-head">
+    <div>
+      <h2>Paper Test So Far</h2>
+      <div class="signals-sub" id="paper-sub">The bot's paper account vs. simply buying BTC when the test began</div>
+    </div>
+    <span class="consensus-pill" id="paper-verdict" style="display: none;"></span>
+  </div>
+  <div id="paper-body">
+    <div class="signals-empty">Loading…</div>
+  </div>
+</section>
+
+<script>
+  (function () {
+    const BOT = '#FFD700', HOLD = '#539bf5';
+    const money = (v, d = 2) => TradeWords.money(v, d);
+    const pct = (v) => TradeWords.signedPct(v);
+    let paperChart = null;
+
+    function tickLabel(v, i, ticks) {
+      // Hide odd edge values (e.g. +0.37%) that the fitted range adds
+      const gap = ticks.length > 2 ? ticks[2].value - ticks[1].value : 0;
+      if ((i === 0 || i === ticks.length - 1) && gap && Math.abs(v / gap - Math.round(v / gap)) > 1e-6) return '';
+      const n = Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+      return (v > 0 ? '+' : v < 0 ? '−' : '') + n + '%';
+    }
+
+    function render(data, trades) {
+      const body = document.getElementById('paper-body');
+      const verdict = document.getElementById('paper-verdict');
+      if (!data.started || !data.points.length) {
+        body.innerHTML = '<div class="signals-empty">This fills in after the first paper trade.</div>';
+        verdict.style.display = 'none';
+        return;
+      }
+      const L = data.latest;
+      const since = new Date(data.start_time);
+      const sinceText = since.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const days = Math.max(1, Math.round((Date.now() - since) / 864e5));
+      document.getElementById('paper-sub').textContent =
+        `Since the first paper trade on ${sinceText} (${days} day${days === 1 ? '' : 's'}) · started with ${money(data.start_value)}`;
+
+      const edge = L.bot_pct - L.hold_pct;
+      verdict.className = 'consensus-pill ' + (edge >= 0 ? 'ahead' : 'behind');
+      verdict.innerHTML = `<span class="lbl">Bot vs. holding</span> ${edge >= 0 ? 'ahead' : 'behind'} by ${Math.abs(edge).toFixed(1)} pts`;
+      verdict.style.display = 'inline-flex';
+
+      const sells = trades.filter(t => t.side !== 'buy').length;
+      if (!paperChart) {
+        body.innerHTML = `
+          <div class="sig-tiles">
+            <div class="sig-tile"><span>The bot</span><b class="gold" id="paper-bot"></b></div>
+            <div class="sig-tile"><span>Just holding BTC</span><b class="blue" id="paper-hold"></b></div>
+            <div class="sig-tile"><span>Account value</span><b id="paper-value"></b></div>
+            <div class="sig-tile"><span>Trades</span><b id="paper-trades"></b></div>
+          </div>
+          <div class="paper-legend">
+            <span class="legend-item"><span class="legend-line" style="--c:${BOT}"></span><span>The bot</span></span>
+            <span class="legend-item"><span class="legend-line" style="--c:${HOLD}"></span><span>Just holding BTC</span></span>
+            <span class="legend-item"><span class="legend-dot buy"></span><span>Bought</span></span>
+            <span class="legend-item"><span class="legend-dot sell"></span><span>Sold</span></span>
+            <span class="paper-note">Both start at 0% when the test began. Above 0% = money made. The higher line is doing better. A flat yellow line means the bot was in cash.</span>
+          </div>
+          <div class="paper-chart-wrap"><canvas id="paperChart"></canvas></div>
+          <p class="paper-caveat">Early days: a few weeks of paper results say little about the future. It's a check that the bot behaves as designed.</p>`;
+      }
+      const setTone = (el, v) => { el.textContent = pct(v); };
+      setTone(document.getElementById('paper-bot'), L.bot_pct);
+      setTone(document.getElementById('paper-hold'), L.hold_pct);
+      document.getElementById('paper-value').textContent = money(L.value);
+      document.getElementById('paper-trades').textContent = `${trades.length} (${sells} sold)`;
+
+      // One point per hourly close; a "start" point at 0% for both lines
+      const t0 = new Date(data.start_time).getTime();
+      const pts = data.points.map(p => ({ ...p, x: new Date(p.time).getTime() }));
+      const bot = pts.map(p => ({ x: p.x, y: p.bot_pct, value: p.value, holding: p.holding_btc }));
+      const hold = pts.map(p => ({ x: p.x, y: p.hold_pct, price: p.price }));
+
+      // Badges sit on the bot line, at the hourly close that covers the trade
+      const grace = 5 * 60 * 1000;
+      const onLine = (t) => {
+        const tx = new Date(t.timestamp).getTime();
+        let p = bot[0];
+        for (const b of bot) { if (b.x <= tx + grace) p = b; else break; }
+        return { ...t, x: p.x, y: p.y, tx };
+      };
+      const badge = (side) => trades.filter(t => (side === 'buy') === (t.side === 'buy')).map(onLine);
+      const tradeSet = (label, side) => ({
+        label, $trade: true, type: 'scatter', data: badge(side), pointStyle: tradeMarkerImage(side, null),
+        pointRadius: 10, pointHoverRadius: 10, hitRadius: 20, showLine: false, clip: false, order: 0,
+      });
+      const line = (label, color, data, extra = {}) => ({
+        label, $line: true, type: 'line', data, borderColor: color, backgroundColor: color, borderWidth: 2.2,
+        pointRadius: 0, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointHoverBorderColor: '#0d1117',
+        tension: 0.15, fill: false, order: 5, ...extra,
+      });
+      const datasets = [
+        line('The bot', BOT, bot, { $bot: true, order: 4 }),
+        line('Just holding BTC', HOLD, hold),
+        tradeSet('Bought', 'buy'),
+        tradeSet('Sold', 'sell'),
+      ];
+
+      // Badge images may still be loading; draw again once they are
+      const redrawWhenLoaded = () => datasets.forEach(d => {
+        const img = d.pointStyle;
+        if (img instanceof HTMLImageElement && !img.complete) {
+          img.addEventListener('load', () => paperChart && paperChart.update('none'), { once: true });
+        }
+      });
+      // One label per day once the test is a few days long
+      const spanDays = (bot[bot.length - 1].x - bot[0].x) / 864e5;
+      const timeOpts = spanDays > 3
+        ? { unit: 'day', displayFormats: { day: 'MMM dd' } }
+        : { displayFormats: { hour: 'MMM dd HH:mm', day: 'MMM dd' } };
+
+      if (paperChart) {
+        paperChart.data.datasets = datasets;
+        paperChart.options.scales.x.time = timeOpts;
+        paperChart.update('none');
+        redrawWhenLoaded();
+        return;
+      }
+      paperChart = new Chart(document.getElementById('paperChart').getContext('2d'), {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'dateLines', intersect: false },
+          scales: {
+            x: {
+              type: 'time',
+              time: timeOpts,
+              ticks: { color: '#8b949e', autoSkip: true, maxRotation: 0, font: { size: 11 } },
+              grid: { color: 'rgba(255,255,255,0.045)' },
+              border: { display: false },
+            },
+            y: {
+              position: 'right',
+              grace: '15%',
+              ticks: { color: '#8b949e', font: { size: 11 }, callback: tickLabel },
+              grid: {
+                color: (c) => (c.tick?.value === 0 ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.045)'),
+                lineWidth: (c) => (c.tick?.value === 0 ? 1.5 : 1),
+              },
+              border: { display: false },
+            },
+          },
+          plugins: {
+            legend: { display: false },
+            zoom: false,
+            tooltip: {
+              mode: 'dateLines',
+              intersect: false,
+              backgroundColor: 'rgba(13, 17, 23, 0.92)',
+              titleColor: '#ffffff',
+              bodyColor: '#e1e8ff',
+              borderColor: 'rgba(255, 255, 255, 0.14)',
+              borderWidth: 1,
+              cornerRadius: 12,
+              padding: 14,
+              boxPadding: 4,
+              titleFont: { size: 14, weight: 'bold' },
+              bodyFont: { size: 13 },
+              bodySpacing: 6,
+              filter: (item) => item.dataset.$line,
+              itemSort: (a, b) => b.parsed.y - a.parsed.y,
+              callbacks: {
+                title(items) {
+                  if (!items[0]) return '';
+                  return new Date(items[0].parsed.x).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                },
+                label(item) {
+                  const p = item.raw;
+                  return item.dataset.$bot
+                    ? ` The bot: ${pct(p.y)}  (${money(p.value)})`
+                    : ` Just holding BTC: ${pct(p.y)}  (BTC ${money(p.price, 0)})`;
+                },
+                labelColor(item) {
+                  const c = item.dataset.borderColor;
+                  return { borderColor: c, backgroundColor: c, borderRadius: 3 };
+                },
+                afterBody(items) {
+                  const it = items.find(i => i.dataset.$bot);
+                  if (!it) return '';
+                  const x = it.raw.x;
+                  // Trades in the hour that ended here
+                  const here = trades.filter(t => {
+                    const tx = new Date(t.timestamp).getTime();
+                    return tx > x - 3600e3 + grace && tx <= x + grace;
+                  });
+                  const nowPrice = hold[hold.length - 1].price;
+                  const lines = [''];
+                  here.forEach((t, n) => { if (n) lines.push(''); lines.push(...TradeWords.describe(t, { nowPrice })); });
+                  if (!here.length) lines.push(it.raw.holding ? 'The bot was holding BTC' : 'The bot was in cash (not affected by BTC moves)');
+                  return lines;
+                },
+              },
+            },
+          },
+        },
+      });
+      redrawWhenLoaded();
+    }
+
+    async function loadPaper() {
+      try {
+        const [perf, tr] = await Promise.all([
+          fetch('/api/paper/performance', { credentials: 'include' }).then(r => r.json()),
+          fetch('/api/trades?limit=1000', { credentials: 'include' }).then(r => r.json()),
+        ]);
+        if (!perf.success) throw new Error(perf.error || 'failed');
+        render(perf.data, TradeWords.pairTrades(tr.trades || []));
+      } catch (e) {
+        console.error('Paper test panel:', e);
+        document.getElementById('paper-body').innerHTML = '<div class="signals-empty">Could not load the paper test results.</div>';
+      }
+    }
+
+    loadPaper();
+    setInterval(loadPaper, 5 * 60 * 1000);
+  })();
+</script>
 
 <script>
       
@@ -3327,6 +3584,32 @@
           `<div class="sig-tile"><span>${k}</span><b class="${c}">${v}</b></div>`).join('')}</div>`;
       }
 
+      // Trend Hold: what would make the bot act next, in one sentence
+      function nextMove(s) {
+        const ind = s.indicators || {};
+        if (!ind.sell_below || !ind.buy_above) return '';
+        const candles = typeof chart !== 'undefined' && chart && currentTimeframe === '1h' ? chart.data.datasets[0].data : [];
+        const price = candles.length ? candles[candles.length - 1].c : s.price;
+        if (!price) return '';
+        // e.g. "7.8% under" / "6.0% above" the current price
+        const away = (level) => `${Math.abs((level / price - 1) * 100).toFixed(1)}% ${level < price ? 'under' : 'above'}`;
+        const now = new Date();
+        const nextClose = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+        const closeAt = nextClose.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        let text;
+        if (s.direction === 'bullish') {
+          text = `<b>Next move:</b> sells only if a day closes below <b>${usd0(ind.sell_below)}</b>, ` +
+                 `${away(ind.sell_below)} the current price (${usd0(price)}).`;
+        } else if (s.direction === 'bearish') {
+          text = `<b>Next move:</b> buys if a day closes above <b>${usd0(ind.buy_above)}</b>, ` +
+                 `${away(ind.buy_above)} the current price (${usd0(price)}).`;
+        } else {
+          text = `<b>Waiting zone:</b> no trade until a day closes above <b>${usd0(ind.buy_above)}</b> ` +
+                 `or below <b>${usd0(ind.sell_below)}</b> (now ${usd0(price)}).`;
+        }
+        return `<div class="sig-next">${text} Days close at ${closeAt} your time; it doesn't react to moves within a day.</div>`;
+      }
+
       function signalCard(s) {
         const name = STRATEGY_DISPLAY[s.name] || s.display_name || s.name;
         const dir = ['bullish', 'bearish'].includes(s.direction) ? s.direction : 'neutral';
@@ -3355,6 +3638,7 @@
           </div>
           <div class="sig-meter"><i style="width:${pct}%"></i></div>
           ${signalTiles(s)}
+          ${isTrend ? nextMove(s) : ''}
           ${spark ? `<div class="sig-spark">${sparkCaption}${spark}</div>` : ''}
           <div class="sig-desc">${escapeHtml(s.pattern || '—')}</div>
         </div>`;

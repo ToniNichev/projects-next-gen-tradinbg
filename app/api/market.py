@@ -10,6 +10,7 @@ GET /api/trades                     Filtered trade history from DB
 GET /api/stats                      Aggregate trade statistics
 GET /api/positions                  Open positions from DB
 GET /api/performance                Detailed performance metrics
+GET /api/paper/performance          Paper test so far: bot vs. holding BTC, hourly
 """
 
 import logging
@@ -336,3 +337,42 @@ def get_performance():
         return jsonify(stats)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+
+@market_bp.route("/api/paper/performance")
+@limiter.limit("30 per minute")
+@require_auth
+def get_paper_performance():
+    """The paper account vs. just holding BTC, in % since the first paper trade."""
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    try:
+        from config import BotConfig
+        from app.services.paper_performance import compute_paper_performance
+
+        db = get_database()
+        trades = db.get_trades(limit=10000)
+        rows = [{
+            "timestamp": t.timestamp,
+            "side": t.side,
+            "price": float(t.price or 0),
+            "amount": float(t.amount or 0),
+            "notional": float(t.notional or 0),
+            "fee": float(t.fee or 0),
+            "usdt_balance": float(t.usdt_balance or 0),
+            "base_balance": float(t.base_balance or 0),
+        } for t in trades]
+        if not rows:
+            return jsonify({"success": True, "data": {"started": False}})
+
+        first = min(r["timestamp"] for r in rows)
+        if first.tzinfo is None:
+            first = first.replace(tzinfo=timezone.utc)
+        config = BotConfig.load()
+        candles = db.get_candles(config.symbol, "1h", limit=24 * 400, since=first - timedelta(hours=3))
+        data = compute_paper_performance(rows, candles)
+        data["symbol"] = config.symbol
+        return jsonify({"success": True, "data": data})
+    except Exception as exc:
+        logger.error("get_paper_performance failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500

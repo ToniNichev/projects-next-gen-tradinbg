@@ -351,28 +351,7 @@ function priceConfig(candles, portfolio, trades) {
   };
 }
 
-// Hover picks the date under the cursor and shows both lines there,
-// even when the cursor is on a Buy/Sell badge
-Chart.Interaction.modes.btLines = (chart, e) => {
-  const lines = chart.data.datasets.map((d, i) => [d, i]).filter(([d]) => d.$line);
-  if (!lines.length || !chart.chartArea) return [];
-  let x = chart.scales.x.getValueForPixel(e.x);
-  // On a Buy/Sell badge, use that trade's day (badges sit up to ~26px from their point)
-  chart.data.datasets.forEach((d, i) => {
-    if (!d.$trade || d.hidden) return;
-    chart.getDatasetMeta(i).data.forEach((el, j) => {
-      if (Math.abs(el.x - e.x) <= 12 && Math.abs(el.y - e.y) <= 30) x = d.data[j].x;
-    });
-  });
-  const data = lines[0][0].data;
-  let lo = 0, hi = data.length - 1;
-  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (data[mid].x <= x) lo = mid; else hi = mid; }
-  const idx = Math.abs(data[lo].x - x) <= Math.abs(data[hi].x - x) ? lo : hi;
-  return lines
-    .filter(([d]) => d.data[idx])
-    .map(([, i]) => ({ element: chart.getDatasetMeta(i).data[idx], datasetIndex: i, index: idx }))
-    .filter((it) => it.element);
-};
+// Hover mode 'dateLines' comes from static/js/compare-hover.js
 
 // ---- "Strategy vs. holding": both lines in % from the start of the test
 
@@ -412,7 +391,7 @@ function compareConfig(r, candles, portfolio, trades, step, daily) {
 
   const tooltip = baseTooltip();
   Object.assign(tooltip, {
-    mode: 'btLines',
+    mode: 'dateLines',
     intersect: false,
     displayColors: true,
     boxPadding: 4,
@@ -466,7 +445,7 @@ function compareConfig(r, candles, portfolio, trades, step, daily) {
       ],
     },
     options: {
-      interaction: { mode: 'btLines', intersect: false },
+      interaction: { mode: 'dateLines', intersect: false },
       scales: {
         y: {
           type: 'linear', position: 'right',
