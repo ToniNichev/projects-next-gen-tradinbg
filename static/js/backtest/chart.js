@@ -1,15 +1,28 @@
 /**
- * Backtest chart: candles, the strategy's trades and the portfolio value.
+ * Backtest chart, two views:
+ *  - "Strategy vs. holding" (default): two lines that both start at 0%,
+ *    so anyone can see which did better and when.
+ *  - "Price & trades": candles, the strategy's trades and the portfolio value.
  *
  * Looks and moves like the Dashboard's price chart: same colours, axes,
  * tooltips and Buy/Sell badges; smooth wheel zoom around the cursor,
  * drag with momentum, Shift+wheel to scroll, keyboard and fullscreen.
- * The price axis always fits the candles in view.
+ * The vertical axis always fits what's in view.
  */
 
 let chart = null;
+let currentResult = null;
 let showTrades = true;
 let showPortfolio = true;
+const MODE_KEY = 'backtest_chart_mode';
+let mode = readMode();
+
+const STRATEGY_LINE = '#FFD700';
+const HOLD_LINE = '#539bf5';
+
+function readMode() {
+  try { return localStorage.getItem(MODE_KEY) === 'price' ? 'price' : 'compare'; } catch { return 'compare'; }
+}
 
 const UP = '#58D68D';
 const DOWN = '#ff5e57';
@@ -119,6 +132,7 @@ export async function showChart(backtestId) {
     }
     const section = $('chart-section');
     section.classList.add('open');
+    currentResult = result;
     render(result);
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
@@ -133,6 +147,26 @@ export function closeChart() {
   $('chart-section').classList.remove('open');
   chart?.destroy();
   chart = null;
+  currentResult = null;
+}
+
+export function setModeCompare() { setMode('compare'); }
+export function setModePrice() { setMode('price'); }
+
+function setMode(next) {
+  mode = next;
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* private window */ }
+  if (currentResult) render(currentResult);
+  else syncModeUi();
+}
+
+function syncModeUi() {
+  $('chart-section').dataset.mode = mode;
+  document.querySelectorAll('#bt-chart-mode button').forEach((b) => {
+    const on = b.dataset.action === (mode === 'compare' ? 'chart-mode-compare' : 'chart-mode-price');
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
 }
 
 export function resetZoomChart() {
@@ -158,7 +192,8 @@ export function togglePortfolio() {
   setToggle('bt-toggle-portfolio', showPortfolio, 'Portfolio', 'Portfolio off');
   if (!chart) return;
   const ds = chart.data.datasets.find(d => d.$portfolio);
-  if (ds) ds.hidden = !showPortfolio;
+  if (!ds) return;   // only the "Price & trades" view has this line
+  ds.hidden = !showPortfolio;
   chart.options.scales.y1.display = showPortfolio;
   chart.update('none');
 }
@@ -178,12 +213,16 @@ function render(result) {
   const data = r.chart_data;
   stopMotion();
   chart?.destroy();
+  syncModeUi();
 
   const candles = data.candles.map(c => ({
     x: new Date(c.timestamp).getTime(), o: c.open, h: c.high, l: c.low, c: c.close,
   }));
   const portfolio = (data.portfolio_values || []).map(p => ({ x: new Date(p.timestamp).getTime(), y: p.value }));
   const step = candleStepMs(candles);
+  const trades = data.trades
+    .map(t => ({ ...t, x: new Date(t.timestamp).getTime() }))
+    .sort((a, b) => a.x - b.x);
 
   // Header: pair, candle size, dates, and how the run did
   const daily = step >= 20 * 3600e3;
@@ -192,30 +231,105 @@ function render(result) {
     `BTC/USD · <b>${daily ? 'daily' : '1h'}</b> candles · ${fmt(candles[0].x)} → ${fmt(candles[candles.length - 1].x)}`;
   $('bt-candle-count').textContent = `${candles.length.toLocaleString()} candles`;
   const pill = $('bt-chart-result');
-  const pct = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
-  pill.textContent = `Strategy ${pct(r.pnl_pct)} · Holding ${pct(r.buy_hold_pct)}`;
+  pill.textContent = `Strategy ${signedPct(r.pnl_pct)} · Holding ${signedPct(r.buy_hold_pct)}`;
   pill.className = `status-pill ${r.pnl_pct >= r.buy_hold_pct ? 'up' : 'down'}`;
   pill.title = 'Strategy return vs. just holding BTC over this test';
 
-  const tradePoint = (t) => ({ ...t, x: new Date(t.timestamp).getTime(), y: t.price });
-  const buys = data.trades.filter(t => t.side === 'buy').map(tradePoint);
-  const sells = data.trades.filter(t => t.side !== 'buy').map(tradePoint);
-  const tradeSet = (label, side, points) => ({
+  const pad = step * 2;
+  const bounds = { min: candles[0].x - pad, max: candles[candles.length - 1].x + pad };
+  const ctx2d = $('backtestChart').getContext('2d');
+  const built = mode === 'compare'
+    ? compareConfig(r, candles, portfolio, trades, step, daily)
+    : priceConfig(candles, portfolio, trades);
+
+  built.options.scales.x = {
+    type: 'time',
+    min: bounds.min,
+    max: bounds.max,
+    adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
+    time: {
+      displayFormats: { hour: 'MMM dd HH:mm', day: 'MMM dd', week: 'MMM dd', month: 'MMM yyyy' },
+      tooltipFormat: 'MMM dd, yyyy HH:mm',
+    },
+    ticks: { color: '#8b949e', autoSkip: true, maxRotation: 0, font: { size: 11 } },
+    grid: { color: 'rgba(255,255,255,0.045)' },
+    border: { display: false },
+    offset: mode === 'price',
+  };
+  built.options.responsive = true;
+  built.options.maintainAspectRatio = false;
+  built.options.animation = { duration: 300, easing: 'easeOutQuart' };
+  built.options.plugins.legend = { display: false };
+  // Pinch zoom on touch screens; wheel, drag and buttons are handled below
+  built.options.plugins.zoom = {
+    pan: { enabled: false },
+    zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }, mode: 'x',
+            onZoomComplete: () => { fitY(); chart.update('none'); } },
+    limits: { x: { min: bounds.min, max: bounds.max, minRange: step * MIN_VISIBLE_CANDLES } },
+  };
+
+  chart = new Chart(ctx2d, built);
+  chart.$bounds = bounds;
+  chart.$minRange = step * MIN_VISIBLE_CANDLES;
+  chart.$step = step;
+  chart.$daily = daily;
+  chart.$trades = trades;
+  fitY();
+  chart.update('none');
+}
+
+const signedPct = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
+
+const baseTooltip = () => ({
+  enabled: true,
+  backgroundColor: 'rgba(13, 17, 23, 0.92)',
+  titleColor: '#ffffff',
+  bodyColor: '#e1e8ff',
+  borderColor: 'rgba(255, 255, 255, 0.14)',
+  borderWidth: 1,
+  cornerRadius: 12,
+  padding: 14,
+  titleFont: { size: 14, weight: 'bold', family: FONT },
+  bodyFont: { size: 13, family: FONT },
+  bodySpacing: 6,
+});
+
+function tradeSet(label, side, points) {
+  return {
     label, $trade: true, type: 'scatter', data: points, yAxisID: 'y',
     pointStyle: markerImage(side), pointRadius: 10, pointHoverRadius: 10, hitRadius: 20,
     backgroundColor: side === 'buy' ? '#2ecc71' : '#ff5e57',
     showLine: false, clip: false, order: 0, hidden: !showTrades,
+  };
+}
+
+// ---- "Price & trades": candles, badges at the trade price, portfolio line
+
+function priceConfig(candles, portfolio, trades) {
+  const point = (t) => ({ ...t, y: t.price });
+  const buys = trades.filter(t => t.side === 'buy').map(point);
+  const sells = trades.filter(t => t.side !== 'buy').map(point);
+  const tooltip = baseTooltip();
+  Object.assign(tooltip, {
+    mode: 'nearest',
+    intersect: true,
+    displayColors: false,
+    callbacks: {
+      title(items) {
+        if (!items[0]) return '';
+        return new Date(items[0].parsed.x).toLocaleString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+      },
+      label: tooltipLabel,
+    },
   });
-
-  const pad = step * 2;
-  const bounds = { min: candles[0].x - pad, max: candles[candles.length - 1].x + pad };
-
-  chart = new Chart($('backtestChart').getContext('2d'), {
+  return {
     type: 'candlestick',
     data: {
       datasets: [
         {
-          label: 'BTC/USD', data: candles, yAxisID: 'y',
+          label: 'BTC/USD', $candles: true, data: candles, yAxisID: 'y',
           color: { up: UP, down: DOWN, unchanged: '#999' },
           borderColor: { up: UP, down: DOWN, unchanged: '#999' },
           borderWidth: 1.5, barPercentage: 0.7, categoryPercentage: 0.8, order: 10,
@@ -230,25 +344,8 @@ function render(result) {
       ],
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 300, easing: 'easeOutQuart' },
       interaction: { mode: 'nearest', intersect: true },
       scales: {
-        x: {
-          type: 'time',
-          min: bounds.min,
-          max: bounds.max,
-          adapters: { date: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone } },
-          time: {
-            displayFormats: { hour: 'MMM dd HH:mm', day: 'MMM dd', week: 'MMM dd', month: 'MMM yyyy' },
-            tooltipFormat: 'MMM dd, yyyy HH:mm',
-          },
-          ticks: { color: '#8b949e', autoSkip: true, maxRotation: 0, font: { size: 11 } },
-          grid: { color: 'rgba(255,255,255,0.045)' },
-          border: { display: false },
-          offset: true,
-        },
         y: {
           type: 'linear', position: 'right', beginAtZero: false,
           ticks: { color: '#8b949e', font: { size: 11 }, callback: (v) => v.toLocaleString('en-US', { maximumFractionDigits: 0 }) },
@@ -262,47 +359,132 @@ function render(result) {
           border: { display: false },
         },
       },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          enabled: true,
-          mode: 'nearest',
-          intersect: true,
-          backgroundColor: 'rgba(13, 17, 23, 0.92)',
-          titleColor: '#ffffff',
-          bodyColor: '#e1e8ff',
-          borderColor: 'rgba(255, 255, 255, 0.14)',
-          borderWidth: 1,
-          cornerRadius: 12,
-          padding: 14,
-          displayColors: false,
-          titleFont: { size: 14, weight: 'bold', family: FONT },
-          bodyFont: { size: 13, family: FONT },
-          bodySpacing: 6,
-          callbacks: {
-            title(items) {
-              if (!items[0]) return '';
-              return new Date(items[0].parsed.x).toLocaleString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
-              });
-            },
-            label: tooltipLabel,
-          },
-        },
-        // Pinch zoom on touch screens; wheel, drag and buttons are handled below
-        zoom: {
-          pan: { enabled: false },
-          zoom: { wheel: { enabled: false }, pinch: { enabled: true }, drag: { enabled: false }, mode: 'x',
-                  onZoomComplete: () => { fitY(); chart.update('none'); } },
-          limits: { x: { min: bounds.min, max: bounds.max, minRange: step * MIN_VISIBLE_CANDLES } },
-        },
+      plugins: { tooltip },
+    },
+  };
+}
+
+// ---- "Strategy vs. holding": both lines in % from the start of the test
+
+function compareConfig(r, candles, portfolio, trades, step, daily) {
+  // Anchor both lines to the result card: the strategy starts at the money
+  // the test began with, holding starts at the BTC price it bought at.
+  const startValue = r.final_value - r.pnl;
+  const lastClose = candles[candles.length - 1].c;
+  const holdStart = lastClose / (1 + r.buy_hold_pct / 100);
+
+  const t0 = candles[0].x - step;   // a "day 0" point where both are exactly 0%
+  const hold = [{ x: t0, y: 0, price: holdStart }]
+    .concat(candles.map(c => ({ x: c.x, y: (c.c / holdStart - 1) * 100, price: c.c })));
+  const strat = [{ x: t0, y: 0, value: startValue }]
+    .concat(portfolio.map(p => ({ x: p.x, y: (p.y / startValue - 1) * 100, value: p.y })));
+  // The last point is the final result after closing costs, same as the card
+  if (strat.length > 1) {
+    const last = strat[strat.length - 1];
+    strat[strat.length - 1] = { ...last, y: r.pnl_pct, value: r.final_value };
+  }
+
+  // Buy/Sell badges sit on the strategy line, on the point covering the trade
+  const onLine = (t) => {
+    let p = strat[0];
+    for (const s of strat) { if (s.x <= t.x) p = s; else break; }
+    return { ...t, x: p.x, y: p.y };
+  };
+  const buys = trades.filter(t => t.side === 'buy').map(onLine);
+  const sells = trades.filter(t => t.side !== 'buy').map(onLine);
+
+  const line = (label, color, points, extra = {}) => ({
+    label, $line: true, type: 'line', data: points, yAxisID: 'y',
+    borderColor: color, backgroundColor: color, borderWidth: 2.4,
+    pointRadius: 0, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointHoverBorderColor: '#0d1117',
+    tension: 0.15, fill: false, order: 5, ...extra,
+  });
+
+  const tooltip = baseTooltip();
+  Object.assign(tooltip, {
+    mode: 'index',
+    intersect: false,
+    displayColors: true,
+    boxPadding: 4,
+    filter: (item) => item.dataset.$line,
+    itemSort: (a, b) => b.parsed.y - a.parsed.y,
+    callbacks: {
+      title(items) {
+        if (!items[0]) return '';
+        if (items[0].raw.x === t0) return 'Start of the test';
+        const opts = daily
+          ? { month: 'short', day: 'numeric', year: 'numeric' }
+          : { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+        return new Date(items[0].parsed.x).toLocaleString('en-US', opts);
+      },
+      label(item) {
+        const p = item.raw;
+        if (item.dataset.$strategy) return ` Your strategy: ${signedPct(p.y)}  (${money(p.value)})`;
+        return ` Just holding BTC: ${signedPct(p.y)}  (BTC ${money(p.price, 0)})`;
+      },
+      labelColor(item) {
+        const c = item.dataset.borderColor;
+        return { borderColor: c, backgroundColor: c, borderRadius: 3 };
+      },
+      afterBody(items) {
+        if (!items[0] || items[0].raw.x === t0) return '';
+        const x = items[0].parsed.x;
+        const lines = [''];
+        // What the strategy was doing, and any trade in this candle
+        let holding = false;
+        const here = [];
+        for (const t of chart.$trades) {
+          if (t.x < x + chart.$step) holding = t.side === 'buy';
+          if (t.x >= x && t.x < x + chart.$step) here.push(t);
+        }
+        for (const t of here) {
+          lines.push(t.side === 'buy'
+            ? `🟢 Bought BTC at ${money(t.price, 0)}`
+            : `🔴 Sold BTC at ${money(t.price, 0)}${t.pnl != null ? ` (${t.pnl >= 0 ? '+' : '−'}${money(Math.abs(t.pnl))})` : ''}`);
+        }
+        if (!here.length) lines.push(holding ? 'Strategy was holding BTC' : 'Strategy was in cash (not affected by BTC moves)');
+        return lines;
       },
     },
   });
-  chart.$bounds = bounds;
-  chart.$minRange = step * MIN_VISIBLE_CANDLES;
-  fitY();
-  chart.update('none');
+
+  return {
+    type: 'line',
+    data: {
+      datasets: [
+        line('Your strategy', STRATEGY_LINE, strat, { $strategy: true, order: 4 }),
+        line('Just holding BTC', HOLD_LINE, hold, { borderWidth: 2, borderDash: [], order: 6 }),
+        ...(buys.length ? [tradeSet('Buy', 'buy', buys)] : []),
+        ...(sells.length ? [tradeSet('Sell', 'sell', sells)] : []),
+      ],
+    },
+    options: {
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: {
+          type: 'linear', position: 'right',
+          ticks: {
+            color: '#8b949e',
+            font: { size: 11 },
+            callback(v, i, ticks) {
+              // Hide the odd edge values (e.g. +21.31%) the fitted range adds
+              const gap = ticks.length > 2 ? ticks[2].value - ticks[1].value : 0;
+              if ((i === 0 || i === ticks.length - 1) && gap && Math.abs(v / gap - Math.round(v / gap)) > 1e-6) return '';
+              const n = Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 1 });
+              return (v > 0 ? '+' : v < 0 ? '−' : '') + n + '%';
+            },
+          },
+          // The 0% line ("where you started") stands out
+          grid: {
+            color: (c) => (c.tick?.value === 0 ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.045)'),
+            lineWidth: (c) => (c.tick?.value === 0 ? 1.5 : 1),
+          },
+          border: { display: false },
+        },
+      },
+      plugins: { tooltip },
+    },
+  };
 }
 
 function tooltipLabel(ctx) {
@@ -367,35 +549,42 @@ function onFullscreenChange() {
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-// Price range (with padding) of the candles between two times
-function priceRange(min, max) {
-  let lo = Infinity, hi = -Infinity;
-  for (const c of chart.data.datasets[0].data) {
-    if (c.x >= min && c.x <= max) { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; }
+// What each vertical axis should show for the times between min and max
+function axisRanges(min, max) {
+  const out = {};
+  const fit = (lo, hi, padShare) => {
+    if (lo === Infinity) return null;
+    const pad = (hi - lo) * padShare || Math.abs(hi) * 0.02 || 1;
+    return { min: lo - pad, max: hi + pad };
+  };
+  if (chart.config.type === 'candlestick') {
+    let lo = Infinity, hi = -Infinity;
+    for (const c of chart.data.datasets.find(d => d.$candles).data) {
+      if (c.x >= min && c.x <= max) { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; }
+    }
+    out.y = fit(lo, hi, 0.05);
+    lo = Infinity; hi = -Infinity;
+    for (const p of chart.data.datasets.find(d => d.$portfolio).data) {
+      if (p.x >= min && p.x <= max) { if (p.y < lo) lo = p.y; if (p.y > hi) hi = p.y; }
+    }
+    out.y1 = fit(lo, hi, 0.08);
+  } else {
+    // Both % lines; leave room above for the Sell badges
+    let lo = Infinity, hi = -Infinity;
+    for (const ds of chart.data.datasets.filter(d => d.$line)) {
+      for (const p of ds.data) {
+        if (p.x >= min && p.x <= max) { if (p.y < lo) lo = p.y; if (p.y > hi) hi = p.y; }
+      }
+    }
+    out.y = fit(lo, hi, 0.1);
   }
-  if (lo === Infinity) return null;
-  const pad = (hi - lo) * 0.05 || hi * 0.02;
-  return { min: lo - pad, max: hi + pad };
-}
-
-// Portfolio axis follows the same window
-function portfolioRange(min, max) {
-  let lo = Infinity, hi = -Infinity;
-  for (const p of chart.data.datasets[1].data) {
-    if (p.x >= min && p.x <= max) { if (p.y < lo) lo = p.y; if (p.y > hi) hi = p.y; }
-  }
-  if (lo === Infinity) return null;
-  const pad = (hi - lo) * 0.08 || hi * 0.02;
-  return { min: lo - pad, max: hi + pad };
+  return out;
 }
 
 function fitY() {
   if (!chart) return;
-  const min = chart.options.scales.x.min, max = chart.options.scales.x.max;
-  const y = priceRange(min, max);
-  if (y) Object.assign(chart.options.scales.y, y);
-  const y1 = portfolioRange(min, max);
-  if (y1) Object.assign(chart.options.scales.y1, y1);
+  const ranges = axisRanges(chart.options.scales.x.min, chart.options.scales.x.max);
+  for (const [axis, r] of Object.entries(ranges)) if (r) Object.assign(chart.options.scales[axis], r);
 }
 
 // ---------- Smooth view motion ----------
@@ -450,8 +639,7 @@ function stepView(t) {
   chart.options.scales.x.max = max;
 
   // Ease the price axes toward what the target view will need
-  for (const [axis, range] of [['y', priceRange], ['y1', portfolioRange]]) {
-    const want = range(viewTarget.min, viewTarget.max);
+  for (const [axis, want] of Object.entries(axisRanges(viewTarget.min, viewTarget.max))) {
     if (!want) continue;
     const s = chart.scales[axis];
     chart.options.scales[axis].min = done ? want.min : s.min + (want.min - s.min) * a;

@@ -201,9 +201,15 @@ a.bt-chip.link:hover { border-style: solid; }
 
 .bt-chart { display: none; margin: 0 0 1.25rem; }
 .bt-chart.open { display: flex; }
-.bt-chart .strategy-legend { flex: 1; }
+.bt-chart[data-mode="compare"] .only-price,
+.bt-chart[data-mode="price"] .only-compare { display: none; }
+.legend-line { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: var(--c); }
+.bt-chart-note { flex: 1 1 260px; font-size: 0.76rem; color: var(--text-secondary); line-height: 1.4; }
+.bt-chart #bt-chart-mode button { padding: 0 0.85rem; }
 .bt-chart-close { width: 36px; padding: 0; }
-.legend-line-pf { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: #FFD700; }
+@media (max-width: 720px) {
+  .bt-chart #bt-chart-mode button { flex: 1; }
+}
 .toggle-portfolio-btn.active {
   color: #ffe680;
   background: linear-gradient(180deg, rgba(255, 215, 0, 0.18), rgba(255, 215, 0, 0.05));

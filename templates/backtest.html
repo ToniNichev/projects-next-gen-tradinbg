@@ -101,7 +101,7 @@
   </div>
 </section>
 
-<section id="chart-section" class="chart-container bt-chart" aria-label="Backtest chart">
+<section id="chart-section" class="chart-container bt-chart" data-mode="compare" aria-label="Backtest chart">
   <div class="chart-head">
     <div>
       <h2>Backtest Chart</h2>
@@ -117,11 +117,9 @@
   </div>
 
   <div class="chart-toolbar">
-    <div class="strategy-legend" aria-label="Legend">
-      <span class="legend-title">Legend</span>
-      <span class="legend-item"><span class="legend-dot buy"></span><span>Buy</span></span>
-      <span class="legend-item"><span class="legend-dot sell"></span><span>Sell</span></span>
-      <span class="legend-item"><span class="legend-line-pf"></span><span>Portfolio value</span></span>
+    <div class="seg" id="bt-chart-mode" role="group" aria-label="Chart view">
+      <button type="button" data-action="chart-mode-compare" class="active" aria-pressed="true" title="Your strategy and just holding BTC, both in % from the start">Strategy vs. holding</button>
+      <button type="button" data-action="chart-mode-price" aria-pressed="false" title="BTC price candles with the strategy's trades">Price &amp; trades</button>
     </div>
     <div class="toolbar-right">
       <div class="seg" role="group" aria-label="Pan">
@@ -136,13 +134,27 @@
       <button type="button" data-action="toggle-trades" id="bt-toggle-trades" class="glass-btn toggle-trades-btn active" aria-pressed="true" title="Show/hide the strategy's trades">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3l4 6H3z"/><path d="M17 21l-4-6h8z"/><path d="M7 9v12M17 3v12"/></svg><span class="btn-label">Trades</span>
       </button>
-      <button type="button" data-action="toggle-portfolio" id="bt-toggle-portfolio" class="glass-btn toggle-portfolio-btn active" aria-pressed="true" title="Show/hide the portfolio value line">
+      <button type="button" data-action="toggle-portfolio" id="bt-toggle-portfolio" class="glass-btn toggle-portfolio-btn only-price active" aria-pressed="true" title="Show/hide the portfolio value line">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/></svg><span class="btn-label">Portfolio</span>
       </button>
       <button type="button" data-action="toggle-fullscreen" id="bt-fullscreen-btn" class="glass-btn fullscreen-btn" title="Fullscreen (F, Esc to exit)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="btn-label">Fullscreen</span>
       </button>
     </div>
+  </div>
+
+  <div class="strategy-legend only-compare" aria-label="Legend">
+    <span class="legend-item"><span class="legend-line" style="--c:#FFD700"></span><span>Your strategy</span></span>
+    <span class="legend-item"><span class="legend-line" style="--c:#539bf5"></span><span>Just holding BTC</span></span>
+    <span class="legend-item"><span class="legend-dot buy"></span><span>Bought</span></span>
+    <span class="legend-item"><span class="legend-dot sell"></span><span>Sold</span></span>
+    <span class="bt-chart-note">Both start at 0%. Above 0% = money made. The higher line did better. A flat yellow line means the strategy was in cash.</span>
+  </div>
+  <div class="strategy-legend only-price" aria-label="Legend">
+    <span class="legend-item"><span class="legend-dot buy"></span><span>Buy</span></span>
+    <span class="legend-item"><span class="legend-dot sell"></span><span>Sell</span></span>
+    <span class="legend-item"><span class="legend-line" style="--c:#FFD700"></span><span>Portfolio value ($, left scale)</span></span>
+    <span class="bt-chart-note">Candles are BTC's price (right scale). Badges point at the price each trade was made.</span>
   </div>
 
   <div class="chart-canvas-wrap">
@@ -204,6 +216,8 @@
   <h3>Reading a result</h3>
   <ul>
     <li><b>Strategy vs. Just holding BTC</b>: how the strategy did compared with buying once and waiting.</li>
+    <li><b>The chart</b> opens on <b>Strategy vs. holding</b>: both lines start at 0%, and the higher one did better at that point.
+      A flat yellow line means the strategy was in cash. <b>Price &amp; trades</b> shows BTC's candles with each buy and sell.</li>
     <li><b>Worst drop</b>: the biggest fall from a peak during the test, the pain you'd have sat through.</li>
     <li><b>Win rate</b>: the share of closed trades that made money. A sale forced at the end of the test counts too.</li>
     <li>Results are kept until the bot restarts.</li>
@@ -264,6 +278,8 @@
     'toggle-trades': Chart.toggleTrades,
     'toggle-portfolio': Chart.togglePortfolio,
     'toggle-fullscreen': Chart.toggleFullscreen,
+    'chart-mode-compare': Chart.setModeCompare,
+    'chart-mode-price': Chart.setModePrice,
   };
 
   document.addEventListener('click', (e) => {
