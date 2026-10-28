@@ -27,20 +27,6 @@ function readMode() {
 const UP = '#58D68D';
 const DOWN = '#ff5e57';
 const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-const EXIT_REASONS = {
-  signal: 'Strategy signal',
-  backtest_end: 'End of test (valued at the last price)',
-  stop_loss: 'Stop loss',
-  take_profit: 'Take profit',
-  trailing_stop: 'Trailing stop',
-};
-const STRATEGY_NAMES = {
-  Aggregated: 'Bot',
-  Trend_Hold: 'Trend Hold',
-  EMA_Crossover: 'EMA Crossover',
-  RSI_BB_MeanReversion: 'RSI + Bollinger',
-  MACD_Volume_Momentum: 'MACD + Volume',
-};
 
 // Motion tuning, same as the Dashboard chart
 const WHEEL_EASE_MS = 80;
@@ -223,6 +209,11 @@ function render(result) {
   const trades = data.trades
     .map(t => ({ ...t, x: new Date(t.timestamp).getTime() }))
     .sort((a, b) => a.x - b.x);
+  let openBuy = null;
+  for (const t of trades) {
+    if (t.side === 'buy') openBuy = t;
+    else { t.$buy = openBuy; openBuy = null; }
+  }
 
   // Header: pair, candle size, dates, and how the run did
   const daily = step >= 20 * 3600e3;
@@ -274,6 +265,8 @@ function render(result) {
   chart.$step = step;
   chart.$daily = daily;
   chart.$trades = trades;
+  const used = r.strategies_used || [];
+  chart.$trendOnly = used.length === 1 && /trend/i.test(used[0]);
   fitY();
   chart.update('none');
 }
@@ -364,6 +357,29 @@ function priceConfig(candles, portfolio, trades) {
   };
 }
 
+// Hover picks the date under the cursor and shows both lines there,
+// even when the cursor is on a Buy/Sell badge
+Chart.Interaction.modes.btLines = (chart, e) => {
+  const lines = chart.data.datasets.map((d, i) => [d, i]).filter(([d]) => d.$line);
+  if (!lines.length || !chart.chartArea) return [];
+  let x = chart.scales.x.getValueForPixel(e.x);
+  // On a Buy/Sell badge, use that trade's day (badges sit up to ~26px from their point)
+  chart.data.datasets.forEach((d, i) => {
+    if (!d.$trade || d.hidden) return;
+    chart.getDatasetMeta(i).data.forEach((el, j) => {
+      if (Math.abs(el.x - e.x) <= 12 && Math.abs(el.y - e.y) <= 30) x = d.data[j].x;
+    });
+  });
+  const data = lines[0][0].data;
+  let lo = 0, hi = data.length - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (data[mid].x <= x) lo = mid; else hi = mid; }
+  const idx = Math.abs(data[lo].x - x) <= Math.abs(data[hi].x - x) ? lo : hi;
+  return lines
+    .filter(([d]) => d.data[idx])
+    .map(([, i]) => ({ element: chart.getDatasetMeta(i).data[idx], datasetIndex: i, index: idx }))
+    .filter((it) => it.element);
+};
+
 // ---- "Strategy vs. holding": both lines in % from the start of the test
 
 function compareConfig(r, candles, portfolio, trades, step, daily) {
@@ -402,7 +418,7 @@ function compareConfig(r, candles, portfolio, trades, step, daily) {
 
   const tooltip = baseTooltip();
   Object.assign(tooltip, {
-    mode: 'index',
+    mode: 'btLines',
     intersect: false,
     displayColors: true,
     boxPadding: 4,
@@ -412,8 +428,9 @@ function compareConfig(r, candles, portfolio, trades, step, daily) {
       title(items) {
         if (!items[0]) return '';
         if (items[0].raw.x === t0) return 'Start of the test';
+        // Daily points are stamped at midnight UTC: show that calendar day
         const opts = daily
-          ? { month: 'short', day: 'numeric', year: 'numeric' }
+          ? { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }
           : { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' };
         return new Date(items[0].parsed.x).toLocaleString('en-US', opts);
       },
@@ -437,11 +454,7 @@ function compareConfig(r, candles, portfolio, trades, step, daily) {
           if (t.x < x + chart.$step) holding = t.side === 'buy';
           if (t.x >= x && t.x < x + chart.$step) here.push(t);
         }
-        for (const t of here) {
-          lines.push(t.side === 'buy'
-            ? `🟢 Bought BTC at ${money(t.price, 0)}`
-            : `🔴 Sold BTC at ${money(t.price, 0)}${t.pnl != null ? ` (${t.pnl >= 0 ? '+' : '−'}${money(Math.abs(t.pnl))})` : ''}`);
-        }
+        here.forEach((t, n) => { if (n) lines.push(''); lines.push(...describeTrade(t)); });
         if (!here.length) lines.push(holding ? 'Strategy was holding BTC' : 'Strategy was in cash (not affected by BTC moves)');
         return lines;
       },
@@ -459,7 +472,7 @@ function compareConfig(r, candles, portfolio, trades, step, daily) {
       ],
     },
     options: {
-      interaction: { mode: 'index', intersect: false },
+      interaction: { mode: 'btLines', intersect: false },
       scales: {
         y: {
           type: 'linear', position: 'right',
@@ -493,24 +506,69 @@ function tooltipLabel(ctx) {
     return [`Open:  ${money(raw.o)}`, `High:  ${money(raw.h)}`, `Low:   ${money(raw.l)}`, `Close: ${money(raw.c)}`];
   }
   if (ctx.dataset.$portfolio) return `💼 Portfolio: ${money(ctx.parsed.y)}`;
-  if (ctx.dataset.$trade) {
-    const buy = raw.side === 'buy';
-    const lines = [`${buy ? '🟢 BUY' : '🔴 SELL'}`, '', `💰 Price: ${money(raw.y)}`];
-    if (raw.amount) {
-      lines.push(`📊 Amount: ${raw.amount.toFixed(6)} BTC`);
-      lines.push(`💵 Value: ${money(raw.notional || raw.amount * raw.y)}`);
-    }
-    if (raw.fee > 0) lines.push(`💸 Fee: ${money(raw.fee, 4)}`);
-    if (raw.pnl != null) {
-      const pct = raw.notional ? ` (${((raw.pnl / raw.notional) * 100).toFixed(2)}%)` : '';
-      lines.push('', `${raw.pnl >= 0 ? '📈' : '📉'} P&L: ${raw.pnl >= 0 ? '+' : '−'}${money(Math.abs(raw.pnl))}${pct}`);
-    }
-    const reason = raw.exit_reason || raw.reason;
-    if (!buy && reason) lines.push(`🎯 Why: ${EXIT_REASONS[reason] || reason.replace(/_/g, ' ')}`);
-    if (raw.strategy_name) lines.push(`🤖 ${STRATEGY_NAMES[raw.strategy_name] || raw.strategy_name.replace(/_/g, ' ')}`);
+  if (ctx.dataset.$trade) return describeTrade(raw);
+  return ctx.formattedValue;
+}
+
+// ---------- Trades in plain words ----------
+
+const dayMs = 864e5;
+const shortDate = (x) => new Date(x).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+function whyLines(t) {
+  const reason = t.exit_reason || t.reason;
+  // Trades from a Trend Hold-only run are labelled 'Aggregated', so also check the run
+  const trend = t.strategy_name === 'Trend_Hold' || chart?.$trendOnly;
+  if (t.side === 'buy') {
+    return trend
+      ? ["Why: BTC's trend turned up", '(its daily price rose above its long-term average)']
+      : ["Why: the strategy's signals said buy"];
+  }
+  switch (reason) {
+    case 'backtest_end':
+      return ['Not a real sale: the test ended here,', 'so the BTC is counted at this price'];
+    case 'stop_loss':
+      return ['Why: the price fell to the stop-loss level', '(a safety exit that limits the loss)'];
+    case 'take_profit':
+      return ['Why: the price reached the profit target'];
+    case 'trailing_stop':
+      return ['Why: the price fell back from its recent high', '(the trailing stop closed the trade)'];
+    default:
+      return trend
+        ? ["Why: BTC's trend turned down", '(its daily price fell below its long-term average)']
+        : ["Why: the strategy's signals said sell"];
+  }
+}
+
+function describeTrade(t) {
+  const price = money(t.price ?? t.y, 0);
+  const lines = [];
+  if (t.side === 'buy') {
+    lines.push(`🟢 Bought BTC at ${price}`);
+    if (t.notional) lines.push(`Spent ${money(t.notional + (t.fee || 0))} (including a ${money(t.fee || 0)} fee)`);
+    lines.push(...whyLines(t));
     return lines;
   }
-  return ctx.formattedValue;
+
+  const ended = (t.exit_reason || t.reason) === 'backtest_end';
+  lines.push(ended ? `🏁 End of test — BTC at ${price}` : `🔴 Sold BTC at ${price}`);
+  const received = t.notional ? t.notional - (t.fee || 0) : null;
+  if (received != null) lines.push(`${ended ? 'Worth' : 'Got back'} ${money(received)} after fees`);
+
+  // Result of the whole trade, after the buying and selling fees
+  const b = t.$buy;
+  if (b?.notional && received != null) {
+    const cost = b.notional + (b.fee || 0);
+    const net = received - cost;
+    const verb = net >= 0 ? '✅ Made' : '❌ Lost';
+    lines.push(`${verb} ${money(Math.abs(net))} (${signedPct((net / cost) * 100)}) on this trade`);
+    const days = Math.max(1, Math.round((t.x - b.x) / dayMs));
+    lines.push(`Held ${days} day${days === 1 ? '' : 's'}, bought ${shortDate(b.x)} at ${money(b.price, 0)}`);
+  } else if (t.pnl != null) {
+    lines.push(`${t.pnl >= 0 ? '✅ Made' : '❌ Lost'} ${money(Math.abs(t.pnl))} on this trade`);
+  }
+  lines.push(...whyLines(t));
+  return lines;
 }
 
 // ---------- Helpers ----------
