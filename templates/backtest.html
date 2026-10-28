@@ -3,6 +3,7 @@
 {% block title %}Backtest - Crypto Bot Dashboard{% endblock %}
 
 {% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/price-chart.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/backtest.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/help.css') }}">
 <script src="{{ url_for('static', filename='js/help.js') }}" defer></script>
@@ -100,53 +101,54 @@
   </div>
 </section>
 
-<section id="chart-section" class="chart-section bt-panel" aria-label="Backtest chart">
-  <div class="chart-section-header">
+<section id="chart-section" class="chart-container bt-chart" aria-label="Backtest chart">
+  <div class="chart-head">
     <div>
-      <h2>Chart</h2>
-      <p class="bt-sub">Price candles, the strategy's buys and sells, and the portfolio value (gold line).</p>
+      <h2>Backtest Chart</h2>
+      <div class="chart-sub" id="bt-chart-sub">BTC/USD</div>
     </div>
-    <button type="button" class="bt-icon-btn" data-action="close-chart" title="Close chart" aria-label="Close chart">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
-    </button>
-  </div>
-
-  <div class="chart-controls">
-    <div class="bt-seg compact">
-      <button type="button" data-action="pan-left" title="Pan left" aria-label="Pan left">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+    <div class="chart-status">
+      <span class="status-pill" id="bt-chart-result"></span>
+      <span class="status-pill" id="bt-candle-count">0 candles</span>
+      <button type="button" class="glass-btn bt-chart-close" data-action="close-chart" title="Close chart" aria-label="Close chart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
-      <button type="button" data-action="pan-right" title="Pan right" aria-label="Pan right">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-      </button>
-    </div>
-    <span class="kbd-hint">Drag to move · scroll to zoom</span>
-    <div class="bt-seg compact">
-      <button type="button" data-action="zoom-out" title="Zoom out" aria-label="Zoom out">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
-      </button>
-      <button type="button" data-action="zoom-in" title="Zoom in" aria-label="Zoom in">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
-      <button type="button" data-action="reset-zoom" title="Show everything">Reset</button>
     </div>
   </div>
 
-  <div id="strategy-legend" class="strategy-legend" style="display: none;">
-    <div id="legend-items" class="legend-items-row"></div>
+  <div class="chart-toolbar">
+    <div class="strategy-legend" aria-label="Legend">
+      <span class="legend-title">Legend</span>
+      <span class="legend-item"><span class="legend-dot buy"></span><span>Buy</span></span>
+      <span class="legend-item"><span class="legend-dot sell"></span><span>Sell</span></span>
+      <span class="legend-item"><span class="legend-line-pf"></span><span>Portfolio value</span></span>
+    </div>
+    <div class="toolbar-right">
+      <div class="seg" role="group" aria-label="Pan">
+        <button type="button" data-action="pan-left" title="Pan left (&larr; or Shift+Wheel)" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button type="button" data-action="pan-right" title="Pan right (&rarr; or Shift+Wheel)" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+      </div>
+      <div class="seg" role="group" aria-label="Zoom">
+        <button type="button" data-action="zoom-out" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button type="button" data-action="reset-zoom" title="Show the whole test (0)" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+        <button type="button" data-action="zoom-in" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      </div>
+      <button type="button" data-action="toggle-trades" id="bt-toggle-trades" class="glass-btn toggle-trades-btn active" aria-pressed="true" title="Show/hide the strategy's trades">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3l4 6H3z"/><path d="M17 21l-4-6h8z"/><path d="M7 9v12M17 3v12"/></svg><span class="btn-label">Trades</span>
+      </button>
+      <button type="button" data-action="toggle-portfolio" id="bt-toggle-portfolio" class="glass-btn toggle-portfolio-btn active" aria-pressed="true" title="Show/hide the portfolio value line">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/></svg><span class="btn-label">Portfolio</span>
+      </button>
+      <button type="button" data-action="toggle-fullscreen" id="bt-fullscreen-btn" class="glass-btn fullscreen-btn" title="Fullscreen (F, Esc to exit)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="btn-label">Fullscreen</span>
+      </button>
+    </div>
   </div>
 
-  <div class="chart-canvas-wrapper">
+  <div class="chart-canvas-wrap">
     <canvas id="backtestChart"></canvas>
   </div>
-
-  <div class="legend-foot">
-    <span class="legend-item"><span class="legend-tri buy"></span>Buy</span>
-    <span class="legend-item"><span class="legend-tri sell"></span>Sell</span>
-    <span class="legend-item hodlod"><span class="legend-line-hod"></span>High of day</span>
-    <span class="legend-item hodlod"><span class="legend-line-lod"></span>Low of day</span>
-    <span class="legend-item"><span class="legend-line-pf"></span>Portfolio value</span>
-  </div>
+  <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
 </section>
 
 <section class="bt-results" aria-label="Backtest results">
@@ -259,6 +261,9 @@
     'zoom-out': Chart.zoomOutChart,
     'pan-left': Chart.panLeftChart,
     'pan-right': Chart.panRightChart,
+    'toggle-trades': Chart.toggleTrades,
+    'toggle-portfolio': Chart.togglePortfolio,
+    'toggle-fullscreen': Chart.toggleFullscreen,
   };
 
   document.addEventListener('click', (e) => {
