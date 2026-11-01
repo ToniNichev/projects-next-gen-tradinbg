@@ -142,6 +142,9 @@ class BotConfig:
     strategy_trend_band: float = 0.01
     strategy_trend_position_size: float = 0.99
     strategy_trend_emergency_stop_pct: float = 0.0  # 0 = no stop below entry
+    # Telegram heads-up when a daily close lands within this % of the
+    # Trend Hold sell/buy line (and when it crosses). 0 = off.
+    trend_alert_pct: float = 1.0
     
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
@@ -335,6 +338,7 @@ class BotConfig:
             strategy_trend_band=get_val("strategy_trend_band", "BOT_STRATEGY_TREND_BAND", 0.01, float),
             strategy_trend_position_size=get_val("strategy_trend_position_size", "BOT_STRATEGY_TREND_POSITION_SIZE", 0.99, float),
             strategy_trend_emergency_stop_pct=get_val("strategy_trend_emergency_stop_pct", "BOT_STRATEGY_TREND_EMERGENCY_STOP_PCT", 0.0, float),
+            trend_alert_pct=float(env.get("BOT_TREND_ALERT_PCT", 1.0)),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),

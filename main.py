@@ -16,6 +16,8 @@ from config import BotConfig
 from app import create_app, init_services, start_app
 from app.core.state import get_app_state
 from paper_trader import PaperTrader
+from app.services import trend_alert
+from strategies.constants import StrategyNames
 
 # Import LiveTrader for real money trading
 try:
@@ -767,6 +769,8 @@ def main():
                     config.timeframe,
                     candle_data=candle_buffer,
                 )
+                # Before the trade, so a sell on this check still counts as holding
+                holding = trader.open_position is not None
                 trade = trader.handle_signal(signal_obj)
 
                 balances = trader.get_balances()
@@ -797,6 +801,19 @@ def main():
                     "trade_side": trade.side if trade else None,
                     **ohlc,
                 })
+
+            # Heads-up when Trend Hold is close to selling/buying (once per daily close)
+            try:
+                alert = trend_alert.check(
+                    strategy_manager.last_signals.get(StrategyNames.TREND_HOLD),
+                    holding,
+                    getattr(config, "trend_alert_pct", 1.0),
+                )
+                if alert:
+                    logging.info("Trend alert: %s", alert[0])
+                    send_notification(alert[0], alert[1], severity="info")
+            except Exception as exc:
+                logging.warning("Trend alert check failed: %s", exc)
 
             # Log signal with strategy info
             if strategy_manager and hasattr(signal_obj, 'info') and 'strategies_used' in signal_obj.info:
