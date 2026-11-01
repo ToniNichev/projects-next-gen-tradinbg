@@ -1386,7 +1386,14 @@ class LiveTrader:
             )
 
             pos = self.open_position
-            is_full_exit = pos is None or filled_amount + 1e-10 >= pos.amount
+            # A leftover too small to sell (sells round down to the exchange's
+            # precision, and the buy fee came out of the coins) still counts
+            # as closed - otherwise the position stays "open" on dust forever.
+            is_full_exit = (
+                pos is None
+                or filled_amount + 1e-10 >= pos.amount
+                or self._is_dust(pos.amount - filled_amount, fill_price)
+            )
 
             if is_full_exit:
                 self._close_position_in_db(fill_price, exit_reason, pnl)
@@ -1416,6 +1423,13 @@ class LiveTrader:
             self.logger.error(f"Market sell failed: {e}", exc_info=True)
             raise
     
+    def _is_dust(self, amount: float, price: float) -> bool:
+        """True when an amount is below what the exchange would let us sell."""
+        try:
+            return amount < self.get_min_order_size() or amount * price < self.get_min_notional()
+        except Exception:
+            return amount <= 0
+
     # =========================================================================
     # Order Status & Tracking
     # =========================================================================
