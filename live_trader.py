@@ -848,6 +848,100 @@ class LiveTrader:
             except Exception:
                 pass
 
+    def check_exchange_stop_filled(self) -> Optional[TradeRecord]:
+        """Did the stop order resting on the exchange sell our coins?
+
+        The exchange fires it the moment the price touches it (often mid-
+        hour); the bot only looks once per closed candle. Without this check
+        the bot kept "holding" coins the exchange had already sold: its next
+        sell failed and the position was stuck.
+
+        Filled -> book the sale (real price and fee) and return it.
+        Cancelled/expired with nothing filled -> place a new stop.
+        Still waiting -> None.
+        """
+        if self.mode != TradingMode.LIVE:
+            return None
+        pos = self.open_position
+        if not pos or not pos.exchange_stop_order_id:
+            return None
+        oid = pos.exchange_stop_order_id
+        symbol = self.config.symbol
+        order = _retry_call(
+            self.exchange.fetch_order, oid, symbol,
+            attempts=self.retry_attempts, delay=self.retry_delay,
+            logger=self.logger, description=f"fetch_order(stop {oid})",
+        ) or {}
+        status = order.get("status")
+        filled = float(order.get("filled") or 0.0)
+
+        if status not in _TERMINAL_ORDER_STATUSES:
+            return None  # still resting (or filling); look again next candle
+        if filled <= 0:
+            self.logger.warning(
+                "Exchange stop %s ended as '%s' without selling; placing a new one", oid, status,
+            )
+            pos.exchange_stop_order_id = None
+            self._update_open_position_in_db()
+            self._sync_exchange_protective_stop()
+            return None
+
+        fill_price = float(order.get("average") or order.get("price") or 0.0)
+        if fill_price <= 0:
+            fill_price = float(order.get("stopPrice") or pos.stop_loss)
+        notional = filled * fill_price
+        fee_info = order.get("fee") or {}
+        fee = float(fee_info.get("cost") or notional * self.config.fee_rate)
+        fee_currency = fee_info.get("currency")
+        quote = symbol.split("/")[1].upper()
+        fee_in_quote = fee if (fee_currency or quote).upper() == quote else 0.0
+
+        pnl = filled * (fill_price - pos.entry_price) - fee_in_quote
+        self.total_pnl += pnl
+        self.daily_pnl += pnl
+        if pnl > 0:
+            self.winning_trades += 1
+
+        try:
+            self.sync_balances()
+        except Exception as exc:
+            self.logger.warning("Balance refresh after exchange stop failed: %s", exc)
+        self._apply_fill("sell", filled, notional, fee, fee_currency, filled)
+
+        trade = TradeRecord(
+            side="sell",
+            price=fill_price,
+            amount=filled,
+            notional=notional,
+            fee=fee,
+            slippage=max(0.0, float(pos.stop_loss) - fill_price),
+            usdt_balance=self.usdt_balance,
+            base_balance=self.base_balance,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            signal={},
+            exit_reason="stop_loss",
+            pnl=pnl,
+            order_id=str(order.get("id") or oid),
+        )
+
+        pos.exchange_stop_order_id = None
+        if filled + 1e-10 >= pos.amount or self._is_dust(pos.amount - filled, fill_price):
+            self._close_position_in_db(fill_price, "stop_loss", pnl)
+            self.open_position = None
+        else:
+            pos.amount = self.round_amount(pos.amount - filled)
+            self._update_open_position_in_db()
+            self._sync_exchange_protective_stop()
+
+        self.daily_trades += 1
+        self.total_trades += 1
+        self._log_trade(trade)
+        self.logger.info(
+            "Exchange stop %s sold %.8f @ $%.2f (fee=$%.4f P&L=$%.2f)",
+            oid, filled, fill_price, fee, pnl,
+        )
+        return trade
+
     # ------------------------------------------------------------------
     # Peak portfolio equity → drawdown kill-switch (buys only)
     # ------------------------------------------------------------------
@@ -1294,6 +1388,18 @@ class LiveTrader:
         if self.mode == TradingMode.PAPER:
             return self._simulate_market_sell(amount, current_price, signal, exit_reason)
         
+        # The exchange's stop may have sold these coins already
+        try:
+            stopped = self.check_exchange_stop_filled()
+        except Exception as exc:
+            self.logger.warning("Could not check the exchange stop order: %s", exc)
+            stopped = None
+        if stopped is not None:
+            if self.open_position is None:
+                self.logger.info("Position was already sold by the exchange stop; no market sell needed")
+                return stopped
+            amount = min(amount, self.round_amount(self.open_position.amount))
+
         # LIVE mode - execute real order
         try:
             self.logger.info(f"Executing MARKET SELL: {amount} {symbol} (reason: {exit_reason})")
@@ -1609,6 +1715,14 @@ class LiveTrader:
         """
         if not self.open_position:
             return None
+
+        try:
+            stopped = self.check_exchange_stop_filled()
+        except Exception as exc:
+            self.logger.warning("Could not check the exchange stop order: %s", exc)
+            stopped = None
+        if stopped is not None and self.open_position is None:
+            return stopped
 
         pos = self.open_position
         exit_reason = None

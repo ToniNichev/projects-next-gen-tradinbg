@@ -69,18 +69,21 @@ class ExchangeProtectiveStopTests(unittest.TestCase):
             "amount": 0.01, "filled": 0.01, "average": 50_000.0,
             "fee": {"cost": 0.5, "currency": "USDT"},
         }
-        self.exchange.fetch_order.side_effect = [
-            {
+        orders = {
+            "OID-C": {
                 "id": "OID-C", "status": "closed",
                 "amount": 0.01, "filled": 0.01, "average": 50_000.0,
                 "fee": {"cost": 0.5, "currency": "USDT"},
             },
-            {
+            # The protective stop is still resting when the bot sells
+            "STOP-1": {"id": "STOP-1", "status": "open", "amount": 0.01, "filled": 0.0},
+            "OID-SELL": {
                 "id": "OID-SELL", "status": "closed",
                 "amount": 0.01, "filled": 0.01, "average": 50_000.0,
                 "fee": {"cost": 0.5, "currency": "USDT"},
             },
-        ]
+        }
+        self.exchange.fetch_order.side_effect = lambda oid, sym: orders[oid]
         self.exchange.create_market_sell_order.return_value = {
             "id": "OID-SELL", "status": "open",
             "amount": 0.01, "filled": 0.0,
