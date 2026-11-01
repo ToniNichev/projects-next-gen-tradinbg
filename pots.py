@@ -19,6 +19,7 @@ live starts the live pots fresh instead of from the paper balances.
 """
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -40,6 +41,9 @@ POT_TREND = "trend"
 POT_INTRADAY = "intraday"
 POT_MANUAL = "manual"
 LIVE_TAG_PREFIX = "live-"
+# Cash on the exchange that belongs to no pot (new deposits, or money taken
+# out of a pot); in paper mode, "new paper money"
+UNASSIGNED = "unassigned"
 
 # BOT_POT_INTRADAY_STRATEGY value -> strategy name
 INTRADAY_STRATEGIES = {
@@ -197,6 +201,10 @@ class Pot:
         return float(b["USDT"]) + float(b["BASE"]) * float(price)
 
 
+class TransferError(ValueError):
+    """A cash move that isn't allowed (shown to the user as is)."""
+
+
 class PotManager:
     def __init__(
         self,
@@ -205,11 +213,14 @@ class PotManager:
         live: bool,
         notify: Optional[Callable] = None,
         trade_alerts: bool = True,
+        db=None,
     ):
         self.pots: Dict[str, Pot] = {p.name: p for p in pots}
         self.live = live
         self.notify = notify
         self.trade_alerts = trade_alerts
+        self.db = db  # where cash moves are saved (None in a dry run)
+        self._transfers: List[Dict] = []  # this run's moves when there's no db
         self._mismatch_alerted = False
 
     def get(self, name: str) -> Optional[Pot]:
@@ -284,6 +295,125 @@ class PotManager:
         except Exception as exc:
             logger.warning("Pot trade alert failed: %s", exc)
 
+    # ------------------------------------------------------------ cash moves
+
+    def _real_money(self) -> bool:
+        traders = [t for t in self.traders() if isinstance(t, PotLiveTrader)]
+        return bool(traders) and traders[0].mode == TradingMode.LIVE
+
+    def restore_transfers(self) -> None:
+        """At start-up: add cash moved in/out of each pot since its last trade
+        (a trade row records the pot's cash, so older moves are already in it)."""
+        if self.db is None:
+            return
+        for pot in self.pots.values():
+            try:
+                last = self.db.get_trades(limit=1, pot=pot.tag)
+                since = last[0].timestamp if last else None
+                moved = self.db.net_pot_transfers(pot.tag, since=since)
+            except Exception as exc:
+                logger.error("Pot %s: could not read cash moves: %s", pot.name, exc)
+                continue
+            if moved:
+                self._set_cash(pot, pot.trader.usdt_balance + moved)
+                logger.info("Pot %s: %+.2f cash moved since its last trade", pot.name, moved)
+
+    def net_in(self, pot: Pot) -> float:
+        """All cash moved into this pot minus all moved out, ever."""
+        if self.db is not None:
+            try:
+                return self.db.net_pot_transfers(pot.tag)
+            except Exception as exc:
+                logger.warning("Pot %s: could not total cash moves: %s", pot.name, exc)
+        return sum(t["amount"] for t in self._transfers if t["to"] == pot.name) - sum(
+            t["amount"] for t in self._transfers if t["from"] == pot.name
+        )
+
+    def unassigned_cash(self) -> Optional[float]:
+        """Live: exchange cash that belongs to no pot. None when not real money."""
+        if not self._real_money():
+            return None
+        trader = self.traders()[0]
+        trader.sync_balances()
+        free = (trader.exchange_balances or {}).get("USDT_free", 0.0)
+        return max(0.0, free - sum(t.usdt_balance for t in self.traders()))
+
+    def recent_transfers(self, limit: int = 10) -> List[Dict]:
+        tags = {p.tag: p.name for p in self.pots.values()}
+        if self.db is not None:
+            try:
+                rows = self.db.get_pot_transfers(limit=limit * 3)
+                moves = []
+                for r in rows:
+                    src = tags.get(r.from_pot, None) if r.from_pot else UNASSIGNED
+                    dst = tags.get(r.to_pot, None) if r.to_pot else UNASSIGNED
+                    if src is None or dst is None:
+                        continue  # another mode's pots (paper vs live)
+                    moves.append({"time": r.timestamp.replace(tzinfo=timezone.utc).isoformat(),
+                                  "from": src, "to": dst, "amount": float(r.amount), "note": r.note})
+                return moves[:limit]
+            except Exception as exc:
+                logger.warning("Could not read cash moves: %s", exc)
+        return list(reversed(self._transfers))[:limit]
+
+    @staticmethod
+    def _set_cash(pot: Pot, cash: float) -> None:
+        pot.trader.usdt_balance = float(cash)
+        if hasattr(pot.trader, "reserved_balance"):
+            pot.trader.reserved_balance = pot.trader.usdt_balance * 0.001
+
+    def transfer(self, source: str, target: str, amount, note: str = "") -> Dict:
+        """Move uninvested cash between pots, or from/to unassigned cash.
+        Call with the trader lock held. Raises TransferError if not allowed."""
+        try:
+            amount = round(float(amount), 2)
+        except (TypeError, ValueError):
+            raise TransferError("Amount must be a number")
+        if not math.isfinite(amount) or amount <= 0:
+            raise TransferError("Amount must be more than $0")
+        if source == target:
+            raise TransferError("Pick two different places")
+        names = set(self.pots) | {UNASSIGNED}
+        if source not in names or target not in names:
+            raise TransferError("Unknown pot")
+        src, dst = self.pots.get(source), self.pots.get(target)
+
+        if src is not None and amount > src.trader.usdt_balance + 1e-9:
+            raise TransferError(
+                f"{src.label} has only ${src.trader.usdt_balance:.2f} in cash "
+                f"(BTC it holds can't be moved; it moves when the pot sells)"
+            )
+        if src is None and self._real_money():
+            free = self.unassigned_cash() or 0.0
+            if amount > free + 1e-9:
+                raise TransferError(f"Only ${free:.2f} on the exchange isn't in a pot yet")
+
+        if src is not None:
+            self._set_cash(src, src.trader.usdt_balance - amount)
+        if dst is not None:
+            self._set_cash(dst, dst.trader.usdt_balance + amount)
+
+        move = {"time": datetime.now(timezone.utc).isoformat(), "from": source, "to": target,
+                "amount": amount, "note": note or None}
+        if self.db is not None:
+            try:
+                self.db.add_pot_transfer(src.tag if src else None, dst.tag if dst else None,
+                                         amount, note)
+            except Exception:
+                # Undo, so memory and the database never disagree
+                if src is not None:
+                    self._set_cash(src, src.trader.usdt_balance + amount)
+                if dst is not None:
+                    self._set_cash(dst, dst.trader.usdt_balance - amount)
+                raise
+        else:
+            self._transfers.append(move)
+
+        label = lambda p, name: p.label if p else ("new money" if name == source else "unassigned")
+        message = f"Moved ${amount:.2f} from {label(src, source)} to {label(dst, target)}"
+        logger.info("Pots: %s", message)
+        return {"message": message, "move": move}
+
     # ------------------------------------------------------- live safety check
 
     def reconcile(self) -> List[str]:
@@ -329,6 +459,8 @@ class PotManager:
                 stop = None if pos.stop_loss < pos.entry_price * _NO_STOP_FRACTION else float(pos.stop_loss)
                 take = None if pos.take_profit > pos.entry_price * 10 else float(pos.take_profit)
             sig = pot.last_signal
+            net_in = self.net_in(pot)
+            invested = pot.start_value + net_in
             rows.append({
                 "name": pot.name,
                 "label": pot.label,
@@ -339,8 +471,10 @@ class PotManager:
                 "cash": cash,
                 "btc": btc,
                 "value": value,
-                "pnl": value - pot.start_value,
-                "pnl_pct": (value / pot.start_value - 1) * 100 if pot.start_value > 0 else 0.0,
+                "net_in": net_in,
+                "invested": invested,
+                "pnl": value - invested,
+                "pnl_pct": (value / invested - 1) * 100 if invested > 0 else 0.0,
                 "holding": pos is not None,
                 "entry_price": float(pos.entry_price) if pos else None,
                 "stop_loss": stop,
@@ -354,17 +488,18 @@ class PotManager:
                 } if sig is not None else None,
                 "note": pot.last_note,
             })
-        start = sum(r["start_value"] for r in rows)
+        invested = sum(r["invested"] for r in rows)
         value = sum(r["value"] for r in rows)
         return {
             "live": self.live,
+            "real_money": self._real_money(),
             "price": price,
             "pots": rows,
             "total": {
-                "start_value": start,
+                "invested": invested,
                 "value": value,
-                "pnl": value - start,
-                "pnl_pct": (value / start - 1) * 100 if start > 0 else 0.0,
+                "pnl": value - invested,
+                "pnl_pct": (value / invested - 1) * 100 if invested > 0 else 0.0,
             },
         }
 
@@ -438,4 +573,9 @@ def build_pots(config, *, exchange, db_manager, strategy_manager, trading_mode: 
         Pot(POT_MANUAL, "Manual", trader(POT_MANUAL, config.pot_manual_usd),
             budget=config.pot_manual_usd, start_value=config.pot_manual_usd),
     ]
-    return PotManager(pots, live=live, notify=notify, trade_alerts=config.pot_trade_alerts)
+    manager = PotManager(
+        pots, live=live, notify=notify, trade_alerts=config.pot_trade_alerts,
+        db=None if trading_mode == "dry_run" else db_manager,
+    )
+    manager.restore_transfers()
+    return manager

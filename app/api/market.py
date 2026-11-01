@@ -427,7 +427,43 @@ def get_pots():
         lock = app_state.get_trader_lock()
         with lock if lock else nullcontext():
             data = pots.summary(float(price))
+            data["transfers"] = pots.recent_transfers()
+            try:
+                data["unassigned"] = pots.unassigned_cash()
+            except Exception as exc:
+                logger.warning("Could not read unassigned cash: %s", exc)
+                data["unassigned"] = None
         return jsonify({"success": True, "enabled": True, **data})
     except Exception as exc:
         logger.error("get_pots failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@market_bp.route("/api/pots/transfer", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def transfer_pot_cash():
+    """Move uninvested cash: {"from": "trend"|"unassigned", "to": ..., "amount": 5}."""
+    from pots import TransferError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    params = request.get_json(silent=True) or {}
+    lock = app_state.get_trader_lock()
+    try:
+        with lock if lock else nullcontext():
+            result = pots.transfer(
+                str(params.get("from", "")),
+                str(params.get("to", "")),
+                params.get("amount"),
+                str(params.get("note", ""))[:200],
+            )
+            balances = {p.name: p.balances() for p in pots.pots.values()}
+        return jsonify({"success": True, **result, "balances": balances})
+    except TransferError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("transfer_pot_cash failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": str(exc)}), 500

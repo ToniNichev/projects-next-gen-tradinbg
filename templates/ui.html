@@ -966,6 +966,30 @@
   .pot-rows b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
   .pot-note { font-size: 0.74rem; color: var(--text-secondary); }
   .pots-foot { margin: 0.8rem 0 0; font-size: 0.74rem; color: var(--text-secondary); opacity: 0.85; line-height: 1.45; }
+  .pots-move {
+    margin-top: 0.9rem; padding: 0.9rem 1rem; border-radius: 14px;
+    background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.06);
+  }
+  .pots-move h3 { margin: 0 0 0.6rem; font-size: 0.95rem; }
+  .pots-move-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end; }
+  .pots-move label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.74rem; color: var(--text-secondary); flex: 1 1 140px; }
+  .pots-move select, .pots-move input {
+    background: rgba(255,255,255,0.06); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px; padding: 0.5rem 0.6rem; font-size: 0.9rem; min-width: 0;
+  }
+  .pots-move select option { background: #161b22; }
+  .pots-move button {
+    flex: 0 0 auto; padding: 0.55rem 1rem; border-radius: 10px; border: 1px solid rgba(83,155,245,0.4);
+    background: rgba(83,155,245,0.15); color: #cfe3ff; font-weight: 700; cursor: pointer;
+  }
+  .pots-move button.confirm { border-color: rgba(255,193,7,0.55); background: rgba(255,193,7,0.16); color: #ffe08a; }
+  .pots-move button:disabled { opacity: 0.5; cursor: default; }
+  .pots-move-msg { margin-top: 0.5rem; font-size: 0.8rem; min-height: 1em; }
+  .pots-move-msg.ok { color: var(--accent-green); }
+  .pots-move-msg.err { color: var(--accent-red); }
+  .pots-move-info { margin: 0 0 0.6rem; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4; }
+  .pots-moves-list { margin: 0.6rem 0 0; padding: 0; list-style: none; font-size: 0.76rem; color: var(--text-secondary); }
+  .pots-moves-list li { padding: 0.15rem 0; }
 </style>
 
 <section class="signals-panel" id="pots-panel" aria-label="Money pots" style="display: none;">
@@ -977,6 +1001,18 @@
     <span class="consensus-pill" id="pots-total" style="display: none;"></span>
   </div>
   <div class="pots-grid" id="pots-grid"></div>
+  <div class="pots-move" id="pots-move">
+    <h3>Move money</h3>
+    <p class="pots-move-info" id="pots-move-info">Move cash a pot isn't using. BTC a pot holds stays with it until that pot sells.</p>
+    <div class="pots-move-row">
+      <label>From <select id="pots-from"></select></label>
+      <label>To <select id="pots-to"></select></label>
+      <label style="flex: 0 1 110px;">Amount ($) <input type="number" id="pots-amount" min="0.01" step="0.01" placeholder="5.00"></label>
+      <button type="button" id="pots-move-btn">Move</button>
+    </div>
+    <div class="pots-move-msg" id="pots-move-msg" role="status"></div>
+    <ul class="pots-moves-list" id="pots-moves-list"></ul>
+  </div>
   <p class="pots-foot">
     A pot never sells another pot's BTC. The intraday pot is limited to a few buys per day (counted from midnight UTC);
     its sells are never blocked. Your trades in Manual Trading use the Manual pot only.
@@ -1010,11 +1046,101 @@
             <span class="pot-strategy">${p.name === 'manual' ? 'Traded by you' : esc(p.strategy)}</span>
           </div>
           <div class="pot-value">${money(p.value)}</div>
-          <div class="pot-pnl ${p.pnl >= 0 ? 'up' : 'down'}">${pnlText(p.pnl, p.pnl_pct)} <span class="pot-strategy">since start (${money(p.start_value)})</span></div>
+          <div class="pot-pnl ${p.pnl >= 0 ? 'up' : 'down'}">${pnlText(p.pnl, p.pnl_pct)} <span class="pot-strategy">on ${money(p.invested)} put in</span></div>
           <div class="pot-rows">${rows.map(([k, v]) => `<span>${esc(k)}</span><b>${esc(v)}</b>`).join('')}</div>
           ${p.note ? `<div class="pot-note">${esc(p.note)}</div>` : ''}
         </div>`;
     }
+
+    // ---- Move money
+    let lastData = null;
+    let armed = null;  // the move waiting for a second click to confirm
+    const placeName = (name) => {
+      if (name === 'unassigned') return lastData && lastData.real_money ? 'Unassigned cash on the exchange' : 'New paper money';
+      const p = lastData && lastData.pots.find(x => x.name === name);
+      return p ? `${p.label} pot` : name;
+    };
+    const placeOption = (name, forFrom) => {
+      let extra = '';
+      if (name === 'unassigned') {
+        if (lastData.real_money) extra = forFrom ? ` (${money(lastData.unassigned || 0)} free)` : '';
+      } else {
+        const p = lastData.pots.find(x => x.name === name);
+        if (forFrom) extra = ` (${money(p.cash)} cash)`;
+      }
+      return `<option value="${name}">${esc(placeName(name))}${esc(extra)}</option>`;
+    };
+
+    function renderMoveForm(data) {
+      lastData = data;
+      const from = document.getElementById('pots-from');
+      const to = document.getElementById('pots-to');
+      const keepFrom = from.value, keepTo = to.value;
+      const names = [...data.pots.map(p => p.name), 'unassigned'];
+      from.innerHTML = names.map(n => placeOption(n, true)).join('');
+      to.innerHTML = names.map(n => placeOption(n, false)).join('');
+      if (keepFrom) from.value = keepFrom;
+      to.value = keepTo || (from.value === names[0] ? names[names.length - 2] : names[0]);
+      document.getElementById('pots-move-info').textContent = data.real_money
+        ? `Move cash a pot isn't using. BTC a pot holds stays with it until that pot sells. `
+          + `Unassigned cash = money on the exchange that no pot owns (new deposits): ${money(data.unassigned || 0)}.`
+        : `Move cash a pot isn't using. BTC a pot holds stays with it until that pot sells. `
+          + `"New paper money" adds simulated cash to a pot.`;
+      const list = document.getElementById('pots-moves-list');
+      list.innerHTML = (data.transfers || []).slice(0, 5).map(m => {
+        const when = new Date(m.time).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        return `<li>${esc(when)} · ${money(m.amount)} from ${esc(placeName(m.from))} to ${esc(placeName(m.to))}</li>`;
+      }).join('');
+    }
+
+    function resetButton() {
+      armed = null;
+      const btn = document.getElementById('pots-move-btn');
+      btn.textContent = 'Move';
+      btn.classList.remove('confirm');
+    }
+
+    async function onMove() {
+      const btn = document.getElementById('pots-move-btn');
+      const msg = document.getElementById('pots-move-msg');
+      const move = {
+        from: document.getElementById('pots-from').value,
+        to: document.getElementById('pots-to').value,
+        amount: parseFloat(document.getElementById('pots-amount').value),
+      };
+      if (!(move.amount > 0)) { msg.className = 'pots-move-msg err'; msg.textContent = 'Enter an amount above $0.'; return; }
+      if (move.from === move.to) { msg.className = 'pots-move-msg err'; msg.textContent = 'Pick two different places.'; return; }
+      const key = JSON.stringify(move);
+      if (armed !== key) {  // first click: ask to confirm
+        armed = key;
+        btn.textContent = `Confirm: ${money(move.amount)} → ${placeName(move.to)}`;
+        btn.classList.add('confirm');
+        msg.className = 'pots-move-msg';
+        msg.textContent = `Move ${money(move.amount)} from ${placeName(move.from)} to ${placeName(move.to)}? Click again to confirm.`;
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/pots/transfer', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: key,
+        }).then(res => res.json());
+        msg.className = 'pots-move-msg ' + (r.success ? 'ok' : 'err');
+        msg.textContent = r.success ? r.message + '.' : (r.error || 'The move failed.');
+        if (r.success) document.getElementById('pots-amount').value = '';
+      } catch (e) {
+        msg.className = 'pots-move-msg err';
+        msg.textContent = 'The move failed (network error).';
+      } finally {
+        btn.disabled = false;
+        resetButton();
+        loadPots();
+      }
+    }
+
+    document.getElementById('pots-move-btn').addEventListener('click', onMove);
+    ['pots-from', 'pots-to', 'pots-amount'].forEach(id =>
+      document.getElementById(id).addEventListener('input', () => { if (armed) resetButton(); }));
 
     async function loadPots() {
       try {
@@ -1024,8 +1150,9 @@
         window.__potsPrice = data.price;
         panel.style.display = '';
         document.getElementById('pots-sub').textContent =
-          `Each pot trades only its own money · ${data.live ? 'REAL money' : 'paper money (simulated)'}`;
+          `Each pot trades only its own money · ${data.real_money ? 'REAL money' : data.live ? 'dry run (simulated)' : 'paper money (simulated)'}`;
         document.getElementById('pots-grid').innerHTML = data.pots.map(card).join('');
+        renderMoveForm(data);
         const t = data.total;
         const pill = document.getElementById('pots-total');
         pill.className = 'consensus-pill ' + (t.pnl >= 0 ? 'ahead' : 'behind');

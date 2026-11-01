@@ -405,6 +405,7 @@ def clear_all_trades():
 
             pots = get_app_state().get_pot_manager()
             if pots is not None:
+                db.clear_pot_transfers()
                 for pot in pots.pots.values():
                     pot.trader.usdt_balance = pot.budget
                     pot.trader.base_balance = 0.0

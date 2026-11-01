@@ -331,3 +331,126 @@ def test_manual_api_trades_in_the_manual_pot_only():
             assert {t["pot"] for t in trades} == {"trend", "manual"}
     finally:
         state.set_pot_manager(None)
+
+
+# ------------------------------------------------------------- cash moves
+
+from pots import TransferError, UNASSIGNED  # noqa: E402
+
+
+def test_move_cash_between_pots_keeps_profit_and_loss_honest():
+    db = initialize_database("sqlite:///:memory:")
+    pots, *_ = build(db)
+    pots.transfer(POT_TREND, POT_MANUAL, 5)
+    assert pots.get(POT_TREND).balances()["USDT"] == 70.0
+    assert pots.get(POT_MANUAL).balances()["USDT"] == 11.0
+    s = {p["name"]: p for p in pots.summary(PRICE)["pots"]}
+    assert s["manual"]["invested"] == 11.0 and s["manual"]["pnl"] == 0.0
+    assert s["trend"]["invested"] == 70.0 and s["trend"]["pnl"] == 0.0
+    assert pots.summary(PRICE)["total"]["invested"] == 96.0
+
+
+def test_only_uninvested_cash_can_move():
+    db = initialize_database("sqlite:///:memory:")
+    pots, trend, intraday, sm = build(db)
+    trend.direction = "bullish"
+    candle(pots, sm)  # Trend Hold's $75 is now BTC
+    with pytest.raises(TransferError, match="only \\$0.\\d\\d in cash"):
+        pots.transfer(POT_TREND, POT_MANUAL, 5)
+    for bad in (0, -1, "abc", float("nan")):
+        with pytest.raises(TransferError):
+            pots.transfer(POT_MANUAL, POT_INTRADAY, bad)
+    with pytest.raises(TransferError):
+        pots.transfer(POT_MANUAL, POT_MANUAL, 1)
+    with pytest.raises(TransferError):
+        pots.transfer(POT_MANUAL, "nope", 1)
+    assert pots.get(POT_MANUAL).balances()["USDT"] == 6.0  # nothing changed
+
+
+def test_moves_survive_a_restart_without_double_counting():
+    db = initialize_database("sqlite:///:memory:")
+    pots, trend, intraday, sm = build(db)
+    pots.transfer(POT_TREND, POT_INTRADAY, 5)       # before the intraday trade
+    intraday.direction = "bullish"
+    candle(pots, sm)                                # the trade row includes the $5
+    pots.transfer(POT_MANUAL, POT_INTRADAY, 2)      # after it
+    before = {n: p.balances() for n, p in pots.pots.items()}
+
+    again, *_ = build(db)
+    for name, pot in again.pots.items():
+        assert pot.balances() == pytest.approx(before[name]), name
+    assert again.net_in(again.get(POT_INTRADAY)) == 7.0
+
+
+def test_paper_new_money_adds_to_a_pot():
+    db = initialize_database("sqlite:///:memory:")
+    pots, *_ = build(db)
+    assert pots.unassigned_cash() is None  # paper: no exchange to check
+    pots.transfer(UNASSIGNED, POT_MANUAL, 10)
+    assert pots.get(POT_MANUAL).balances()["USDT"] == 16.0
+    s = pots.summary(PRICE)
+    assert s["total"]["invested"] == 106.0 and s["total"]["pnl"] == 0.0
+    assert pots.recent_transfers()[0]["from"] == UNASSIGNED
+
+
+def test_live_deposits_only_up_to_unassigned_exchange_cash():
+    db = initialize_database("sqlite:///:memory:")
+    pots, trend, intraday, sm, exchange = live_pots(db)
+    assert pots.unassigned_cash() == pytest.approx(0.0)
+    with pytest.raises(TransferError, match="isn't in a pot"):
+        pots.transfer(UNASSIGNED, POT_MANUAL, 1)
+
+    exchange.usd += 10  # a deposit
+    assert pots.unassigned_cash() == pytest.approx(10.0)
+    pots.transfer(UNASSIGNED, POT_INTRADAY, 10)
+    assert pots.get(POT_INTRADAY).balances()["USDT"] == 25.0
+    assert pots.unassigned_cash() == pytest.approx(0.0)
+    assert pots.reconcile() == []
+
+    # Taking money out of a pot leaves it unassigned on the exchange
+    pots.transfer(POT_MANUAL, UNASSIGNED, 6)
+    assert pots.unassigned_cash() == pytest.approx(6.0)
+    intraday.direction = "bullish"
+    candle(pots, sm)
+    assert pots.get(POT_INTRADAY).balances()["USDT"] < 2  # spent its $25
+
+
+def test_dry_run_moves_are_not_saved():
+    exchange = BinanceUSLike()
+    db = initialize_database("sqlite:///:memory:")
+    pots, *_ = build(db, mode="dry_run", exchange=exchange)
+    pots.transfer(POT_TREND, POT_MANUAL, 5)
+    assert db.get_pot_transfers() == []
+    assert pots.net_in(pots.get(POT_MANUAL)) == 5.0
+
+
+def test_transfer_api():
+    from app import create_app, init_services
+    from auth import get_auth_config
+
+    get_auth_config().enabled = False
+    db = initialize_database("sqlite:///:memory:")
+    config = make_config(dashboard_auth_enabled=False, enable_rate_limiting=False)
+    pots, trend, intraday, sm = build(db, config=config)
+
+    class Ex:
+        def fetch_ticker(self, _s):
+            return {"last": PRICE, "bid": PRICE, "ask": PRICE}
+
+    app = create_app()
+    app.config.update(TESTING=True)
+    state = init_services(pots.get(POT_TREND).trader, threading.Lock(), Ex(), sm, config)
+    state.set_pot_manager(pots)
+    client = app.test_client()
+    try:
+        r = client.post("/api/pots/transfer", json={"from": "trend", "to": "manual", "amount": 4})
+        assert r.status_code == 200, r.get_json()
+        assert r.get_json()["balances"]["manual"]["USDT"] == 10.0
+
+        r = client.post("/api/pots/transfer", json={"from": "manual", "to": "trend", "amount": 500})
+        assert r.status_code == 400 and "only $10.00 in cash" in r.get_json()["error"]
+
+        data = client.get("/api/pots").get_json()
+        assert data["transfers"][0]["amount"] == 4.0 and data["unassigned"] is None
+    finally:
+        state.set_pot_manager(None)

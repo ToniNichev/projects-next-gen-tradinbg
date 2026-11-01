@@ -142,6 +142,26 @@ class Position(Base):
         return f"<Position(id={self.id}, side={self.side}, {status}, entry={self.entry_price})>"
 
 
+class PotTransfer(Base):
+    """Cash moved between money pots (pots.py), or into/out of them.
+
+    from_pot NULL = new money (an exchange deposit, or paper cash);
+    to_pot NULL = taken out of the pots (left unassigned on the exchange).
+    """
+
+    __tablename__ = "pot_transfers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    from_pot = Column(String(20), index=True)
+    to_pot = Column(String(20), index=True)
+    amount = Column(Float, nullable=False)
+    note = Column(String(200))
+
+    def __repr__(self):
+        return f"<PotTransfer({self.from_pot or 'new'} -> {self.to_pot or 'out'} ${self.amount:.2f})>"
+
+
 class Candle(Base):
     """Market data candles for historical analysis"""
 
@@ -624,6 +644,46 @@ class DatabaseManager:
             if since is not None:
                 query = query.filter(Trade.timestamp >= since)
             return int(query.scalar() or 0)
+
+    # ------------------------------------------------------------ pot transfers
+
+    def add_pot_transfer(self, from_pot: Optional[str], to_pot: Optional[str],
+                         amount: float, note: str = "",
+                         timestamp: Optional[datetime] = None) -> PotTransfer:
+        with self.get_session() as session:
+            row = PotTransfer(
+                timestamp=timestamp or datetime.now(timezone.utc).replace(tzinfo=None),
+                from_pot=from_pot, to_pot=to_pot, amount=float(amount), note=note or None,
+            )
+            session.add(row)
+            session.flush()
+            session.refresh(row)
+            session.expunge(row)
+            return row
+
+    def get_pot_transfers(self, limit: int = 50, pot: Optional[str] = None) -> List[PotTransfer]:
+        """Newest first; with pot, only moves into or out of that pot."""
+        with self.get_session() as session:
+            query = session.query(PotTransfer)
+            if pot:
+                query = query.filter(or_(PotTransfer.from_pot == pot, PotTransfer.to_pot == pot))
+            rows = query.order_by(desc(PotTransfer.timestamp), desc(PotTransfer.id)).limit(limit).all()
+            session.expunge_all()
+            return rows
+
+    def net_pot_transfers(self, pot: str, since: Optional[datetime] = None) -> float:
+        """Money moved into a pot minus money moved out (after `since`)."""
+        with self.get_session() as session:
+            def total(column):
+                query = session.query(func.sum(PotTransfer.amount)).filter(column == pot)
+                if since is not None:
+                    query = query.filter(PotTransfer.timestamp > since)
+                return float(query.scalar() or 0.0)
+            return total(PotTransfer.to_pot) - total(PotTransfer.from_pot)
+
+    def clear_pot_transfers(self) -> int:
+        with self.get_session() as session:
+            return session.query(PotTransfer).delete()
 
     def add_candle(self, candle_data: Dict) -> Candle:
         """Add a candle record (with duplicate handling)"""
