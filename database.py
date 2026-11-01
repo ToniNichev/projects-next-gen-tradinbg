@@ -612,9 +612,14 @@ class DatabaseManager:
                 .filter(Candle.symbol == symbol, Candle.timeframe == timeframe)
             )
             if since:
+                # The first `limit` candles from `since` onward (used to load
+                # older history when the chart scrolls back)
                 q = q.filter(Candle.timestamp >= since)
-            rows = q.order_by(Candle.timestamp.desc()).limit(limit).all()
-            rows.reverse()
+                rows = q.order_by(Candle.timestamp.asc()).limit(limit).all()
+            else:
+                # The latest `limit` candles
+                rows = q.order_by(Candle.timestamp.desc()).limit(limit).all()
+                rows.reverse()
             return [
                 {
                     "timestamp": row.timestamp.replace(tzinfo=timezone.utc).isoformat(),

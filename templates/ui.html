@@ -1205,6 +1205,7 @@
       let isLoadingTimeframe = false;
       let isLoadingHistorical = false;  // Prevent duplicate historical data fetches
       let hasMoreHistoricalData = true;  // Track if more data is available
+      let chartDataTimeframe = null;     // Timeframe of the candles now on the chart
       let showTradeMarkers = true;  // Toggle for showing/hiding trade markers
       let cachedTrades = [];  // Cache trades to avoid repeated fetches
       let tradesCached = false;   // true once first fetch completes, even with 0 trades
@@ -2130,6 +2131,15 @@
           ? { min: chart.scales.x.min, max: chart.scales.x.max }
           : null;
 
+        // A refresh only brings the latest candles; keep older ones that were
+        // loaded by scrolling back, as long as the timeframe hasn't changed
+        if (chartDataTimeframe === currentTimeframe && candleData.length > 0) {
+          const freshOldest = Math.min(...candleData.map(c => c.x));
+          const older = oldData.filter(c => c.x < freshOldest);
+          if (older.length) candleData = older.concat(candleData);
+        }
+        chartDataTimeframe = currentTimeframe;
+
         chart.data.datasets[0].data = candleData;
         chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe})`;
 
@@ -2248,8 +2258,8 @@
       
       // Load more historical data when scrolling back in time
       async function loadMoreHistoricalData() {
-        if (isLoadingHistorical || !hasMoreHistoricalData || currentTimeframe === '1h') {
-          return;  // Don't load for live 1h timeframe (uses /history endpoint)
+        if (isLoadingHistorical || !hasMoreHistoricalData) {
+          return;
         }
         
         isLoadingHistorical = true;
@@ -2367,8 +2377,8 @@
       
       // Check if we need to load more historical data
       function checkAndLoadHistoricalData() {
-        if (currentTimeframe === '1h' || !hasMoreHistoricalData) {
-          return;  // Don't load for live 1h timeframe
+        if (!hasMoreHistoricalData) {
+          return;
         }
         
         const candleData = chart.data.datasets[0].data;

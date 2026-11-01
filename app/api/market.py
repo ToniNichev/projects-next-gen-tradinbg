@@ -134,6 +134,13 @@ def get_history():
 # Candle data
 # ---------------------------------------------------------------------------
 
+_TIMEFRAME_DELTA = {
+    "1m": timedelta(minutes=1), "5m": timedelta(minutes=5), "15m": timedelta(minutes=15),
+    "30m": timedelta(minutes=30), "1h": timedelta(hours=1), "4h": timedelta(hours=4),
+    "1d": timedelta(days=1), "1w": timedelta(weeks=1),
+}
+
+
 @market_bp.route("/api/candles/<timeframe>")
 @limiter.limit("30 per minute")
 @require_auth
@@ -159,7 +166,15 @@ def get_candles(timeframe):
                 if since_param:
                     since_dt = datetime.fromtimestamp(int(since_param) / 1000, tz=timezone.utc).replace(tzinfo=None)
                 candles = db.get_candles(config.symbol, timeframe, limit=limit, since=since_dt)
-                if len(candles) >= 50:
+                # When loading older history, the DB must reach back to `since`;
+                # it only holds what the bot has seen, so older ranges come
+                # from the exchange.
+                covers_since = since_dt is None or (
+                    candles
+                    and datetime.fromisoformat(candles[0]["timestamp"]).replace(tzinfo=None)
+                    <= since_dt + _TIMEFRAME_DELTA[timeframe]
+                )
+                if len(candles) >= 50 and covers_since:
                     return jsonify({
                         "timeframe": timeframe,
                         "symbol": config.symbol,
