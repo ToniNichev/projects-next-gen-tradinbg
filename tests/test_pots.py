@@ -454,3 +454,94 @@ def test_transfer_api():
         assert data["transfers"][0]["amount"] == 4.0 and data["unassigned"] is None
     finally:
         state.set_pot_manager(None)
+
+
+# ------------------------------------------------------- results over time
+
+from app.services.pot_performance import compute_pot_performance  # noqa: E402
+
+
+def _hours(start, closes):
+    return [{"timestamp": start + timedelta(hours=i), "close": c} for i, c in enumerate(closes)]
+
+
+def test_pot_line_follows_its_trades_and_ignores_money_moves():
+    t0 = datetime(2026, 11, 1, 0, tzinfo=timezone.utc)
+    candles = _hours(t0, [100, 100, 110, 110, 121])
+    pots = [{
+        "name": "intraday", "label": "RSI", "start_time": t0, "start_cash": 15.0,
+        # Bought all-in at the close of hour 1 (price 100): 0.15 BTC
+        "trades": [{"timestamp": t0 + timedelta(hours=2, seconds=5), "usdt_balance": 0.0, "base_balance": 0.15}],
+        # $10 more cash moved in during hour 3
+        "moves": [{"timestamp": t0 + timedelta(hours=3, minutes=30), "amount": 10.0}],
+    }]
+    data = compute_pot_performance(pots, candles)
+    pts = data["pots"][0]["points"]
+    assert [p["pct"] for p in pts[:3]] == [0.0, 0.0, 10.0]   # BTC up 10% after the buy
+    assert pts[3]["value"] == pytest.approx(26.5) and pts[3]["invested"] == 25.0
+    assert pts[3]["pct"] == pytest.approx(6.0)              # $1.50 gain on $25 put in, not +$10
+    assert pts[4]["value"] == pytest.approx(28.15)
+    assert [p["holding"] for p in pts] == [False, True, True, True, True]
+    assert data["hold"][-1]["pct"] == pytest.approx(21.0)
+
+
+def test_each_pot_line_starts_when_the_pot_began():
+    t0 = datetime(2026, 11, 1, 0, tzinfo=timezone.utc)
+    candles = _hours(t0, [100] * 6)
+    pots = [
+        {"name": "trend", "label": "T", "start_time": t0, "start_cash": 100.0, "trades": [], "moves": []},
+        {"name": "manual", "label": "M", "start_time": t0 + timedelta(hours=3), "start_cash": 6.0,
+         "trades": [], "moves": []},
+    ]
+    data = compute_pot_performance(pots, candles)
+    assert len(data["pots"][0]["points"]) == 6
+    assert len(data["pots"][1]["points"]) == 4  # its start (3:00 close) + 3 more
+    assert len(data["hold"]) == 6
+
+
+def test_start_times_are_saved_once():
+    db = initialize_database("sqlite:///:memory:")
+    pots, *_ = build(db)
+    first = {n: p.start_time for n, p in pots.pots.items()}
+    assert all(first.values())
+    again, *_ = build(db)
+    assert {n: p.start_time for n, p in again.pots.items()} == first
+
+
+def test_paper_trend_pot_starts_at_its_first_old_trade():
+    db = initialize_database("sqlite:///:memory:")
+    when = datetime(2026, 10, 20, 15)
+    db.add_trade({"timestamp": when, "side": "buy", "price": PRICE, "amount": 0.0001,
+                  "notional": 10.0, "fee": 0.0, "slippage": 0.0,
+                  "usdt_balance": 90.0, "base_balance": 0.0001})
+    pots, *_ = build(db)
+    assert pots.get(POT_TREND).start_time == when
+
+
+def test_performance_api():
+    from app import create_app, init_services
+    from auth import get_auth_config
+
+    get_auth_config().enabled = False
+    db = initialize_database("sqlite:///:memory:")
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0, tzinfo=None)
+    for i in range(6, 0, -1):
+        db.add_candle({"symbol": "BTC/USD", "timeframe": "1h", "timestamp": now - timedelta(hours=i),
+                       "open": PRICE, "high": PRICE, "low": PRICE, "close": PRICE, "volume": 1.0})
+    config = make_config(dashboard_auth_enabled=False, enable_rate_limiting=False)
+    pots, *_ = build(db, config=config)
+    for p in pots.pots.values():
+        p.start_time = now - timedelta(hours=4)
+
+    app = create_app()
+    app.config.update(TESTING=True)
+    state = init_services(pots.get(POT_TREND).trader, threading.Lock(), None, None, config)
+    state.set_pot_manager(pots)
+    try:
+        with patch("config.BotConfig.load", return_value=config):
+            data = app.test_client().get("/api/pots/performance").get_json()
+        assert data["success"] and data["enabled"]
+        assert [p["name"] for p in data["pots"]] == [POT_TREND, POT_INTRADAY, POT_MANUAL]
+        assert data["pots"][0]["points"] and data["hold"]
+    finally:
+        state.set_pot_manager(None)

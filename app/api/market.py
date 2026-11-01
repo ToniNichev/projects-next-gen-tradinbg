@@ -467,3 +467,48 @@ def transfer_pot_cash():
     except Exception as exc:
         logger.error("transfer_pot_cash failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@market_bp.route("/api/pots/performance")
+@limiter.limit("30 per minute")
+@require_auth
+def get_pots_performance():
+    """Each pot's result over time vs. holding BTC (one point per hour)."""
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": True, "enabled": False})
+    if not DATABASE_AVAILABLE:
+        return jsonify({"error": "Database not available"}), 503
+    try:
+        from config import BotConfig
+        from app.services.pot_performance import compute_pot_performance
+
+        db = get_database()
+        specs = []
+        for pot in pots.pots.values():
+            tag = pot.tag
+            trades = db.get_trades(limit=100000, pot=tag)
+            moves = db.get_pot_transfers(limit=100000, pot=tag)
+            specs.append({
+                "name": pot.name,
+                "label": pot.label,
+                "start_time": pot.start_time or datetime.now(timezone.utc),
+                "start_cash": pot.start_value,
+                "trades": [{"timestamp": t.timestamp, "usdt_balance": float(t.usdt_balance or 0),
+                            "base_balance": float(t.base_balance or 0)} for t in trades],
+                "moves": [{"timestamp": m.timestamp,
+                           "amount": float(m.amount) if m.to_pot == tag else -float(m.amount)}
+                          for m in moves],
+            })
+        first = min(
+            (s["start_time"] if s["start_time"].tzinfo else s["start_time"].replace(tzinfo=timezone.utc))
+            for s in specs
+        )
+        config = BotConfig.load()
+        candles = db.get_candles(config.symbol, "1h", limit=24 * 400, since=first - timedelta(hours=3))
+        data = compute_pot_performance(specs, candles)
+        return jsonify({"success": True, "enabled": True, **data})
+    except Exception as exc:
+        logger.error("get_pots_performance failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500

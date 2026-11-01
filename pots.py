@@ -183,6 +183,7 @@ class Pot:
     max_buys_per_day: int = 0              # 0 = no cap
     last_signal: Optional[object] = None
     last_note: Optional[str] = None
+    start_time: Optional[datetime] = None  # when the pot began (UTC, naive)
     _buys: Dict[str, int] = field(default_factory=dict)  # no-DB fallback
 
     @property
@@ -317,6 +318,37 @@ class PotManager:
             if moved:
                 self._set_cash(pot, pot.trader.usdt_balance + moved)
                 logger.info("Pot %s: %+.2f cash moved since its last trade", pot.name, moved)
+
+    def restore_start_times(self) -> None:
+        """When each pot began: saved the first time it runs, or the time of
+        its first trade/move if earlier (the paper Trend Hold pot carries on
+        an account that started before pots existed)."""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for pot in self.pots.values():
+            key = f"BOT_INTERNAL_POT_START_{pot.tag}"
+            saved = None
+            if self.db is not None:
+                try:
+                    row = self.db.get_strategy_config(key)
+                    saved = datetime.fromisoformat(row.value) if row and row.value else None
+                except Exception as exc:
+                    logger.warning("Pot %s: could not read its start time: %s", pot.name, exc)
+            if saved is None and self.db is not None:
+                firsts = [now]
+                try:
+                    trades = self.db.get_trades(limit=100000, pot=pot.tag)
+                    if trades:
+                        firsts.append(trades[-1].timestamp)
+                    moves = self.db.get_pot_transfers(limit=100000, pot=pot.tag)
+                    if moves:
+                        firsts.append(moves[-1].timestamp)
+                    saved = min(firsts)
+                    self.db.set_strategy_config(
+                        key, saved.isoformat(), "str", "pots", "Internal: when this money pot began",
+                    )
+                except Exception as exc:
+                    logger.warning("Pot %s: could not save its start time: %s", pot.name, exc)
+            pot.start_time = saved or now
 
     def net_in(self, pot: Pot) -> float:
         """All cash moved into this pot minus all moved out, ever."""
@@ -578,4 +610,5 @@ def build_pots(config, *, exchange, db_manager, strategy_manager, trading_mode: 
         db=None if trading_mode == "dry_run" else db_manager,
     )
     manager.restore_transfers()
+    manager.restore_start_times()
     return manager

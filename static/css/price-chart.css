@@ -320,6 +320,24 @@
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+/* Money pot chips in the chart legend (click to show/hide that pot) */
+.legend-pot { cursor: pointer; font: inherit; font-size: 0.75rem; }
+.legend-pot:hover { border-color: rgba(255, 255, 255, 0.22); }
+.legend-pot.off { opacity: 0.45; }
+.legend-pot.off span:last-child { text-decoration: line-through; }
+.legend-pot-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 2px var(--c);
+}
 .legend-marker {
   width: 9px;
   height: 9px;
