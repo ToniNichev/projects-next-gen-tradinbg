@@ -37,6 +37,12 @@ STRATEGIES = {
 def only(strategy: str) -> dict:
     overrides = {flag: (name == strategy) for name, flag in STRATEGIES.items()}
     overrides["strategy_llm_enabled"] = False
+    # Trend Hold is on in the live settings; without this it runs inside
+    # every test here and makes most of the trades.
+    overrides["strategy_trend_enabled"] = False
+    # These strategies were built with the trailing stop on (the default);
+    # the live settings turned it off for Trend Hold.
+    overrides["use_trailing_stop"] = True
     return overrides
 
 
