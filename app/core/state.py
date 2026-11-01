@@ -102,6 +102,7 @@ class ApplicationState:
         self._trader_lock = None
         self._exchange = None
         self._strategy_manager = None
+        self._pot_manager = None
         
         # Configuration constants
         self._max_history_size = 250
@@ -196,6 +197,15 @@ class ApplicationState:
             self._exchange = exchange
             self._strategy_manager = strategy_manager
     
+    def set_pot_manager(self, pot_manager) -> None:
+        """Money pots (pots.py), or None when the bot runs one account."""
+        with self._lock:
+            self._pot_manager = pot_manager
+
+    def get_pot_manager(self):
+        with self._lock:
+            return self._pot_manager
+
     def get_trader(self):
         """
         Get trader instance (thread-safe).

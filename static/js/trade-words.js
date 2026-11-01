@@ -25,16 +25,22 @@
     return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
-  /** Oldest first. Sets t.$buy on each sale and t.$sold on the purchase it closed. */
+  /**
+   * Oldest first. Sets t.$buy on each sale and t.$sold on the purchase it
+   * closed. With money pots, a sale only closes a purchase from its own pot.
+   */
   function pairTrades(trades) {
     const sorted = trades.slice().sort((a, b) => timeOf(a) - timeOf(b));
-    let open = null;
+    const open = {};
     for (const t of sorted) {
-      if (t.side === 'buy') { open = t; t.$sold = null; }
-      else { t.$buy = open; if (open) open.$sold = t; open = null; }
+      const pot = t.pot || 'trend';
+      if (t.side === 'buy') { open[pot] = t; t.$sold = null; }
+      else { t.$buy = open[pot] || null; if (open[pot]) open[pot].$sold = t; open[pot] = null; }
     }
     return sorted;
   }
+
+  const POT_NAMES = { trend: 'Trend Hold pot', intraday: 'Intraday pot', manual: 'Manual pot' };
 
   function whyLines(t, trendOnly) {
     const reason = t.exit_reason || t.reason;
@@ -85,6 +91,7 @@
         lines.push(`Still holding: worth ${money(worth)} now (${signedPct((worth / cost - 1) * 100)})`);
       }
       lines.push(...whyLines(t, opts.trendOnly));
+      if (t.pot && POT_NAMES[t.pot]) lines.push(`Money from: ${POT_NAMES[t.pot]}`);
       return lines;
     }
 
@@ -108,6 +115,7 @@
       lines.push(`${t.pnl >= 0 ? '✅ Made' : '❌ Lost'} ${money(Math.abs(t.pnl))} on this trade`);
     }
     lines.push(...whyLines(t, opts.trendOnly));
+    if (t.pot && POT_NAMES[t.pot]) lines.push(`Money from: ${POT_NAMES[t.pot]}`);
     return lines;
   }
 

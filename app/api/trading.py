@@ -41,6 +41,33 @@ def _get_trader_and_lock():
     return app_state.get_trader(), app_state.get_trader_lock()
 
 
+def _manual_pot():
+    """The manual money pot, or None when the bot runs one account."""
+    pots = get_app_state().get_pot_manager()
+    if pots is None:
+        return None
+    from pots import POT_MANUAL
+    return pots.get(POT_MANUAL)
+
+
+def _get_manual_trader_and_lock():
+    """Trader for dashboard trades: the manual pot's, else the only one."""
+    pot = _manual_pot()
+    if pot is not None:
+        return pot.trader, get_app_state().get_trader_lock()
+    return _get_trader_and_lock()
+
+
+def _all_traders():
+    """Every trader the bot runs (one per pot, or the single one)."""
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is not None:
+        return pots.traders()
+    trader = app_state.get_trader()
+    return [trader] if trader is not None else []
+
+
 def _get_current_price(exchange, symbol: str) -> float:
     """Fetch live price from exchange, fall back to ApplicationState."""
     try:
@@ -99,7 +126,7 @@ def _create_manual_signal(direction: str, price: float, position_size: float, co
 @limiter.limit("30 per minute")
 @require_auth
 def get_manual_status():
-    trader, lock = _get_trader_and_lock()
+    trader, lock = _get_manual_trader_and_lock()
     if trader is None:
         return jsonify({"error": "Manual trading not available", "available": False}), 503
 
@@ -148,6 +175,7 @@ def get_manual_status():
             "can_sell": bool(can_sell),
             "min_position_size": config.min_position_size,
             "max_position_size": config.max_position_size,
+            "pot": "manual" if _manual_pot() is not None else None,
         })
 
     except Exception as exc:
@@ -181,7 +209,7 @@ def manual_buy():
     ``trader.execute_market_buy(amount, signal)`` which is the only public
     path supported by both PaperTrader and LiveTrader.
     """
-    trader, lock = _get_trader_and_lock()
+    trader, lock = _get_manual_trader_and_lock()
     if trader is None:
         return jsonify({"error": "Trader not available"}), 503
 
@@ -232,7 +260,7 @@ def manual_buy():
                              "daily limits, max single-trade cap)."
                 }), 400
 
-            _sync_state_after_trade(trader)
+            _sync_state_after_trade(trader, trade)
             # Captured inside the lock: the websocket thread can mutate
             # balances the instant it's released, so reading this after
             # `with lock:` exits could report a balance inconsistent with
@@ -261,7 +289,7 @@ def manual_sell():
     Spot trading has no shorting, so a sell with no open position is a
     deliberate 400 — the dashboard should hide the button in that case.
     """
-    trader, lock = _get_trader_and_lock()
+    trader, lock = _get_manual_trader_and_lock()
     if trader is None:
         return jsonify({"error": "Trader not available"}), 503
 
@@ -296,7 +324,7 @@ def manual_sell():
                              "validation reason)."
                 }), 400
 
-            _sync_state_after_trade(trader)
+            _sync_state_after_trade(trader, trade)
             # See manual_buy for why: capture while still holding the lock.
             balances = trader.get_balances()
 
@@ -312,10 +340,18 @@ def manual_sell():
         return jsonify({"error": str(exc)}), 500
 
 
-def _sync_state_after_trade(trader) -> None:
+def _sync_state_after_trade(trader, trade=None) -> None:
     """Update ApplicationState after a manual trade."""
     try:
         app_state = get_app_state()
+        pots = app_state.get_pot_manager()
+        if pots is not None:
+            pot = _manual_pot()
+            if pot is not None and trade is not None:
+                pots.record_trade(pot, trade)
+            # The main account panels show the Trend Hold pot, not this one
+            if trader is not app_state.get_trader():
+                return
         pos = trader.open_position
         app_state.update_trading_state(
             usdt_balance=trader.usdt_balance,
@@ -367,7 +403,15 @@ def clear_all_trades():
             if deleted != count_before:
                 return jsonify({"error": f"Clear inconsistency: expected {count_before}, deleted {deleted}"}), 500
 
-            if trader and lock:
+            pots = get_app_state().get_pot_manager()
+            if pots is not None:
+                for pot in pots.pots.values():
+                    pot.trader.usdt_balance = pot.budget
+                    pot.trader.base_balance = 0.0
+                    pot.trader.open_position = None
+                    pot.start_value = pot.budget
+                initial = pots.get("trend").budget
+            elif trader and lock:
                 trader.usdt_balance = initial
                 trader.base_balance = 0.0
                 trader.open_position = None
@@ -456,7 +500,11 @@ def trigger_emergency_stop():
         close_positions = params.get("close_positions", True)
 
         with lock:
-            trader.trigger_emergency_stop(close_positions=close_positions)
+            others_open = False
+            for t in _all_traders():
+                t.trigger_emergency_stop(close_positions=close_positions)
+                if t is not trader and t.open_position is not None:
+                    others_open = True
             # Ground truth: both LiveTrader and PaperTrader clear
             # open_position only when the closing sell actually succeeded, so
             # don't trust close_positions as a proxy for "it worked".
@@ -475,7 +523,7 @@ def trigger_emergency_stop():
             trailing_stop=pos.trailing_stop if still_open else 0.0,
         )
 
-        close_failed = close_positions and still_open
+        close_failed = close_positions and (still_open or others_open)
         message = "EMERGENCY STOP TRIGGERED"
         if close_failed:
             message += " — WARNING: position close FAILED, manual intervention required"
@@ -501,10 +549,11 @@ def enable_trading():
 
     try:
         with lock:
-            if hasattr(trader, "emergency_stop") and trader.emergency_stop:
-                if hasattr(trader, "reset_emergency_stop"):
-                    trader.reset_emergency_stop()
-            trader.enable_trading()
+            for t in _all_traders():
+                if hasattr(t, "emergency_stop") and t.emergency_stop:
+                    if hasattr(t, "reset_emergency_stop"):
+                        t.reset_emergency_stop()
+                t.enable_trading()
 
         get_app_state().update_trading_state(trading_enabled=True, emergency_stop=False)
         return jsonify({"success": True, "message": "Trading enabled", "trading_enabled": True})
@@ -522,7 +571,8 @@ def disable_trading():
 
     try:
         with lock:
-            trader.disable_trading()
+            for t in _all_traders():
+                t.disable_trading()
 
         get_app_state().update_trading_state(trading_enabled=False)
         return jsonify({"success": True, "message": "Trading disabled", "trading_enabled": False})
@@ -542,6 +592,10 @@ def sync_exchange():
 
     try:
         with lock:
+            for t in _all_traders():
+                if t is not trader and hasattr(t, "sync_balances"):
+                    t.sync_balances()
+                    t.sync_positions()
             balances = trader.sync_balances()
             position = trader.sync_positions()
 

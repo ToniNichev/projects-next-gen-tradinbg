@@ -17,6 +17,7 @@ from app import create_app, init_services, start_app
 from app.core.state import get_app_state
 from paper_trader import PaperTrader
 from app.services import trend_alert
+from pots import POT_TREND, build_pots
 from strategies.constants import StrategyNames
 
 # Import LiveTrader for real money trading
@@ -260,7 +261,13 @@ def main():
             logging.info("📝 DRY RUN MODE - Signals logged but NOT executed")
             logging.info("=" * 80)
     
-    if use_live_trader:
+    if config.pots_enabled:
+        # Money pots: the traders are built per pot once strategies exist
+        trader = None
+        logging.info("=" * 80)
+        logging.info("🪙 MONEY POTS ON - Trend Hold, intraday and manual each keep their own money")
+        logging.info("=" * 80)
+    elif use_live_trader:
         # Create LiveTrader for live/dry_run modes
         mode = TradingMode.LIVE if trading_mode == "live" else TradingMode.DRY_RUN
         
@@ -393,6 +400,49 @@ def main():
     else:
         logging.warning("\u26a0\ufe0f No strategies enabled. Enable at least one in the dashboard.")
     
+    pot_manager = None
+    if config.pots_enabled:
+        if strategy_manager is None:
+            logging.critical("Money pots need the multi-strategy system (BOT_USE_MULTI_STRATEGY). Exiting.")
+            return
+        pots_mode = trading_mode if use_live_trader else "paper"
+        try:
+            pot_manager = build_pots(
+                config,
+                exchange=exchange,
+                db_manager=db_manager,
+                strategy_manager=strategy_manager,
+                trading_mode=pots_mode,
+                notify=send_notification,
+            )
+        except Exception as exc:
+            logging.critical("Could not set up money pots: %s. Exiting.", exc, exc_info=True)
+            return
+        if use_live_trader:
+            try:
+                for pot_trader in pot_manager.traders():
+                    pot_trader.sync_balances()
+                    pot_trader.sync_positions()
+                problems = pot_manager.reconcile()
+                if problems and trading_mode == "live":
+                    logging.critical("Pots don't match the exchange: %s. Exiting.", "; ".join(problems))
+                    return
+            except Exception as exc:
+                logging.error("Failed to sync pots with exchange: %s", exc)
+                if trading_mode == "live":
+                    logging.error("Cannot start live trading without exchange sync. Exiting.")
+                    return
+        for pot in pot_manager.pots.values():
+            b = pot.balances()
+            logging.info(
+                "Pot %-9s %-22s cash $%.2f  BTC %.8f  %s%s",
+                pot.name, pot.label, b["USDT"], b["BASE"],
+                "holding" if pot.holding else "in cash",
+                f"  (max {pot.max_buys_per_day} buys/day)" if pot.max_buys_per_day else "",
+            )
+        # The dashboard's main account panels show the Trend Hold pot
+        trader = pot_manager.get(POT_TREND).trader
+
     # Create trader lock before starting app
     trader_lock = threading.Lock()
 
@@ -401,6 +451,7 @@ def main():
     # blueprint routes return live data immediately.
     flask_app = create_app()
     app_state = init_services(trader, trader_lock, exchange, strategy_manager, config)
+    app_state.set_pot_manager(pot_manager)
     start_app(flask_app, config.dashboard_host, config.dashboard_port)
 
     logging.info("Application started — dashboard + service layer ready")
@@ -749,29 +800,58 @@ def main():
             with trader_lock:
                 # Get current price for position updates
                 current_price = float(kline.get("c", 0.0))
-                
-                # Check if open position should be closed (stop loss, take profit, trailing stop)
-                exit_trade = trader.update_position(current_price)
-                if exit_trade:
-                    logging.info(
-                        "Position closed: %s | Reason: %s | P&L: $%.2f",
-                        exit_trade.side,
-                        exit_trade.exit_reason,
-                        exit_trade.pnl or 0.0,
-                    )
-                
+
                 if strategy_manager is None:
                     logging.debug("No strategy manager configured; skipping signal computation.")
                     return
-                signal_obj = strategy_manager.compute_aggregate_signal(
-                    exchange,
-                    config.symbol,
-                    config.timeframe,
-                    candle_data=candle_buffer,
-                )
-                # Before the trade, so a sell on this check still counts as holding
-                holding = trader.open_position is not None
-                trade = trader.handle_signal(signal_obj)
+
+                if pot_manager is not None:
+                    results = pot_manager.on_candle(
+                        current_price, strategy_manager, exchange,
+                        config.symbol, config.timeframe, candle_buffer,
+                    )
+                    for name, r in results.items():
+                        sig = r["signal"]
+                        traded = [t for t in (r["exit"], r["trade"]) if t]
+                        logging.info(
+                            "Pot %s: signal=%s%s%s",
+                            name,
+                            f"{sig.direction} conf={sig.confidence:.2f}" if sig else "-",
+                            "".join(
+                                f" | {t.side.upper()} {t.amount:.6f} @ {t.price:.2f}"
+                                + (f" ({t.exit_reason})" if t.exit_reason else "")
+                                for t in traded
+                            ),
+                            f" | {r['note']}" if r["note"] else "",
+                        )
+                    trend_result = results[POT_TREND]
+                    signal_obj = trend_result["signal"] or strategy_manager.last_signals.get(
+                        StrategyNames.TREND_HOLD
+                    )
+                    holding = trend_result["holding_before"]
+                    trade = next(
+                        (t for r in results.values() for t in (r["trade"], r["exit"]) if t),
+                        None,
+                    )
+                else:
+                    # Check if open position should be closed (stop loss, take profit, trailing stop)
+                    exit_trade = trader.update_position(current_price)
+                    if exit_trade:
+                        logging.info(
+                            "Position closed: %s | Reason: %s | P&L: $%.2f",
+                            exit_trade.side,
+                            exit_trade.exit_reason,
+                            exit_trade.pnl or 0.0,
+                        )
+                    signal_obj = strategy_manager.compute_aggregate_signal(
+                        exchange,
+                        config.symbol,
+                        config.timeframe,
+                        candle_data=candle_buffer,
+                    )
+                    # Before the trade, so a sell on this check still counts as holding
+                    holding = trader.open_position is not None
+                    trade = trader.handle_signal(signal_obj)
 
                 balances = trader.get_balances()
                 ohlc = {
@@ -782,10 +862,11 @@ def main():
                 }
 
                 pos = trader.open_position
+                signal_price = signal_obj.price if signal_obj is not None else current_price
                 app_state.update_trading_state(
                     usdt_balance=balances.get("USDT", 0.0),
                     base_balance=balances.get("BASE", 0.0),
-                    current_price=signal_obj.price,
+                    current_price=signal_price,
                     position_open=pos is not None,
                     position_entry_price=pos.entry_price if pos else 0.0,
                     position_amount=pos.amount if pos else 0.0,
@@ -795,12 +876,22 @@ def main():
                     trailing_stop=pos.trailing_stop if pos else 0.0,
                 )
                 app_state.add_history_record({
-                    "timestamp": signal_obj.timestamp.isoformat(),
-                    "price": signal_obj.price,
-                    "signal_direction": signal_obj.direction,
+                    "timestamp": (
+                        signal_obj.timestamp.isoformat() if signal_obj is not None
+                        else datetime.now(timezone.utc).isoformat()
+                    ),
+                    "price": signal_price,
+                    "signal_direction": signal_obj.direction if signal_obj is not None else "neutral",
                     "trade_side": trade.side if trade else None,
                     **ohlc,
                 })
+
+            # Live pots: make sure they don't claim more than the exchange holds
+            if pot_manager is not None and pot_manager.live:
+                try:
+                    pot_manager.reconcile()
+                except Exception as exc:
+                    logging.warning("Pot check failed: %s", exc)
 
             # Heads-up when Trend Hold is close to selling/buying (once per daily close)
             try:
@@ -815,8 +906,10 @@ def main():
             except Exception as exc:
                 logging.warning("Trend alert check failed: %s", exc)
 
-            # Log signal with strategy info
-            if strategy_manager and hasattr(signal_obj, 'info') and 'strategies_used' in signal_obj.info:
+            # Log signal with strategy info (pots log their own lines above)
+            if pot_manager is not None or signal_obj is None:
+                pass
+            elif strategy_manager and hasattr(signal_obj, 'info') and 'strategies_used' in signal_obj.info:
                 strategies_str = "+".join(signal_obj.info['strategies_used'])
                 logging.info(
                     "Signal=%s [%s] conf=%.2f price=%.2f PosSize=%.1f%% SL=%.2f TP=%.2f",

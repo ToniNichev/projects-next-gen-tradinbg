@@ -63,7 +63,10 @@ class PaperTrader:
         db_manager: Optional['DatabaseManager'] = None,
         enable_database: bool = True,
         enable_csv_logging: bool = True,
+        pot: Optional[str] = None,
     ):
+        # Money pot this trader keeps (pots.py); None = the single account
+        self.pot = pot
         self.usdt_balance = initial_usdt
         self.base_balance = 0.0
         self.initial_usdt = initial_usdt
@@ -97,7 +100,7 @@ class PaperTrader:
         try:
             # Get the most recent trade to restore balance
             last_trade = None
-            recent_trades = self.db_manager.get_trades(limit=1)
+            recent_trades = self.db_manager.get_trades(limit=1, pot=self.pot)
             if recent_trades:
                 last_trade = recent_trades[0]
                 self.usdt_balance = float(last_trade.usdt_balance)
@@ -105,7 +108,7 @@ class PaperTrader:
                 logging.info(f"📊 Restored balance from database: USDT={self.usdt_balance:.2f}, BASE={self.base_balance:.6f}")
 
             # Get any open positions (the paper bot's own, not the live trader's)
-            open_positions = self.db_manager.get_open_positions(live=False)
+            open_positions = self.db_manager.get_open_positions(live=False, pot=self.pot)
             if open_positions:
                 db_pos = open_positions[0]  # Should only be one open position
 
@@ -211,6 +214,7 @@ class PaperTrader:
                     "base_balance": trade.base_balance,
                     "exit_reason": trade.exit_reason,
                     "pnl": trade.pnl,
+                    "pot": self.pot,
                 }
                 
                 # Add signal data if available
@@ -377,6 +381,7 @@ class PaperTrader:
                     "lowest_price": position.lowest_price,
                     "is_open": True,
                     "strategy_name": position.strategy_name,
+                    "pot": self.pot,
                 }
                 db_position = self.db_manager.add_position(position_data)
                 self.db_position_id = db_position.id

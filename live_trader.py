@@ -260,7 +260,10 @@ class LiveTrader:
     - Max trades per day limit
     - Comprehensive logging
     """
-    
+
+    # Money pot this trader keeps (pots.py); None = the whole exchange account
+    pot: Optional[str] = None
+
     def __init__(
         self,
         exchange,
@@ -297,6 +300,8 @@ class LiveTrader:
         self.reserved_balance: float = 0.0  # Reserved for fees
         if mode == TradingMode.DRY_RUN:
             self.usdt_balance = float(config.initial_usdt)
+        # Capital the daily loss limit is measured against (a pot uses its own)
+        self.initial_usdt: float = float(config.initial_usdt)
         
         # Order tracking
         self.pending_orders: Dict[str, OrderRecord] = {}
@@ -566,7 +571,7 @@ class LiveTrader:
             # live=True: only rows this module opened. The paper bot shares
             # the table, and its simulated position must never be treated
             # as real coins on the exchange.
-            open_positions = self.db_manager.get_open_positions(live=True)
+            open_positions = self.db_manager.get_open_positions(live=True, pot=self.pot)
         except Exception as exc:
             self.logger.error("Failed to read open positions from DB: %s", exc)
             return None
@@ -650,6 +655,7 @@ class LiveTrader:
                 "is_open": True,
                 "strategy_name": LIVE_POSITION_TAG,
                 "exchange_stop_order_id": position.exchange_stop_order_id,
+                "pot": self.pot,
             })
             self.db_position_id = row.id
             self.logger.debug("Saved open position to DB row %s", row.id)
@@ -853,8 +859,9 @@ class LiveTrader:
             return True, ""
         if not self.db_manager:
             return True, ""
+        peak_key = f"{_PEAK_PORTFOLIO_EQUITY_KEY}_{self.pot}" if self.pot else _PEAK_PORTFOLIO_EQUITY_KEY
         try:
-            row = self.db_manager.get_strategy_config(_PEAK_PORTFOLIO_EQUITY_KEY)
+            row = self.db_manager.get_strategy_config(peak_key)
             peak = float(row.value) if row and row.value else 0.0
         except Exception as exc:
             self.logger.debug("Could not read peak equity: %s", exc)
@@ -865,7 +872,7 @@ class LiveTrader:
             peak = max(peak, equity) if peak > 0 else equity
             try:
                 self.db_manager.set_strategy_config(
-                    _PEAK_PORTFOLIO_EQUITY_KEY,
+                    peak_key,
                     str(peak),
                     "float",
                     "risk",
@@ -980,7 +987,7 @@ class LiveTrader:
                 return False, f"Daily trade limit reached ({max_trades})"
 
             # Check daily loss limit
-            max_daily_loss = self.config.initial_usdt * self.config.max_portfolio_drawdown
+            max_daily_loss = self.initial_usdt * self.config.max_portfolio_drawdown
             if self.daily_pnl < -max_daily_loss:
                 return False, f"Daily loss limit reached (${abs(self.daily_pnl):.2f})"
 
@@ -1193,6 +1200,8 @@ class LiveTrader:
                         base_currency, fee_in_base, filled_amount, position_amount,
                     )
 
+            self._apply_fill("buy", filled_amount, notional, fee, fee_currency, position_amount)
+
             trade = TradeRecord(
                 side="buy",
                 price=fill_price,
@@ -1368,6 +1377,9 @@ class LiveTrader:
 
             # Balances for logging reflect the exchange state post-fill.
             self.sync_balances()
+            self._apply_fill(
+                "sell", filled_amount, notional, fee, fee_info.get("currency"), filled_amount,
+            )
 
             trade = TradeRecord(
                 side="sell",
@@ -1429,6 +1441,22 @@ class LiveTrader:
             return amount < self.get_min_order_size() or amount * price < self.get_min_notional()
         except Exception:
             return amount <= 0
+
+    def _apply_fill(
+        self,
+        side: str,
+        filled_amount: float,
+        notional: float,
+        fee: float,
+        fee_currency: Optional[str],
+        position_amount: float,
+    ) -> None:
+        """Book a real fill into our balances.
+
+        Nothing to do here: sync_balances() just read them from the exchange.
+        A money pot (pots.py) keeps its own share of the account and books
+        each fill itself.
+        """
 
     # =========================================================================
     # Order Status & Tracking
@@ -1817,6 +1845,7 @@ class LiveTrader:
                     "base_balance": trade.base_balance,
                     "exit_reason": trade.exit_reason,
                     "pnl": trade.pnl,
+                    "pot": self.pot,
                 }
                 
                 if trade.signal:

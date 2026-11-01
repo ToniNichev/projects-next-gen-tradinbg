@@ -145,6 +145,17 @@ class BotConfig:
     # Telegram heads-up when a daily close lands within this % of the
     # Trend Hold sell/buy line (and when it crosses). 0 = off.
     trend_alert_pct: float = 1.0
+
+    # Money pots (pots.py): Trend Hold, one intraday strategy and manual
+    # trades each keep their own cash and BTC. Off = one shared account.
+    pots_enabled: bool = False
+    pot_trend_usd: float = 75.0
+    pot_intraday_usd: float = 15.0
+    pot_manual_usd: float = 6.0
+    pot_intraday_strategy: str = "rsi_bb"  # rsi_bb, ema_crossover, macd_volume
+    pot_intraday_max_buys_per_day: int = 3  # per UTC day; sells are never capped
+    pot_intraday_order_pct: float = 0.95  # share of the pot's cash per buy
+    pot_trade_alerts: bool = True  # Telegram message on each pot trade
     
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
@@ -339,6 +350,14 @@ class BotConfig:
             strategy_trend_position_size=get_val("strategy_trend_position_size", "BOT_STRATEGY_TREND_POSITION_SIZE", 0.99, float),
             strategy_trend_emergency_stop_pct=get_val("strategy_trend_emergency_stop_pct", "BOT_STRATEGY_TREND_EMERGENCY_STOP_PCT", 0.0, float),
             trend_alert_pct=float(env.get("BOT_TREND_ALERT_PCT", 1.0)),
+            pots_enabled=env.get("BOT_POTS_ENABLED", "false").lower() == "true",
+            pot_trend_usd=float(env.get("BOT_POT_TREND_USD", 75.0)),
+            pot_intraday_usd=float(env.get("BOT_POT_INTRADAY_USD", 15.0)),
+            pot_manual_usd=float(env.get("BOT_POT_MANUAL_USD", 6.0)),
+            pot_intraday_strategy=env.get("BOT_POT_INTRADAY_STRATEGY", "rsi_bb").strip().lower(),
+            pot_intraday_max_buys_per_day=int(env.get("BOT_POT_INTRADAY_MAX_BUYS_PER_DAY", 3)),
+            pot_intraday_order_pct=float(env.get("BOT_POT_INTRADAY_ORDER_PCT", 0.95)),
+            pot_trade_alerts=env.get("BOT_POT_TRADE_ALERTS", "true").lower() == "true",
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),

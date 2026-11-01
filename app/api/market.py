@@ -14,6 +14,7 @@ GET /api/paper/performance          Paper test so far: bot vs. holding BTC, hour
 """
 
 import logging
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
@@ -272,6 +273,7 @@ def get_trades():
                     "rsi": float(t.rsi) if t.rsi is not None else None,
                     "atr": float(t.atr) if t.atr is not None else None,
                     "strategy_name": t.strategy_name,
+                    "pot": _pot_name(t.pot),
                 })
             except Exception as exc:
                 logger.error("Error serialising trade %s: %s", getattr(t, "id", "?"), exc)
@@ -366,7 +368,10 @@ def get_paper_performance():
         from app.services.paper_performance import compute_paper_performance
 
         db = get_database()
-        trades = db.get_trades(limit=10000)
+        # With money pots this panel is about the Trend Hold pot only
+        pots = get_app_state().get_pot_manager()
+        trend_tag = pots.get("trend").tag if pots is not None else None
+        trades = db.get_trades(limit=10000, pot=trend_tag)
         rows = [{
             "timestamp": t.timestamp,
             "side": t.side,
@@ -390,4 +395,39 @@ def get_paper_performance():
         return jsonify({"success": True, "data": data})
     except Exception as exc:
         logger.error("get_paper_performance failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Money pots
+# ---------------------------------------------------------------------------
+
+def _pot_name(tag):
+    """'live-intraday' -> 'intraday'; untagged (pre-pots) trades -> None."""
+    if not tag:
+        return None
+    return tag[len("live-"):] if tag.startswith("live-") else tag
+
+
+@market_bp.route("/api/pots")
+@limiter.limit("30 per minute")
+@require_auth
+def get_pots():
+    """Each money pot's cash, BTC, value and result (pots.py)."""
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": True, "enabled": False})
+    try:
+        price = app_state.get_trading_state().current_price
+        if not price:
+            exchange = app_state.get_exchange()
+            from config import BotConfig
+            price = float(exchange.fetch_ticker(BotConfig.load().symbol)["last"])
+        lock = app_state.get_trader_lock()
+        with lock if lock else nullcontext():
+            data = pots.summary(float(price))
+        return jsonify({"success": True, "enabled": True, **data})
+    except Exception as exc:
+        logger.error("get_pots failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": str(exc)}), 500

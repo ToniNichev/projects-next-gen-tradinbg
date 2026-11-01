@@ -35,7 +35,19 @@ from sqlalchemy.orm import sessionmaker, Session
 # strategy's name), so live and paper positions in the shared table stay apart.
 LIVE_POSITION_TAG = "live_trader"
 
+# With separate money pots (see pots.py) each trade/position row carries the
+# pot it belongs to. Rows from before pots existed have no pot; they are the
+# Trend Hold account's, so filtering on this pot also returns untagged rows.
+LEGACY_POT = "trend"
+
 Base = declarative_base()
+
+
+def _pot_filter(model, pot: str):
+    """Rows of one pot; the legacy pot also owns rows saved before pots."""
+    if pot == LEGACY_POT:
+        return or_(model.pot == pot, model.pot.is_(None))
+    return model.pot == pot
 
 
 class Trade(Base):
@@ -71,6 +83,9 @@ class Trade(Base):
     # Multi-strategy attribution
     strategy_name = Column(String(50), index=True)  # Which strategy generated the signal
     signal_confidence = Column(Float)  # Signal confidence (0.0 to 1.0)
+
+    # Money pot this trade belongs to (pots.py); NULL = before pots
+    pot = Column(String(20), index=True)
     
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -110,6 +125,8 @@ class Position(Base):
     strategy_name = Column(String(100), index=True)  # Track which strategy opened this position
     # CCXT / exchange order id for protective STOP_LOSS_LIMIT (live spot only; NULL in paper)
     exchange_stop_order_id = Column(String(64), nullable=True)
+    # Money pot this position belongs to (pots.py); NULL = before pots
+    pot = Column(String(20), index=True)
 
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -325,6 +342,11 @@ class DatabaseManager:
             self._ensure_positions_exchange_stop_column()
         except Exception as e:
             self.logger.warning("Could not apply positions schema patch: %s", e)
+        for table in ("trades", "positions"):
+            try:
+                self._ensure_column(table, "pot", "VARCHAR(20)")
+            except Exception as e:
+                self.logger.warning("Could not add %s.pot: %s", table, e)
 
         # Initialize built-in presets
         try:
@@ -362,6 +384,17 @@ class DatabaseManager:
         with self.engine.begin() as conn:
             conn.execute(text(ddl))
         self.logger.info("Added column positions.exchange_stop_order_id")
+
+    def _ensure_column(self, table: str, column: str, sql_type: str) -> None:
+        """Add a column to an existing table (create_all doesn't alter tables)."""
+        insp = inspect(self.engine)
+        if not insp.has_table(table):
+            return
+        if column in {c["name"] for c in insp.get_columns(table)}:
+            return
+        with self.engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"))
+        self.logger.info("Added column %s.%s", table, column)
 
     @contextmanager
     def get_session(self) -> Session:
@@ -408,6 +441,7 @@ class DatabaseManager:
         exit_reason: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        pot: Optional[str] = None,
     ) -> List[Trade]:
         """
         Query trades with filters.
@@ -433,7 +467,9 @@ class DatabaseManager:
                 query = query.filter(Trade.timestamp >= start_date)
             if end_date:
                 query = query.filter(Trade.timestamp <= end_date)
-            
+            if pot:
+                query = query.filter(_pot_filter(Trade, pot))
+
             query = query.order_by(desc(Trade.timestamp)).limit(limit)
             trades = query.all()
             
@@ -443,7 +479,7 @@ class DatabaseManager:
                 _ = (t.id, t.timestamp, t.side, t.price, t.amount, 
                      t.notional, t.fee, t.pnl, t.exit_reason, 
                      t.usdt_balance, t.base_balance, t.signal_direction,
-                     t.rsi, t.atr)
+                     t.rsi, t.atr, t.pot)
             
             # Expunge all objects from session to make them independent
             session.expunge_all()
@@ -557,11 +593,11 @@ class DatabaseManager:
                 return position
             return None
 
-    def get_open_positions(self, live: Optional[bool] = None) -> List[Position]:
+    def get_open_positions(self, live: Optional[bool] = None, pot: Optional[str] = None) -> List[Position]:
         """Get currently open positions.
 
         live=True: only rows opened by the live trader; live=False: only the
-        paper bot's rows; None: all.
+        paper bot's rows; None: all. pot: only that money pot's rows.
         """
         with self.get_session() as session:
             query = session.query(Position).filter(Position.is_open == True)
@@ -572,7 +608,22 @@ class DatabaseManager:
                     Position.strategy_name.is_(None),
                     Position.strategy_name != LIVE_POSITION_TAG,
                 ))
+            if pot:
+                query = query.filter(_pot_filter(Position, pot))
             return query.all()
+
+    def count_trades(self, pot: Optional[str] = None, side: Optional[str] = None,
+                     since: Optional[datetime] = None) -> int:
+        """Number of trades, optionally for one pot / side / since a time."""
+        with self.get_session() as session:
+            query = session.query(func.count(Trade.id))
+            if pot:
+                query = query.filter(_pot_filter(Trade, pot))
+            if side:
+                query = query.filter(Trade.side == side)
+            if since is not None:
+                query = query.filter(Trade.timestamp >= since)
+            return int(query.scalar() or 0)
 
     def add_candle(self, candle_data: Dict) -> Candle:
         """Add a candle record (with duplicate handling)"""

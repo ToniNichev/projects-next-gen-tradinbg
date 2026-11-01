@@ -946,6 +946,107 @@
   <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
 </div>
 
+<!-- Money pots: Trend Hold, intraday and manual each keep their own money -->
+<style>
+  .pots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.9rem; }
+  .pot-card {
+    display: flex; flex-direction: column; gap: 0.55rem; padding: 1rem 1.1rem; border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.12));
+    border: 1px solid rgba(255,255,255,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
+  }
+  .pot-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+  .pot-name { font-weight: 700; font-size: 1rem; }
+  .pot-strategy { font-size: 0.74rem; color: var(--text-secondary); }
+  .pot-value { font-size: 1.45rem; font-weight: 700; letter-spacing: -0.01em; }
+  .pot-pnl { font-size: 0.85rem; font-weight: 700; }
+  .pot-pnl.up { color: var(--accent-green); }
+  .pot-pnl.down { color: var(--accent-red); }
+  .pot-rows { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.8rem; font-size: 0.8rem; }
+  .pot-rows span { color: var(--text-secondary); }
+  .pot-rows b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+  .pot-note { font-size: 0.74rem; color: var(--text-secondary); }
+  .pots-foot { margin: 0.8rem 0 0; font-size: 0.74rem; color: var(--text-secondary); opacity: 0.85; line-height: 1.45; }
+</style>
+
+<section class="signals-panel" id="pots-panel" aria-label="Money pots" style="display: none;">
+  <div class="signals-head">
+    <div>
+      <h2>Money Pots</h2>
+      <div class="signals-sub" id="pots-sub">Each pot trades only its own money</div>
+    </div>
+    <span class="consensus-pill" id="pots-total" style="display: none;"></span>
+  </div>
+  <div class="pots-grid" id="pots-grid"></div>
+  <p class="pots-foot">
+    A pot never sells another pot's BTC. The intraday pot is limited to a few buys per day (counted from midnight UTC);
+    its sells are never blocked. Your trades in Manual Trading use the Manual pot only.
+  </p>
+</section>
+
+<script>
+  (function () {
+    const money = (v, d = 2) => TradeWords.money(v, d);
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const pnlText = (v, p) => `${v >= 0 ? '+' : '−'}${money(Math.abs(v))} (${TradeWords.signedPct(p)})`;
+    const signalWords = { bullish: 'wants to buy / hold', bearish: 'wants to sell', neutral: 'no signal' };
+
+    function card(p) {
+      const rows = [];
+      rows.push(['Cash', money(p.cash)]);
+      rows.push(['BTC', `${p.btc.toFixed(6)}${p.btc > 0 ? ` (${money(p.btc * window.__potsPrice)})` : ''}`]);
+      if (p.holding) {
+        rows.push(['Bought at', money(p.entry_price, 0)]);
+        rows.push(['Safety exit', p.stop_loss ? money(p.stop_loss, 0) : 'None — exits on its rule']);
+        if (p.take_profit) rows.push(['Profit target', money(p.take_profit, 0)]);
+      } else {
+        rows.push(['Position', 'In cash']);
+      }
+      if (p.max_buys_per_day) rows.push(['Buys today', `${p.buys_today} of ${p.max_buys_per_day}`]);
+      if (p.last_signal) rows.push(['Last check', signalWords[p.last_signal.direction] || p.last_signal.direction]);
+      return `
+        <div class="pot-card">
+          <div class="pot-top">
+            <span class="pot-name">${esc(p.label)}</span>
+            <span class="pot-strategy">${p.name === 'manual' ? 'Traded by you' : esc(p.strategy)}</span>
+          </div>
+          <div class="pot-value">${money(p.value)}</div>
+          <div class="pot-pnl ${p.pnl >= 0 ? 'up' : 'down'}">${pnlText(p.pnl, p.pnl_pct)} <span class="pot-strategy">since start (${money(p.start_value)})</span></div>
+          <div class="pot-rows">${rows.map(([k, v]) => `<span>${esc(k)}</span><b>${esc(v)}</b>`).join('')}</div>
+          ${p.note ? `<div class="pot-note">${esc(p.note)}</div>` : ''}
+        </div>`;
+    }
+
+    async function loadPots() {
+      try {
+        const data = await fetch('/api/pots', { credentials: 'include' }).then(r => r.json());
+        const panel = document.getElementById('pots-panel');
+        if (!data.success || !data.enabled) { panel.style.display = 'none'; return; }
+        window.__potsPrice = data.price;
+        panel.style.display = '';
+        document.getElementById('pots-sub').textContent =
+          `Each pot trades only its own money · ${data.live ? 'REAL money' : 'paper money (simulated)'}`;
+        document.getElementById('pots-grid').innerHTML = data.pots.map(card).join('');
+        const t = data.total;
+        const pill = document.getElementById('pots-total');
+        pill.className = 'consensus-pill ' + (t.pnl >= 0 ? 'ahead' : 'behind');
+        pill.innerHTML = `<span class="lbl">All pots</span> ${money(t.value)} · ${pnlText(t.pnl, t.pnl_pct)}`;
+        pill.style.display = 'inline-flex';
+        // With pots, the paper panel and Manual Trading are about one pot each
+        const h2 = document.querySelector('#paper-panel h2');
+        if (h2) h2.textContent = 'Trend Hold Pot vs. Holding BTC';
+        const manual = data.pots.find(p => p.name === 'manual');
+        const sub = document.querySelector('#manual-trading-panel .mt-sub');
+        if (sub && manual) sub.textContent = `Uses the Manual pot (${money(manual.cash)} cash) — the bot's pots keep running`;
+      } catch (e) {
+        console.error('Pots panel:', e);
+      }
+    }
+
+    loadPots();
+    setInterval(loadPots, 60 * 1000);
+  })();
+</script>
+
 <!-- Paper test so far: the bot vs. just holding BTC since the first paper trade -->
 <style>
   .paper-panel .sig-tiles { margin-bottom: 0.9rem; }
@@ -1180,7 +1281,9 @@
           fetch('/api/trades?limit=1000', { credentials: 'include' }).then(r => r.json()),
         ]);
         if (!perf.success) throw new Error(perf.error || 'failed');
-        render(perf.data, TradeWords.pairTrades(tr.trades || []));
+        // Only the Trend Hold account's trades (untagged = from before pots)
+        const trendTrades = (tr.trades || []).filter(t => !t.pot || t.pot === 'trend');
+        render(perf.data, TradeWords.pairTrades(trendTrades));
       } catch (e) {
         console.error('Paper test panel:', e);
         document.getElementById('paper-body').innerHTML = '<div class="signals-empty">Could not load the paper test results.</div>';

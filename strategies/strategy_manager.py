@@ -68,6 +68,46 @@ class StrategyManager:
             for strategy in strategies
         }
     
+    def compute_signal_for(
+        self,
+        strategy: BaseStrategy,
+        exchange,
+        symbol: str,
+        timeframe: str,
+        candle_data: Optional[list] = None,
+    ) -> StrategySignal:
+        """One strategy's signal, recorded for the dashboard (raises on failure).
+
+        Ignores the enabled switch: money pots (pots.py) run their strategy
+        on its own, whether or not it votes in the combined signal.
+        """
+        signal = strategy.compute_signal(exchange, symbol, timeframe, candle_data)
+        self.last_signals[strategy.name] = signal
+        if strategy.name not in self.signal_history:
+            self.signal_history[strategy.name] = deque(maxlen=50)
+        self.signal_history[strategy.name].append({
+            "t": signal.timestamp.isoformat() if signal.timestamp else None,
+            "d": signal.direction,
+            "c": round(signal.confidence, 3),
+            "i": dict(signal.indicators or {}),
+        })
+        stats = self.strategy_stats.setdefault(strategy.name, {
+            "signals_generated": 0, "signals_used": 0,
+            "total_confidence": 0.0, "avg_confidence": 0.0,
+        })
+        stats["signals_generated"] += 1
+        stats["total_confidence"] += signal.confidence
+        stats["avg_confidence"] = stats["total_confidence"] / stats["signals_generated"]
+        self.logger.debug(
+            f"[{strategy.name}] Signal: {signal.direction} "
+            f"(confidence: {signal.confidence:.2f}, price: {signal.price:.2f})"
+        )
+        return signal
+
+    def get_strategy(self, name: str) -> Optional[BaseStrategy]:
+        """The strategy with this internal name (enabled or not)."""
+        return self._get_strategy_by_name(name)
+
     def compute_aggregate_signal(
         self,
         exchange,
@@ -94,29 +134,7 @@ class StrategyManager:
                 continue
             
             try:
-                signal = strategy.compute_signal(exchange, symbol, timeframe, candle_data)
-                signals.append(signal)
-                self.last_signals[strategy.name] = signal
-                self.signal_history[strategy.name].append({
-                    "t": signal.timestamp.isoformat() if signal.timestamp else None,
-                    "d": signal.direction,
-                    "c": round(signal.confidence, 3),
-                    "i": dict(signal.indicators or {}),
-                })
-
-                # Track stats
-                self.strategy_stats[strategy.name]["signals_generated"] += 1
-                self.strategy_stats[strategy.name]["total_confidence"] += signal.confidence
-                self.strategy_stats[strategy.name]["avg_confidence"] = (
-                    self.strategy_stats[strategy.name]["total_confidence"] /
-                    self.strategy_stats[strategy.name]["signals_generated"]
-                )
-                
-                self.logger.debug(
-                    f"[{strategy.name}] Signal: {signal.direction} "
-                    f"(confidence: {signal.confidence:.2f}, price: {signal.price:.2f})"
-                )
-                
+                signals.append(self.compute_signal_for(strategy, exchange, symbol, timeframe, candle_data))
             except Exception as e:
                 self.logger.error(f"Strategy {strategy.name} failed: {e}", exc_info=True)
                 continue

@@ -115,6 +115,7 @@ def init_services(trader, lock, exchange, strategy_manager, config) -> "Applicat
 
     app_state = get_app_state()
     app_state.set_trader(trader, lock, exchange, strategy_manager)
+    app_state.set_pot_manager(None)  # main.py sets the pots, if any, after this
 
     # Seed balances immediately so the first /state call is meaningful.
     try:
