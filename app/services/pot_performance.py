@@ -30,7 +30,12 @@ def compute_pot_performance(pots: List[Dict], candles: List[Dict], candle_hours:
     if not pots or not candles:
         return {"pots": [], "hold": []}
     step = timedelta(hours=candle_hours)
-    closes = [(_ts(c["timestamp"]) + step, float(c["close"])) for c in candles]
+    now = datetime.now(timezone.utc)
+    # Only candles that have closed (the history can include the one still forming)
+    closes = [(_ts(c["timestamp"]) + step, float(c["close"])) for c in candles
+              if _ts(c["timestamp"]) + step <= now]
+    if not closes:
+        return {"pots": [], "hold": []}
     start = min(_ts(p["start_time"]) for p in pots)
     first = next((i for i, (t, _) in enumerate(closes) if t + GRACE >= start), None)
     if first is None:

@@ -47,7 +47,10 @@ def compute_paper_performance(trades: List[Dict], candles: List[Dict], candle_ho
     start = _before_first_trade(trades[0])
 
     # The candle whose close the test began on, then every candle after it
-    closes = [(_ts(c["timestamp"]) + step, float(c["close"])) for c in candles]
+    now = datetime.now(timezone.utc)
+    # Only candles that have closed (the history can include the one still forming)
+    closes = [(_ts(c["timestamp"]) + step, float(c["close"])) for c in candles
+              if _ts(c["timestamp"]) + step <= now]
     first = next((i for i, (t, _) in enumerate(closes) if t + TRADE_GRACE >= start_time), None)
     if first is None:
         return {"started": True, "start_time": start_time.isoformat(), "points": []}

@@ -545,3 +545,13 @@ def test_performance_api():
         assert data["pots"][0]["points"] and data["hold"]
     finally:
         state.set_pot_manager(None)
+
+
+def test_candle_still_forming_is_left_out():
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    candles = _hours(now - timedelta(hours=3), [100, 100, 100, 100])  # last one closes in the future
+    pots = [{"name": "trend", "label": "T", "start_time": now - timedelta(hours=3),
+             "start_cash": 10.0, "trades": [], "moves": []}]
+    data = compute_pot_performance(pots, candles)
+    assert len(data["hold"]) == 3
+    assert all(datetime.fromisoformat(p["time"]) <= datetime.now(timezone.utc) for p in data["hold"])
