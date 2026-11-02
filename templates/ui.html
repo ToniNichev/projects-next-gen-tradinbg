@@ -1038,6 +1038,17 @@
     background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.05);
     box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.35);
   }
+  .pots-vs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem; margin-bottom: 0.7rem; }
+  .pots-vs-tile {
+    padding: 0.5rem 0.65rem; border-radius: 11px; background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06); border-left: 3px solid var(--c); min-width: 0;
+  }
+  .pots-vs-tile .n { font-size: 0.72rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pots-vs-tile .v { font-size: 1.05rem; font-weight: 700; margin: 0.1rem 0; }
+  .pots-vs-tile .e { font-size: 0.72rem; color: var(--text-secondary); }
+  .pots-vs-tile .e.ahead { color: var(--accent-green); }
+  .pots-vs-tile .e.behind { color: var(--accent-red); }
+  .pots-vs-tile.hold { border-left-style: dashed; }
   .pots-perf-note { margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-secondary); }
   .pots-section-title { margin: 0 0 0.45rem; font-size: 0.9rem; font-weight: 700; }
   @media (max-width: 720px) { .pots-perf-wrap { height: 200px; } }
@@ -1054,9 +1065,10 @@
   <div class="pots-alloc" id="pots-alloc"></div>
   <div class="pots-perf" id="pots-perf">
     <div class="pots-section-title">Results over time</div>
+    <div class="pots-vs" id="pots-vs"></div>
     <div class="pots-perf-legend" id="pots-perf-legend"></div>
     <div class="pots-perf-wrap"><canvas id="potsPerfChart"></canvas></div>
-    <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss.</p>
+    <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss. Badges mark each pot's buys and sells; hover one for details.</p>
   </div>
   <div class="pots-grid" id="pots-grid"></div>
   <div class="pots-move" id="pots-move">
@@ -1134,8 +1146,12 @@
 
     async function loadPerf() {
       try {
-        const data = await fetch('/api/pots/performance', { credentials: 'include' }).then(r => r.json());
+        const [data, tr] = await Promise.all([
+          fetch('/api/pots/performance', { credentials: 'include' }).then(r => r.json()),
+          fetch('/api/trades?limit=1000', { credentials: 'include' }).then(r => r.json()).catch(() => ({})),
+        ]);
         if (!data.success || !data.enabled || !data.hold.length) return;
+        const trades = TradeWords.pairTrades((tr.trades || []).filter(t => t.pot));
         const labelOf = {};
         (lastData ? lastData.pots : []).forEach(p => { labelOf[p.name] = p.label; });
         const line = (label, color, points, extra = {}) => ({
@@ -1148,6 +1164,59 @@
         datasets.push(line('Just holding BTC', HOLD_COLOR,
           data.hold.map(q => ({ x: new Date(q.time).getTime(), y: q.pct, price: q.price })),
           { borderDash: [5, 4], borderWidth: 1.6, $hold: true }));
+
+        // Buy/sell badges on each pot's line, at the hourly close that covers the trade
+        const GRACE = 5 * 60 * 1000;
+        datasets.filter(d => d.$pot).forEach((d, i) => {
+          const pot = data.pots[i].name;
+          const pts = d.data;
+          if (!pts.length) return;
+          const onLine = (t) => {
+            const tx = new Date(t.timestamp).getTime();
+            let p = pts[0];
+            for (const q of pts) { if (q.x <= tx + GRACE) p = q; else break; }
+            return { x: p.x, y: p.y };
+          };
+          ['buy', 'sell'].forEach(side => {
+            const mine = trades.filter(t => t.pot === pot && (side === 'buy') === (t.side === 'buy'));
+            if (!mine.length) return;
+            datasets.push({
+              label: `${d.label} ${side}s`, $trade: true, type: 'scatter', data: mine.map(onLine),
+              pointStyle: tradeMarkerImage(side, potColor(pot)), pointRadius: 10, pointHoverRadius: 10,
+              showLine: false, clip: false, order: -1,
+            });
+          });
+        });
+        // Badge images may still be loading; draw again once they are
+        const redrawWhenLoaded = () => datasets.forEach(d => {
+          const img = d.pointStyle;
+          if (img instanceof HTMLImageElement && !img.complete) {
+            img.addEventListener('load', () => perfChart && perfChart.update('none'), { once: true });
+          }
+        });
+
+        // Each pot vs. buying BTC when that pot began
+        const holdAt = {};
+        data.hold.forEach(q => { holdAt[q.time] = q.price; });
+        const lastHold = data.hold[data.hold.length - 1];
+        const tiles = data.pots.map(p => {
+          const last = p.points[p.points.length - 1];
+          if (!last) return '';
+          const startPrice = holdAt[p.points[0].time] || data.hold[0].price;
+          const holdPct = (lastHold.price / startPrice - 1) * 100;
+          const traded = trades.some(t => t.pot === p.name);
+          const edge = last.pct - holdPct;
+          const e = !traded
+            ? '<div class="e">not traded yet</div>'
+            : `<div class="e ${edge >= 0 ? 'ahead' : 'behind'}">${edge >= 0 ? 'ahead of' : 'behind'} holding by ${Math.abs(edge).toFixed(1)} pts</div>`;
+          return `<div class="pots-vs-tile" style="--c:${potColor(p.name)}" title="Holding BTC since this pot began: ${perfTick(holdPct)}">
+                    <div class="n">${esc(labelOf[p.name] || p.label)}</div>
+                    <div class="v">${perfTick(last.pct)}</div>${e}</div>`;
+        }).join('');
+        const since = new Date(data.hold[0].time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        document.getElementById('pots-vs').innerHTML = tiles +
+          `<div class="pots-vs-tile hold" style="--c:${HOLD_COLOR}"><div class="n">Just holding BTC</div>
+             <div class="v">${perfTick(lastHold.pct)}</div><div class="e">since ${since} · BTC ${money(lastHold.price, 0)}</div></div>`;
 
         document.getElementById('pots-perf-legend').innerHTML =
           data.pots.map(p => `<span style="--c:${potColor(p.name)}"><span class="legend-line"></span>${esc(labelOf[p.name] || p.label)}</span>`).join('')
@@ -1162,7 +1231,10 @@
         if (perfChart) {
           perfChart.data.datasets = datasets;
           perfChart.options.scales.x.time = timeOpts;
+          perfChart.$trades = trades;
+          perfChart.$nowPrice = lastHold.price;
           perfChart.update('none');
+          redrawWhenLoaded();
           return;
         }
         perfChart = new Chart(document.getElementById('potsPerfChart').getContext('2d'), {
@@ -1189,6 +1261,7 @@
                 backgroundColor: 'rgba(13, 17, 23, 0.92)', titleColor: '#ffffff', bodyColor: '#e1e8ff',
                 borderColor: 'rgba(255, 255, 255, 0.14)', borderWidth: 1, cornerRadius: 12, padding: 12,
                 bodySpacing: 5,
+                filter: (item) => !item.dataset.$trade,
                 itemSort: (a, b) => b.parsed.y - a.parsed.y,
                 callbacks: {
                   title: (items) => items[0] ? new Date(items[0].parsed.x).toLocaleString('en-US',
@@ -1199,11 +1272,30 @@
                     return ` ${item.dataset.label}: ${perfTick(r.y)} (${money(r.value)}${r.holding ? ', in BTC' : ', in cash'})`;
                   },
                   labelColor: (item) => ({ borderColor: item.dataset.borderColor, backgroundColor: item.dataset.borderColor, borderRadius: 3 }),
+                  // Trades made in the hour that ended here
+                  afterBody(items) {
+                    const it = items.find(i => !i.dataset.$trade);
+                    if (!it) return '';
+                    const x = it.parsed.x;
+                    const all = (perfChart && perfChart.$trades) || [];
+                    const here = all.filter(t => {
+                      const tx = new Date(t.timestamp).getTime();
+                      return tx > x - 3600e3 + GRACE && tx <= x + GRACE;
+                    });
+                    if (!here.length) return '';
+                    const nowPrice = perfChart.$nowPrice;
+                    const lines = [];
+                    here.forEach(t => { lines.push(''); lines.push(...TradeWords.describe(t, { nowPrice })); });
+                    return lines;
+                  },
                 },
               },
             },
           },
         });
+        perfChart.$trades = trades;
+        perfChart.$nowPrice = lastHold.price;
+        redrawWhenLoaded();
       } catch (e) {
         console.error('Pots results chart:', e);
       }
@@ -1477,9 +1569,10 @@
         pill.className = 'consensus-pill ' + (t.pnl >= 0 ? 'ahead' : 'behind');
         pill.innerHTML = `<span class="lbl">All pots</span> ${money(t.value)} · ${pnlText(t.pnl, t.pnl_pct)}`;
         pill.style.display = 'inline-flex';
-        // With pots, the paper panel and Manual Trading are about one pot each
-        const h2 = document.querySelector('#paper-panel h2');
-        if (h2) h2.textContent = 'Trend Hold Pot vs. Holding BTC';
+        // With pots, the Money Pots chart compares every pot with holding BTC,
+        // so the single-account panel is hidden
+        const paper = document.getElementById('paper-panel');
+        if (paper) paper.style.display = 'none';
         const manual = data.pots.find(p => p.name === 'manual');
         const sub = document.querySelector('#manual-trading-panel .mt-sub');
         if (sub && manual) sub.textContent = `Uses the Manual pot (${money(manual.cash)} cash) — the bot's pots keep running`;
@@ -1722,6 +1815,10 @@
     }
 
     async function loadPaper() {
+      if (window.__potsEnabled) {  // the Money Pots chart covers this
+        document.getElementById('paper-panel').style.display = 'none';
+        return;
+      }
       try {
         const [perf, tr] = await Promise.all([
           fetch('/api/paper/performance', { credentials: 'include' }).then(r => r.json()),
