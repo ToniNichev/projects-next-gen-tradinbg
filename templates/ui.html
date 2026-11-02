@@ -778,6 +778,12 @@
     background: rgba(88, 214, 141, 0.1); border: 1px solid rgba(88, 214, 141, 0.28);
   }
   .sig-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); }
+  .sig-live.sig-pot {
+    color: var(--pot);
+    background: color-mix(in srgb, var(--pot) 12%, transparent);
+    border-color: color-mix(in srgb, var(--pot) 35%, transparent);
+  }
+  .sig-live.sig-pot::before { background: var(--pot); }
   .sig-meta { font-size: 0.72rem; color: var(--text-secondary); white-space: nowrap; }
 
   .sig-dir { display: flex; align-items: center; gap: 0.6rem; }
@@ -4250,6 +4256,50 @@
         return `<div class="sig-next">${text} Days close at ${closeAt} your time; it doesn't react to moves within a day.</div>`;
       }
 
+      // Which pots trade this strategy ("Active" when none, i.e. pots are off)
+      function potBadges(s) {
+        const pots = s.pots || [];
+        if (!pots.length) return '<span class="sig-live">Active</span>';
+        return pots.map(p => {
+          const c = /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : '#8B949E';
+          const state = p.paused ? ' · paused' : p.holding ? ' · holding' : '';
+          return `<span class="sig-live sig-pot" style="--pot:${c}">${escapeHtml(p.label)} pot${state}</span>`;
+        }).join(' ');
+      }
+
+      // RSI + Bollinger Bands: the two numbers that decide a buy
+      function rsiTiles(s) {
+        const ind = s.indicators || {};
+        if (typeof ind.rsi !== 'number' || typeof ind.bb_lower !== 'number') return '';
+        const rsi = ind.rsi;
+        const tiles = [
+          ['RSI', rsi.toFixed(1), rsi < 30 ? 'up' : rsi > 70 ? 'down' : ''],
+          ['Lower band', usd0(ind.bb_lower), ''],
+          ['Upper band', usd0(ind.bb_upper), ''],
+          ['Volume', typeof ind.volume_ratio === 'number' ? `${ind.volume_ratio.toFixed(1)}× avg` : '—',
+            ind.volume_ratio >= 1 ? 'up' : ''],
+        ];
+        return `<div class="sig-tiles">${tiles.map(([k, v, c]) =>
+          `<div class="sig-tile"><span>${k}</span><b class="${c}">${v}</b></div>`).join('')}</div>`;
+      }
+
+      function rsiNextMove(s) {
+        const ind = s.indicators || {};
+        if (typeof ind.rsi !== 'number' || typeof ind.bb_lower !== 'number') return '';
+        if ((s.pots || []).some(p => p.holding)) {
+          return '<div class="sig-next"><b>Holding:</b> the pot sells at its take-profit target or its stop on Binance (see the pot card). It won\'t buy again until then.</div>';
+        }
+        const price = s.price || (ind.bb_lower + (ind.bb_upper - ind.bb_lower) * (ind.bb_percent ?? 0));
+        const away = ((ind.bb_lower / price - 1) * 100);
+        const rsiOk = ind.rsi < 30;
+        const parts = [
+          rsiOk ? `RSI is oversold (${ind.rsi.toFixed(1)}) ✓` : `RSI must drop below 30 (now ${ind.rsi.toFixed(1)})`,
+          away < 0 ? `the price must fall to the lower band <b>${usd0(ind.bb_lower)}</b>, ${Math.abs(away).toFixed(1)}% under ${usd0(price)}`
+                   : `the price is at the lower band ✓`,
+        ];
+        return `<div class="sig-next"><b>Next buy:</b> needs both — ${parts.join('; ')}. Checked when each hour closes; strong volume makes it more likely to fire.</div>`;
+      }
+
       function signalCard(s) {
         const name = STRATEGY_DISPLAY[s.name] || s.display_name || s.name;
         const dir = ['bullish', 'bearish'].includes(s.direction) ? s.direction : 'neutral';
@@ -4265,7 +4315,7 @@
           : '';
         return `<div class="sig-card ${dir}">
           <div class="sig-top">
-            <div class="sig-name">${escapeHtml(name)} <span class="sig-live">Active</span></div>
+            <div class="sig-name">${escapeHtml(name)} ${potBadges(s)}</div>
             <div class="sig-meta">weight ${s.weight}${when ? ' · ' + when : ''}</div>
           </div>
           <div class="sig-dir">
@@ -4277,8 +4327,8 @@
             <div class="sig-conf"><b>${pct}%</b><span>confidence</span></div>
           </div>
           <div class="sig-meter"><i style="width:${pct}%"></i></div>
-          ${signalTiles(s)}
-          ${isTrend ? nextMove(s) : ''}
+          ${isTrend ? signalTiles(s) : rsiTiles(s)}
+          ${isTrend ? nextMove(s) : rsiNextMove(s)}
           ${spark ? `<div class="sig-spark">${sparkCaption}${spark}</div>` : ''}
           <div class="sig-desc">${escapeHtml(s.pattern || '—')}</div>
         </div>`;
@@ -4297,14 +4347,19 @@
           }
           const data = await resp.json();
           const all = data.signals || [];
-          const active = all.filter(s => s.enabled);
-          const inactive = all.filter(s => !s.enabled);
+          const potsOn = !!data.pots_enabled;
+          // With pots, a strategy trades when a pot runs it, whatever its switch says
+          const isActive = s => potsOn ? (s.pots || []).length > 0 : s.enabled;
+          const active = all.filter(isActive);
+          const inactive = all.filter(s => !isActive(s));
 
           grid.innerHTML = active.length
             ? active.map(signalCard).join('')
             : '<div class="signals-empty">No strategy is enabled. Turn one on in Strategies.</div>';
 
-          sub.textContent = `${active.length} of ${all.length} strategies voting on the next trade`;
+          sub.textContent = potsOn
+            ? `${active.length} ${active.length === 1 ? 'strategy trades' : 'strategies trade'}, each with its own pot of money`
+            : `${active.length} of ${all.length} strategies voting on the next trade`;
 
           // Consensus pill: what the active strategies say together
           const dirs = new Set(active.map(s => s.direction));
@@ -4316,12 +4371,17 @@
             pill.className = 'consensus-pill';
             pill.innerHTML = '<span class="lbl">Consensus</span> Mixed';
           }
-          pill.style.display = active.length ? 'inline-flex' : 'none';
+          // Pots trade independently, so there's no shared vote to show
+          pill.style.display = active.length && !potsOn ? 'inline-flex' : 'none';
 
           if (inactive.length) {
-            off.innerHTML = '<span class="sig-off-label">Off</span>' + inactive.map(s =>
-              `<a href="/strategy-config" title="Enable in Strategies">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
-            ).join('');
+            off.innerHTML = potsOn
+              ? '<span class="sig-off-label">No pot</span>' + inactive.map(s =>
+                  `<a href="#pots-add-name" title="Add a pot that trades this strategy">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
+                ).join('')
+              : '<span class="sig-off-label">Off</span>' + inactive.map(s =>
+                  `<a href="/strategy-config" title="Enable in Strategies">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
+                ).join('');
             off.style.display = 'flex';
           } else {
             off.style.display = 'none';

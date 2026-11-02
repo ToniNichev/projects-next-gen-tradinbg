@@ -111,6 +111,35 @@ def _get_strategy_manager():
     return get_app_state().get_strategy_manager()
 
 
+def _pot_manager():
+    try:
+        return get_app_state().get_pot_manager()
+    except Exception:
+        return None
+
+
+def _pots_by_strategy() -> dict:
+    """{strategy name: [{name, label, color, letter, paused, holding}]} for running pots."""
+    manager = _pot_manager()
+    if not manager:
+        return {}
+    out = {}
+    for pot in list(manager.pots.values()):
+        if not pot.strategy:
+            continue
+        style = manager.pot_style(pot.name)
+        trader = pot.trader
+        out.setdefault(pot.strategy.name, []).append({
+            "name": pot.name,
+            "label": pot.label,
+            "color": style.get("color"),
+            "letter": style.get("letter"),
+            "paused": bool(getattr(pot, "paused", False)),
+            "holding": bool(trader and getattr(trader, "open_position", None)),
+        })
+    return out
+
+
 def _batch_save_config(data: dict, db) -> tuple:
     """Save recognised keys to DB. Returns (configs_to_save, saved_count)."""
     configs_to_save = {
@@ -577,7 +606,15 @@ def _pattern_description(name: str, signal) -> str:
             if info.get("bb_upper_touch"):
                 parts.append("BB upper band touch")
             return (", ".join(parts) or "Bearish signal") + f" — {vol}"
-        return f"RSI neutral ({rsi:.1f}) — no band touch"
+        oversold = info.get("rsi_bullish")
+        overbought = info.get("rsi_bearish")
+        if oversold and not info.get("bb_lower_touch"):
+            return f"RSI oversold ({rsi:.1f}), but the price hasn't touched the lower band yet — no buy"
+        if overbought and not info.get("bb_upper_touch"):
+            return f"RSI overbought ({rsi:.1f}), but the price hasn't touched the upper band yet"
+        if oversold or overbought:
+            return f"RSI {rsi:.1f} and band touched, but too weak a signal ({vol})"
+        return f"RSI {rsi:.1f} — not oversold or overbought, no trade"
 
     if "macd" in name_lower:
         vol = "volume confirmed" if info.get("volume_confirmed") else "low volume"
@@ -631,6 +668,7 @@ def get_strategy_signals():
     if not sm:
         return jsonify({"error": "Strategy manager not available"}), 503
     try:
+        pot_runs = _pots_by_strategy()
         result = []
         for strategy in sm.strategies:
             sig = sm.last_signals.get(strategy.name)
@@ -647,9 +685,11 @@ def get_strategy_signals():
                 "pattern": _pattern_description(strategy.name, sig) if sig else "No signal yet",
                 "indicators": sig.indicators if sig else {},
                 "history": history,
+                # Pots that trade this strategy (they run even when it's switched off here)
+                "pots": pot_runs.get(strategy.name, []),
             }
             result.append(entry)
-        return jsonify({"signals": result, "count": len(result)})
+        return jsonify({"signals": result, "count": len(result), "pots_enabled": _pot_manager() is not None})
     except Exception as exc:
         logger.error("get_strategy_signals failed: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
