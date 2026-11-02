@@ -12,6 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="{{ url_for('static', filename='js/ui-common.js') }}"></script>
     {% block extra_head %}{% endblock %}
     <style>
       :root {
@@ -24,6 +25,13 @@
         --accent-green: #58D68D;
         --accent-red: #ff5e57;
         --accent-blue: #539bf5;
+        --accent-purple: #9D4EDD;
+        /* Strategy colors: same values as static/js/ui-common.js; never a pot color */
+        --strat-trend: #1abc9c;
+        --strat-rsi: #a371f7;
+        --strat-macd: #f39c12;
+        --strat-ema: #b5e853;
+        --strat-llm: #7d8cff;
       }
       
       * {
@@ -483,17 +491,18 @@
             const resp = await fetch('/api/trading/mode', { credentials: 'include' });
             if (!resp.ok) throw new Error('status ' + resp.status);
             const data = await resp.json();
-            const mode = (data.actual_mode || data.configured_mode || 'unknown').toUpperCase();
+            const raw = (data.actual_mode || data.configured_mode || 'unknown').toLowerCase();
+            const mode = { live: 'Real money', paper: 'Practice', dry_run: 'Practice (dry run)' }[raw] || raw;
 
             if (data.emergency_stop) {
               badge.className = 'status danger';
-              badge.textContent = `🚨 ${mode} · EMERGENCY STOP`;
+              badge.textContent = `🚨 ${mode} · Emergency stop`;
             } else if (data.trading_enabled === false) {
               badge.className = 'status neutral';
-              badge.textContent = `⏸ ${mode} · Trading Disabled`;
+              badge.textContent = `⏸ ${mode} · Trading off`;
             } else {
               badge.className = 'status success';
-              badge.textContent = `● ${mode} · Trading Active`;
+              badge.textContent = `● ${mode} · Trading on`;
             }
           } catch (err) {
             badge.className = 'status neutral';

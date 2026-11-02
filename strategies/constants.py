@@ -36,9 +36,9 @@ class StrategyNames:
     DISPLAY_NAMES = {
         EMA_CROSSOVER: "EMA Crossover",
         RSI_BB_MEAN_REVERSION: "RSI + Bollinger Bands",
-        MACD_VOLUME_MOMENTUM: "MACD + Volume Momentum",
-        LLM_PATTERN: "LLM Pattern Analysis",
-        TREND_HOLD: "Trend Hold (daily MA)",
+        MACD_VOLUME_MOMENTUM: "MACD + Volume",
+        LLM_PATTERN: "LLM Pattern",
+        TREND_HOLD: "Trend Hold",
     }
     
     # Config keys for database persistence

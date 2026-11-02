@@ -248,6 +248,7 @@
   .pos-pnl.positive { color: var(--accent-green); }
   .pos-pnl.negative { color: var(--accent-red); }
 
+  .modal-note { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.84rem; line-height: 1.4; }
   .position-info-item,
   .preview-item {
     display: flex;
@@ -979,7 +980,7 @@
     flex: 1 1 auto; padding: 0.4rem 0.7rem; border-radius: 9px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
     border: 1px solid rgba(83,155,245,0.4); background: rgba(83,155,245,0.12); color: #cfe3ff;
   }
-  .pot-actions button.sell { border-color: rgba(248,81,73,0.45); background: rgba(248,81,73,0.12); color: #ffb3ad; }
+  .pot-actions button.sell { border-color: rgba(255,94,87,0.45); background: rgba(255,94,87,0.12); color: #ffb3ad; }
   .pot-actions button.confirm { border-color: rgba(255,193,7,0.55); background: rgba(255,193,7,0.16); color: #ffe08a; }
   .pot-actions button:disabled { opacity: 0.5; cursor: default; }
   .pot-msg { font-size: 0.76rem; }
@@ -1100,7 +1101,7 @@
     <div class="pots-move-msg" id="pots-add-msg" role="status"></div>
   </div>
   <p class="pots-foot">
-    A pot never sells another pot's BTC. Pots with a buy limit count buys from midnight UTC;
+    A pot never sells another pot's BTC. Pots with a buy limit count buys from midnight UTC (<span class="utc-midnight-local">7 pm</span> your time);
     sells are never blocked. Your trades in Manual Trading use the Manual pot only.
   </p>
 </section>
@@ -1317,25 +1318,22 @@
       }
       if (p.max_buys_per_day) rows.push(['Buys today', `${p.buys_today} of ${p.max_buys_per_day}`]);
       if (p.last_signal) rows.push(['Last check', signalWords[p.last_signal.direction] || p.last_signal.direction]);
-      const worth = p.btc * (window.__potsPrice || 0);
-      const btn = (action, cls, text, confirmText) => {
-        const armedHere = potArmed === `${action}:${p.name}`;
-        return `<button type="button" class="${cls}${armedHere ? ' confirm' : ''}" data-pot-action="${action}" data-pot="${esc(p.name)}"
-          ${potBusy ? 'disabled' : ''}>${esc(armedHere ? confirmText : text)}</button>`;
-      };
+      const btn = (action, cls, text) =>
+        `<button type="button" class="${cls}" data-pot-action="${action}" data-pot="${esc(p.name)}"
+          ${potBusy ? 'disabled' : ''}>${esc(text)}</button>`;
       const actions = [];
       if (p.holding) {
-        actions.push(btn('sell', 'sell', 'Sell now', `Confirm: sell ~${money(worth)} of BTC`));
+        actions.push(btn('sell', 'sell', 'Sell now'));
         if (p.name !== 'manual' && !p.paused) {
-          actions.push(btn('sellpause', 'sell', 'Sell & pause', `Confirm: sell ~${money(worth)} & pause`));
+          actions.push(btn('sellpause', 'sell', 'Sell & pause'));
         }
       }
       if (p.name !== 'manual') {
-        actions.push(p.paused ? btn('resume', '', 'Resume buying', 'Resume buying')
-                              : btn('pause', '', 'Pause buying', 'Pause buying'));
+        actions.push(p.paused ? btn('resume', '', 'Resume buying')
+                              : btn('pause', '', 'Pause buying'));
       }
       if (p.source === 'dashboard' && !p.holding) {
-        actions.push(btn('remove', 'sell', 'Remove pot', 'Confirm: remove this pot'));
+        actions.push(btn('remove', 'sell', 'Remove pot'));
       }
       const msg = potMsgs[p.name];
       return `
@@ -1354,33 +1352,36 @@
     }
 
     // ---- Sell now / pause, per pot
-    let potArmed = null;   // "action:pot" waiting for a second click
-    let potArmedTimer = null;
     let potBusy = false;
     const potMsgs = {};    // pot name -> {cls, text}, kept across refreshes
-    const ARM_CONFIRM = new Set(['sell', 'sellpause', 'remove']);  // these need a second click
+    const ASK_FIRST = new Set(['sell', 'sellpause', 'remove']);  // these move money: confirm box first
+
+    // The confirm box for a pot action: what happens, to which pot, how much
+    function potConfirm(action, p) {
+      const worth = p.btc * (window.__potsPrice || 0);
+      const row = (k, v) => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value">${v}</span></div>`;
+      if (action === 'remove') {
+        return { title: `Remove the ${p.label} pot?`, confirmText: 'Remove pot',
+          html: row('Pot', esc(p.label)) + row('Cash', money(p.cash)) +
+                '<div class="modal-note">It must hold no cash and no BTC. Its trade history is kept, and its name can\'t be used again.</div>' };
+      }
+      const pause = action === 'sellpause';
+      return { title: pause ? `Sell and pause the ${p.label} pot?` : `Sell the ${p.label} pot's BTC?`,
+        confirmText: pause ? 'Sell & pause' : 'Sell now',
+        html: row('Pot', esc(p.label)) + row('Sells', `${p.btc.toFixed(6)} BTC`) +
+              row('Worth about', money(worth)) +
+              (p.entry_price ? row('Bought at', money(p.entry_price, 0)) : '') +
+              `<div class="modal-note">Sells at the market price, right away.${pause ? ' The pot then stops buying until you resume it.' : ''} A sliver too small to sell may stay behind.</div>` };
+    }
 
     function redrawPots() {
       if (lastData) document.getElementById('pots-grid').innerHTML = lastData.pots.map(card).join('');
     }
 
     async function onPotAction(action, name) {
-      const key = `${action}:${name}`;
-      if (ARM_CONFIRM.has(action) && potArmed !== key) {
-        potArmed = key;
-        const label = (lastData.pots.find(x => x.name === name) || {}).label || name;
-        potMsgs[name] = { cls: '', text: action === 'remove'
-          ? `Remove the ${label} pot? It must hold no cash and no BTC. Its trade history is kept. Click again to confirm.`
-          : action === 'sellpause'
-          ? `Sell all of the ${label} pot's BTC at the market price, and stop it buying until you resume it? Click again to confirm.`
-          : `Sell all of the ${label} pot's BTC at the market price? Click again to confirm.` };
-        clearTimeout(potArmedTimer);
-        potArmedTimer = setTimeout(() => { potArmed = null; delete potMsgs[name]; redrawPots(); }, 10000);
-        redrawPots();
-        return;
-      }
-      potArmed = null;
-      clearTimeout(potArmedTimer);
+      const pot = lastData && lastData.pots.find(x => x.name === name);
+      if (!pot) return;
+      if (ASK_FIRST.has(action) && !(await askConfirm(potConfirm(action, pot)))) return;
       potBusy = true;
       const isSell = action === 'sell' || action === 'sellpause';
       potMsgs[name] = { cls: '', text: isSell ? 'Selling…' : 'Saving…' };
@@ -1397,7 +1398,7 @@
         potMsgs[name] = r.success ? { cls: 'ok', text: r.message + '.' }
                                   : { cls: 'err', text: r.error || 'It did not work.' };
       } catch (e) {
-        potMsgs[name] = { cls: 'err', text: 'Network error: check the pot before trying again.' };
+        potMsgs[name] = { cls: 'err', text: 'No reply from the bot. It may still have gone through: check the pot before trying again.' };
       } finally {
         potBusy = false;
         setTimeout(() => { delete potMsgs[name]; }, 60000);
@@ -1412,9 +1413,8 @@
 
     // ---- Move money
     let lastData = null;
-    let armed = null;  // the move waiting for a second click to confirm
     const placeName = (name) => {
-      if (name === 'unassigned') return lastData && lastData.real_money ? 'Unassigned cash on the exchange' : 'New paper money';
+      if (name === 'unassigned') return lastData && lastData.real_money ? 'Unassigned cash' : 'New practice money';
       const p = lastData && lastData.pots.find(x => x.name === name);
       return p ? `${p.label} pot` : name;
     };
@@ -1452,10 +1452,8 @@
     }
 
     function resetButton() {
-      armed = null;
       const btn = document.getElementById('pots-move-btn');
       btn.textContent = 'Move';
-      btn.classList.remove('confirm');
     }
 
     async function onMove() {
@@ -1469,14 +1467,15 @@
       if (!(move.amount > 0)) { msg.className = 'pots-move-msg err'; msg.textContent = 'Enter an amount above $0.'; return; }
       if (move.from === move.to) { msg.className = 'pots-move-msg err'; msg.textContent = 'Pick two different places.'; return; }
       const key = JSON.stringify(move);
-      if (armed !== key) {  // first click: ask to confirm
-        armed = key;
-        btn.textContent = `Confirm: ${money(move.amount)} → ${placeName(move.to)}`;
-        btn.classList.add('confirm');
-        msg.className = 'pots-move-msg';
-        msg.textContent = `Move ${money(move.amount)} from ${placeName(move.from)} to ${placeName(move.to)}? Click again to confirm.`;
-        return;
-      }
+      const row = (k, v) => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value">${v}</span></div>`;
+      const ok = await askConfirm({
+        title: `Move ${money(move.amount)}?`, confirmText: 'Move money',
+        html: row('From', esc(placeName(move.from))) + row('To', esc(placeName(move.to))) + row('Amount', money(move.amount)) +
+              '<div class="modal-note">Only cash moves; no BTC is bought or sold. Moved money doesn\'t count as a gain or loss.</div>',
+      });
+      if (!ok) return;
+      msg.className = 'pots-move-msg';
+      msg.textContent = '';
       btn.disabled = true;
       try {
         const r = await fetch('/api/pots/transfer', {
@@ -1488,7 +1487,7 @@
         if (r.success) document.getElementById('pots-amount').value = '';
       } catch (e) {
         msg.className = 'pots-move-msg err';
-        msg.textContent = 'The move failed (network error).';
+        msg.textContent = 'No reply from the bot. Check the pots before trying again.';
       } finally {
         btn.disabled = false;
         resetButton();
@@ -1540,8 +1539,6 @@
       }
     }
     document.getElementById('pots-add-btn').addEventListener('click', onAddPot);
-    ['pots-from', 'pots-to', 'pots-amount'].forEach(id =>
-      document.getElementById(id).addEventListener('input', () => { if (armed) resetButton(); }));
 
     async function loadPots() {
       try {
@@ -1551,7 +1548,7 @@
         window.__potsPrice = data.price;
         panel.style.display = '';
         document.getElementById('pots-sub').textContent =
-          `Each pot trades only its own money · ${data.real_money ? 'REAL money' : data.live ? 'dry run (simulated)' : 'paper money (simulated)'}`;
+          `Each pot trades only its own money · ${data.real_money ? 'real money' : data.live ? 'practice (dry run)' : 'practice money'}`;
         lastData = data;
         window.__potsRealMoney = !!data.real_money;
         window.__potMeta = {};
@@ -1584,6 +1581,11 @@
         console.error('Pots panel:', e);
       }
     }
+
+    document.querySelectorAll('.utc-midnight-local').forEach(el => {
+      const d = new Date(); d.setUTCHours(24, 0, 0, 0);
+      el.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    });
 
     loadPots();
     setInterval(loadPots, 60 * 1000);
@@ -1884,16 +1886,8 @@
       let tradesCached = false;   // true once first fetch completes, even with 0 trades
       
       // Strategy color mapping (same as backtest charts)
-      const STRATEGY_COLORS = {
-        'EMA_Crossover': '#00D9FF',        // Bright cyan
-        'RSI_BB_MeanReversion': '#FF6B9D', // Pink
-        'MACD_Volume_Momentum': '#FFD700', // Gold
-        'llm_pattern': '#9D4EDD',          // Purple
-        'LLM_Pattern': '#9D4EDD',          // Purple (alternative name)
-        'Aggregated': '#FFFFFF',           // White (multi-strategy)
-        'Manual': '#00FF00',               // Green (manual trades)
-        'Unknown': '#808080',              // Gray (fallback)
-      };
+      // Shared with every page (static/js/ui-common.js); never a pot color
+      const STRATEGY_COLORS = UI.strategyColors();
       
       // ---- Trade markers ---------------------------------------------------
       // A round badge with a chevron and a pointer whose tip sits exactly on
@@ -1917,8 +1911,8 @@
         const cx = MARKER_W / 2, tipY = MARKER_H / 2;
         const r = 10;
         const cy = buy ? tipY + 6 + r : tipY - 6 - r;   // badge centre
-        const base = buy ? '#2ecc71' : '#ff5e57';
-        const dark = buy ? '#1e8f4e' : '#c0392b';
+        const base = buy ? '#58D68D' : '#ff5e57';   // --accent-green / --accent-red
+        const dark = buy ? '#2f9e5f' : '#c0392b';
 
         // Pointer from the badge to the price
         g.beginPath();
@@ -1989,13 +1983,7 @@
       }
       
       function getStrategyDisplayName(strategyName) {
-        if (!strategyName) return 'Unknown';
-        if (strategyName === 'Aggregated') return 'Multi-Strategy';
-        if (strategyName.includes('llm') || strategyName.includes('LLM')) return 'LLM Pattern';
-        if (strategyName === 'EMA_Crossover') return 'EMA Crossover';
-        if (strategyName === 'RSI_BB_MeanReversion') return 'RSI+BB';
-        if (strategyName === 'MACD_Volume_Momentum') return 'MACD+Vol';
-        return strategyName;
+        return UI.strategyName(strategyName);
       }
       
       chart = new Chart(ctx, {
@@ -2003,7 +1991,7 @@
         data: {
           datasets: [
             {
-              label: "BTC/USDT",
+              label: "BTC/USD",
               data: [],
               // Candlestick body colors (filled)
               color: {
@@ -2140,8 +2128,8 @@
                   if (context.dataset.label === "Signals") {
                     const price = TradeWords.money(context.parsed.y, 0);
                     return context.raw && context.raw.dir === "bearish"
-                      ? ['🔻 Signal turned bearish', `The strategy now expects the price to fall (BTC ${price}).`, 'If the bot holds BTC, it usually sells here.']
-                      : ['🔺 Signal turned bullish', `The strategy now expects the price to rise (BTC ${price}).`, 'If the bot holds cash, it usually buys here.'];
+                      ? ['🔻 Signal turned bearish', `The strategy now expects the price to fall (BTC ${price}).`, 'A pot running this strategy usually sells here if it holds BTC.']
+                      : ['🔺 Signal turned bullish', `The strategy now expects the price to rise (BTC ${price}).`, 'A pot running this strategy usually buys here if it has cash.'];
                   }
                   
                   // Trade markers: what happened, in plain words (static/js/trade-words.js)
@@ -2385,7 +2373,7 @@
               pointRadius: 10,
               pointHoverRadius: 10,
               hitRadius: 20,  // the badge sits ~16px from the price tip
-              backgroundColor: '#2ecc71',
+              backgroundColor: '#58D68D',
               showLine: false,
               clip: false,
               order: 0,
@@ -2437,7 +2425,7 @@
               pointRadius: 10,
               pointHoverRadius: 10,
               hitRadius: 20,
-              backgroundColor: side === 'buy' ? '#2ecc71' : '#ff5e57',
+              backgroundColor: side === 'buy' ? '#58D68D' : '#ff5e57',
               showLine: false,
               clip: false,
               order: 0,
@@ -2759,7 +2747,7 @@
           // Try to show error on chart label
           if (chart && chart.data.datasets[0]) {
             chart.data.datasets[0].data = [];
-            chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe}) - Error Loading Data`;
+            chart.data.datasets[0].label = `BTC/USD (${currentTimeframe}) - could not load data`;
             chart.update('none');
           }
         } finally {
@@ -2795,8 +2783,7 @@
       // ---- Top summary cards -------------------------------------------
       const fmtMoney = (v, d = 2) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
       const fmtWhen = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      const STRAT_NAMES = { Trend_Hold: 'Trend Hold', EMA_Crossover: 'EMA Crossover', RSI_BB_MeanReversion: 'RSI + BB',
-                            MACD_Volume_Momentum: 'MACD + Volume', llm_pattern: 'LLM Pattern' };
+      const STRAT_NAMES = UI.strategyNames();
 
       function setCardTone(id, tone) {
         const el = document.getElementById(id);
@@ -2938,7 +2925,7 @@
         chartDataTimeframe = currentTimeframe;
 
         chart.data.datasets[0].data = candleData;
-        chart.data.datasets[0].label = `BTC/USDT (${currentTimeframe})`;
+        chart.data.datasets[0].label = `BTC/USD (${currentTimeframe})`;
 
         if (!chart.data.datasets[1]) {
           chart.data.datasets.push({
@@ -4059,9 +4046,29 @@
         document.getElementById('confirmation-modal').classList.add('show');
       }
       
+      // One confirm box for every action that moves money (pots and Manual
+      // Trading). Resolves true on Confirm, false on Cancel.
+      function askConfirm({ title, html, confirmText = 'Confirm' }) {
+        return new Promise(resolve => {
+          if (pendingTradeAction && pendingTradeAction.type === 'ask') pendingTradeAction.resolve(false);
+          pendingTradeAction = { type: 'ask', resolve };
+          document.getElementById('modal-title').textContent = title;
+          document.getElementById('modal-body').innerHTML = html + realMoneyNote();
+          document.getElementById('modal-confirm-btn').textContent = confirmText;
+          document.getElementById('confirmation-modal').classList.add('show');
+        });
+      }
+
       // Confirm trade
       async function confirmTrade() {
         if (!pendingTradeAction) return;
+        if (pendingTradeAction.type === 'ask') {
+          const done = pendingTradeAction.resolve;
+          pendingTradeAction = null;
+          closeModal();
+          done(true);
+          return;
+        }
         
         // Route to appropriate handler based on action type
         if (pendingTradeAction.type === 'clear_trades') {
@@ -4110,6 +4117,7 @@
       // Close modal
       function closeModal() {
         document.getElementById('confirmation-modal').classList.remove('show');
+        if (pendingTradeAction && pendingTradeAction.type === 'ask') pendingTradeAction.resolve(false);
         pendingTradeAction = null;
         
         const confirmBtn = document.getElementById('modal-confirm-btn');
@@ -4355,13 +4363,7 @@
         </svg>`;
       }
 
-      const STRATEGY_DISPLAY = {
-        'EMA_Crossover':          'EMA Crossover',
-        'RSI_BB_MeanReversion':   'RSI + Bollinger Bands',
-        'MACD_Volume_Momentum':   'MACD + Volume',
-        'llm_pattern':            'LLM Pattern',
-        'Trend_Hold':             'Trend Hold',
-      };
+      const STRATEGY_DISPLAY = UI.strategyNames();
 
       const DIR_ICON = {
         bullish: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>',
@@ -4484,7 +4486,7 @@
         return `<div class="sig-card ${dir}">
           <div class="sig-top">
             <div class="sig-name">${escapeHtml(name)} ${potBadges(s)}</div>
-            <div class="sig-meta">weight ${s.weight}${when ? ' · ' + when : ''}</div>
+            <div class="sig-meta">${(s.pots || []).length ? '' : `weight ${s.weight}`}${when ? ((s.pots || []).length ? '' : ' · ') + when : ''}</div>
           </div>
           <div class="sig-dir">
             <div class="sig-arrow">${DIR_ICON[dir]}</div>

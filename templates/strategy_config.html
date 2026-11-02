@@ -367,7 +367,7 @@
     white-space: nowrap;
   }
   .tab-toggle-btn.enable  { background: var(--accent-green); color: #000; border: none; }
-  .tab-toggle-btn.disable { background: rgba(231,76,60,0.15); color: #e74c3c; border: 1px solid #e74c3c; }
+  .tab-toggle-btn.disable { background: rgba(255,94,87,0.15); color: var(--accent-red); border: 1px solid var(--accent-red); }
 
   /* Configure link on overview cards */
   .configure-tab-link {
@@ -415,11 +415,11 @@
     font-weight: 600;
     border-bottom: 2px solid var(--bg-primary);
   }
-  .strategy-tab.active.tab-ema    { border-top: 3px solid var(--accent-green); color: var(--accent-green); }
-  .strategy-tab.active.tab-rsi    { border-top: 3px solid var(--accent-blue);  color: var(--accent-blue);  }
-  .strategy-tab.active.tab-macd   { border-top: 3px solid #f39c12;             color: #f39c12;             }
-  .strategy-tab.active.tab-llm    { border-top: 3px solid #9b59b6;             color: #9b59b6;             }
-  .strategy-tab.active.tab-trend  { border-top: 3px solid #1abc9c;             color: #1abc9c;             }
+  .strategy-tab.active.tab-ema    { border-top: 3px solid var(--strat-ema);   color: var(--strat-ema);   }
+  .strategy-tab.active.tab-rsi    { border-top: 3px solid var(--strat-rsi);   color: var(--strat-rsi);   }
+  .strategy-tab.active.tab-macd   { border-top: 3px solid var(--strat-macd);  color: var(--strat-macd);  }
+  .strategy-tab.active.tab-llm    { border-top: 3px solid var(--strat-llm);   color: var(--strat-llm);   }
+  .strategy-tab.active.tab-trend  { border-top: 3px solid var(--strat-trend); color: var(--strat-trend); }
   .strategy-tab .tab-dot {
     width: 7px; height: 7px;
     border-radius: 50%;
@@ -1732,10 +1732,10 @@
   <!-- Tab panels — each wraps one strategy-section; IDs inside are preserved -->
   <div class="strategy-tab-panel active" id="tab-panel-ema">
   <!-- EMA Crossover Strategy -->
-  <div class="strategy-section" id="strategy-ema" data-strategy-name="EMA_Crossover">
+  <div class="strategy-section" id="strategy-ema" data-strategy-name="EMA_Crossover" style="border-left-color: var(--strat-ema);">
     <div class="strategy-tab-header">
       <div>
-        <span class="strat-title" style="color: var(--accent-green);">📈 EMA Crossover</span>
+        <span class="strat-title" style="color: var(--strat-ema);">📈 EMA Crossover</span>
         <span class="strat-type">Trend Following</span>
       </div>
       <button class="tab-toggle-btn" id="tab-toggle-EMA_Crossover"
@@ -1807,10 +1807,10 @@
 
   <div class="strategy-tab-panel" id="tab-panel-rsi">
   <!-- RSI + Bollinger Bands Strategy -->
-  <div class="strategy-section" id="strategy-rsi-bb" data-strategy-name="RSI_BB_MeanReversion">
+  <div class="strategy-section" id="strategy-rsi-bb" data-strategy-name="RSI_BB_MeanReversion" style="border-left-color: var(--strat-rsi);">
     <div class="strategy-tab-header">
       <div>
-        <span class="strat-title" style="color: var(--accent-blue);">🌊 RSI + Bollinger Bands</span>
+        <span class="strat-title" style="color: var(--strat-rsi);">🌊 RSI + Bollinger Bands</span>
         <span class="strat-type">Mean Reversion</span>
       </div>
       <button class="tab-toggle-btn" id="tab-toggle-RSI_BB_MeanReversion"
@@ -1940,10 +1940,10 @@
 
   <div class="strategy-tab-panel" id="tab-panel-macd">
   <!-- MACD + Volume Strategy -->
-  <div class="strategy-section" id="strategy-macd" data-strategy-name="MACD_Volume_Momentum" style="border-left-color: #f39c12;">
+  <div class="strategy-section" id="strategy-macd" data-strategy-name="MACD_Volume_Momentum" style="border-left-color: var(--strat-macd);">
     <div class="strategy-tab-header">
       <div>
-        <span class="strat-title" style="color: #f39c12;">📊 MACD + Volume</span>
+        <span class="strat-title" style="color: var(--strat-macd);">📊 MACD + Volume</span>
         <span class="strat-type">Momentum Breakout</span>
       </div>
       <button class="tab-toggle-btn" id="tab-toggle-MACD_Volume_Momentum"
@@ -2118,11 +2118,11 @@
 
   <div class="strategy-tab-panel" id="tab-panel-llm">
   <!-- LLM Pattern Analysis Strategy -->
-  <div class="strategy-section" id="strategy-llm" data-strategy-name="llm_pattern" style="border-left-color: #9b59b6;">
+  <div class="strategy-section" id="strategy-llm" data-strategy-name="llm_pattern" style="border-left-color: var(--strat-llm);">
     <div class="strategy-tab-header">
       <div>
-        <span class="strat-title" style="color: #9b59b6;">🤖 LLM Pattern Analysis</span>
-        <span class="strat-type">AI-Powered · <span style="color:#e74c3c;">⚠️ Requires Ollama</span></span>
+        <span class="strat-title" style="color: var(--strat-llm);">🤖 LLM Pattern</span>
+        <span class="strat-type">AI-Powered · <span style="color:var(--accent-red);">⚠️ Requires Ollama</span></span>
       </div>
       <button class="tab-toggle-btn" id="tab-toggle-llm_pattern"
               onclick="toggleStrategyFromTab('llm_pattern','llm')">…</button>
@@ -2390,7 +2390,7 @@
           </p>
         </div>
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-          <select id="validationTests" style="padding: 0.4rem 0.6rem; font-size: 0.875rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--surface-color);">
+          <select id="validationTests" style="padding: 0.4rem 0.6rem; font-size: 0.875rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-tertiary);">
             <option value="1">1 Test (~15s)</option>
             <option value="3">3 Tests (~45s)</option>
             <option value="5" selected>5 Tests (~75s)</option>
@@ -2415,10 +2415,10 @@
 
   <div class="strategy-tab-panel" id="tab-panel-trend">
   <!-- Trend Hold Strategy -->
-  <div class="strategy-section" id="strategy-trend" data-strategy-name="Trend_Hold" style="border-left-color: #1abc9c;">
+  <div class="strategy-section" id="strategy-trend" data-strategy-name="Trend_Hold" style="border-left-color: var(--strat-trend);">
     <div class="strategy-tab-header">
       <div>
-        <span class="strat-title" style="color: #1abc9c;">🧭 Trend Hold</span>
+        <span class="strat-title" style="color: var(--strat-trend);">🧭 Trend Hold</span>
         <span class="strat-type">Trend Filter · daily candles</span>
       </div>
       <button class="tab-toggle-btn" id="tab-toggle-Trend_Hold"
@@ -2430,7 +2430,7 @@
       Checked once per day on closed daily candles, so it trades only a few times a year.
       Meant to run <strong>alone</strong>: other strategies would mix their stops and sizes into its trades.
     </p>
-    <div id="trendTrailingWarning" style="display: none; background: rgba(231,76,60,0.12); border: 1px solid #e74c3c; color: #e74c3c; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem;">
+    <div id="trendTrailingWarning" style="display: none; background: rgba(255,94,87,0.12); border: 1px solid var(--accent-red); color: var(--accent-red); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 0.75rem;">
       ⚠️ The trailing stop (Risk Management) is on. It will sell on ordinary dips and fight this strategy &mdash; turn it off while Trend Hold is enabled.
     </div>
 
@@ -3233,7 +3233,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
               <strong>How it works:</strong><br>
               ${info.howItWorks}<br><br>
               <strong style="color: #58D68D;">✓ Best for:</strong> ${info.bestFor}<br>
-              <strong style="color: #e74c3c;">✗ Avoids:</strong> ${info.avoids}<br><br>
+              <strong style="color: var(--accent-red);">✗ Avoids:</strong> ${info.avoids}<br><br>
               <strong>Key Parameters:</strong> ${info.keyParams}<br>
               <strong>Risk Level:</strong> ${info.riskLevel}
             </span>
@@ -4762,7 +4762,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         
         if (!data.available) {
           html = `
-            <div style="color: #e74c3c;">
+            <div style="color: var(--accent-red);">
               ❌ <strong>RAG Not Available</strong><br>
               ${data.error || 'RAG dependencies not installed'}<br>
               <span style="font-size: 0.75rem; opacity: 0.8;">Install with: pip install chromadb sentence-transformers</span>
@@ -4778,7 +4778,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
         } else {
           const readyIcon = data.ready ? '✅' : '⏳';
           const readyText = data.ready ? 'Ready' : 'Waiting for trades';
-          const readyColor = data.ready ? '#27ae60' : '#f39c12';
+          const readyColor = data.ready ? 'var(--accent-green)' : '#ffc266';
           
           html = `
             <div style="color: ${readyColor};">
@@ -4803,7 +4803,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       })
       .catch(error => {
         contentDiv.innerHTML = `
-          <div style="color: #e74c3c;">
+          <div style="color: var(--accent-red);">
             ❌ Error checking RAG status: ${error.message}
           </div>
         `;
@@ -4831,14 +4831,14 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       .then(data => {
         if (data.error) {
           contentDiv.innerHTML = `
-            <div style="color: #e74c3c;">
+            <div style="color: var(--accent-red);">
               ❌ <strong>Indexing Failed</strong><br>
               ${data.error}
             </div>
           `;
         } else {
           contentDiv.innerHTML = `
-            <div style="color: #27ae60;">
+            <div style="color: var(--accent-green);">
               ✅ <strong>${data.message}</strong><br>
               📊 Total Indexed: ${data.trades_indexed} trades<br>
               ⏱️ Duration: ${data.duration_seconds}s<br>
@@ -4854,7 +4854,7 @@ BOT_LLM_REQUIRE_PATTERNS=${document.getElementById('llmRequirePatterns').checked
       })
       .catch(error => {
         contentDiv.innerHTML = `
-          <div style="color: #e74c3c;">
+          <div style="color: var(--accent-red);">
             ❌ Error indexing trades: ${error.message}
           </div>
         `;

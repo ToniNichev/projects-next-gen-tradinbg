@@ -295,7 +295,8 @@ class PotManager:
                         r["trade"] = pot.trader.handle_signal(sig, pot.order_pct)
             except Exception as exc:
                 logger.exception("Pot %s failed on this candle: %s", pot.name, exc)
-                r["note"] = f"error: {exc}"
+                reason = str(exc).strip().splitlines()[0][:120] if str(exc).strip() else type(exc).__name__
+                r["note"] = f"couldn't trade on the last check: {reason} (details in the bot log)"
             pot.last_note = r["note"]
             for trade in (r["exit"], r["trade"]):
                 if trade:
