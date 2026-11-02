@@ -59,7 +59,21 @@ _PERMANENT_CCXT_ERRORS = (
     ccxt.BadSymbol,
 )
 
+# Binance error codes that never succeed on retry, whatever ccxt calls them.
+# ccxt reports -2015 ("Invalid API-key, IP, or permissions for action") as
+# DDoSProtection - a transient error - once the key has worked before in the
+# session, so a key without trading permission was retried as a network blip.
+_PERMANENT_BINANCE_CODES = ('"code":-2015', '"code":-2014', '"code":-1022')
+
+# Repeat an identical order-failure alert at most this often
+_ORDER_ALERT_REPEAT_SECONDS = 6 * 3600
+
 _TERMINAL_ORDER_STATUSES = {"closed", "canceled", "expired", "rejected"}
+
+
+def _permanent_by_code(exc: Exception) -> bool:
+    text = str(exc).replace(" ", "")
+    return any(code in text for code in _PERMANENT_BINANCE_CODES)
 
 # Persists in ``StrategyConfig`` alongside user strategy keys — internal only.
 _PEAK_PORTFOLIO_EQUITY_KEY = "BOT_INTERNAL_PEAK_PORTFOLIO_EQUITY"
@@ -95,6 +109,9 @@ def _retry_call(
             log.error("%s rejected by exchange (permanent): %s", description, exc)
             raise
         except _TRANSIENT_CCXT_ERRORS as exc:
+            if _permanent_by_code(exc):
+                log.error("%s rejected by exchange (permanent): %s", description, exc)
+                raise ccxt.PermissionDenied(str(exc)) from exc
             last_exc = exc
             if attempt == attempts:
                 log.error(
@@ -1329,9 +1346,11 @@ class LiveTrader:
         except _PERMANENT_CCXT_ERRORS as exc:
             # Permanent rejection — surface as a clean failure, not a crash.
             self.logger.error("Market BUY rejected by exchange: %s", exc)
+            self._alert_order_failed("buy", amount, exc)
             return None
         except Exception as e:
             self.logger.error(f"Market buy failed: {e}", exc_info=True)
+            self._alert_order_failed("buy", amount, e)
             raise
     
     def execute_market_sell(
@@ -1536,9 +1555,11 @@ class LiveTrader:
 
         except _PERMANENT_CCXT_ERRORS as exc:
             self.logger.error("Market SELL rejected by exchange: %s", exc)
+            self._alert_order_failed("sell", amount, exc)
             return None
         except Exception as e:
             self.logger.error(f"Market sell failed: {e}", exc_info=True)
+            self._alert_order_failed("sell", amount, e)
             raise
     
     def _is_dust(self, amount: float, price: float) -> bool:
@@ -1677,6 +1698,38 @@ class LiveTrader:
             amount, entry_price, stop_loss, take_profit, trailing_stop,
             self.db_position_id,
         )
+
+    def _alert_order_failed(self, side: str, amount: float, exc: Exception) -> None:
+        """Telegram alert when a real order is rejected or fails. The same
+        failure alerts at most every few hours (the bot retries hourly)."""
+        text = str(exc)
+        now = time.monotonic()
+        sent = getattr(self, "_order_alerts", None)
+        if sent is None:
+            sent = self._order_alerts = {}
+        key = (side, text[:200])
+        if key in sent and now - sent[key] < _ORDER_ALERT_REPEAT_SECONDS:
+            return
+        sent[key] = now
+        who = f"{self.pot} pot" if self.pot else "the bot"
+        body = (
+            f"A real {side.upper()} of {amount:.8f} {self.config.symbol} for {who} "
+            f"did not go through: {text[:300]}"
+        )
+        if _permanent_by_code(exc):
+            body += (
+                " Most likely the API key isn't allowed to trade: on Binance.US go to "
+                "Profile → API Management → edit the key → enable Spot Trading "
+                "(keep withdrawals off). The bot tries again at every hourly check."
+            )
+        else:
+            body += " The bot will try again at its next check."
+        try:
+            from notify import send_notification
+
+            send_notification(f"🚨 Real {side} order failed", body, severity="critical")
+        except Exception:
+            pass
 
     def _alert_protective_exit_failed(self, exit_reason: str, price: float) -> None:
         """
