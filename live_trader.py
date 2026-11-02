@@ -1226,123 +1226,6 @@ class LiveTrader:
                 description=f"create_market_buy_order({amount} {symbol})",
             )
 
-            order_record = self._parse_order(order)
-
-            # Poll until the order reaches a terminal state so partial fills
-            # are accounted for instead of silently treated as full.
-            order_id = order_record.order_id
-            if order_id:
-                try:
-                    final_order = _wait_for_order_terminal(
-                        self.exchange, order_id, symbol,
-                        timeout_seconds=self.order_poll_timeout,
-                        poll_interval=self.order_poll_interval,
-                        retry_attempts=self.retry_attempts,
-                        retry_delay=self.retry_delay,
-                        logger=self.logger,
-                    )
-                    order = final_order or order
-                    order_record = self._parse_order(order)
-                except Exception as exc:
-                    self.logger.warning(
-                        "Could not poll order %s to terminal state (%s); "
-                        "proceeding with initial response.",
-                        order_id, exc,
-                    )
-
-            self.completed_orders.append(order_record)
-
-            # Use exchange-reported fills; fall back to requested amount only
-            # if the exchange returned no fill data at all.
-            fill_price = float(order.get("average") or order.get("price") or current_price)
-            filled_amount = float(order.get("filled") or 0.0)
-            requested_amount = amount
-
-            if filled_amount <= 0.0:
-                self.logger.error(
-                    "Market BUY for %s reported zero fills (status=%s). "
-                    "Treating as failed; no position opened.",
-                    symbol, order.get("status"),
-                )
-                # Refresh balances anyway so state isn't stale.
-                try:
-                    self.sync_balances()
-                except Exception:
-                    pass
-                return None
-
-            if filled_amount + 1e-12 < requested_amount:
-                self.logger.warning(
-                    "Partial fill: requested %.8f, got %.8f (%.2f%%). "
-                    "Position opened for the filled amount only.",
-                    requested_amount, filled_amount,
-                    100.0 * filled_amount / requested_amount,
-                )
-
-            # Refresh USDT/BASE balances after the fill.
-            self.sync_balances()
-
-            fee_info = order.get("fee") or {}
-            fee = float(fee_info.get("cost") or filled_amount * fill_price * self.config.fee_rate)
-            notional = filled_amount * fill_price
-            slippage = fill_price - current_price
-
-            # Binance deducts the trading fee from the asset you *receive* -
-            # for a buy that's the base currency (BTC), unless the account
-            # pays fees in BNB. order["filled"] is the gross executed
-            # quantity (ccxt's reading of executedQty), not net of that fee,
-            # so tracking filled_amount as the position size overstates what
-            # we actually hold. That mismatch surfaces later as
-            # InsufficientFunds when either the exchange-side protective
-            # stop or the bot's own stop-loss/take-profit sell tries to sell
-            # the (nonexistent) extra amount - i.e. it can break both
-            # safety nets on the same trade. Net the fee out when it was
-            # actually charged in the base currency.
-            base_currency = symbol.split("/")[0]
-            fee_currency = fee_info.get("currency")
-            position_amount = filled_amount
-            if fee_currency and fee_currency.upper() == base_currency.upper():
-                fee_in_base = float(fee_info.get("cost") or 0.0)
-                position_amount = max(0.0, filled_amount - fee_in_base)
-                if fee_in_base > 0:
-                    self.logger.info(
-                        "Fee charged in %s: netting %.8f off tracked position "
-                        "size (filled=%.8f -> position=%.8f)",
-                        base_currency, fee_in_base, filled_amount, position_amount,
-                    )
-
-            self._apply_fill("buy", filled_amount, notional, fee, fee_currency, position_amount)
-
-            trade = TradeRecord(
-                side="buy",
-                price=fill_price,
-                amount=filled_amount,
-                notional=notional,
-                fee=fee,
-                slippage=slippage,
-                usdt_balance=self.usdt_balance,
-                base_balance=self.base_balance,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                signal=signal.to_dict() if signal else {},
-                order_id=order_record.order_id,
-            )
-
-            # Open + persist position using the fee-netted amount, not the
-            # gross filled amount - this is what we can actually sell later.
-            self._open_long_position(fill_price, position_amount, signal, order_record.order_id)
-
-            self._sync_exchange_protective_stop()
-
-            self.daily_trades += 1
-            self.total_trades += 1
-            self._log_trade(trade)
-
-            self.logger.info(
-                "BUY executed: %.8f @ $%.2f (fee=$%.4f slippage=$%.4f)",
-                filled_amount, fill_price, fee, slippage,
-            )
-            return trade
-
         except _PERMANENT_CCXT_ERRORS as exc:
             # Permanent rejection — surface as a clean failure, not a crash.
             self.logger.error("Market BUY rejected by exchange: %s", exc)
@@ -1352,7 +1235,175 @@ class LiveTrader:
             self.logger.error(f"Market buy failed: {e}", exc_info=True)
             self._alert_order_failed("buy", amount, e)
             raise
+
+        # The exchange accepted the order: from here on the coins are ours.
+        return self._book_buy(order, amount, current_price, signal)
     
+    def _book_buy(
+        self,
+        order: Dict,
+        amount: float,
+        current_price: float,
+        signal: Optional["StrategySignal"] = None,
+    ) -> Optional[TradeRecord]:
+        """Book a buy the exchange accepted: wait for the fill, then record
+        the fee, balances, position and trade. The coins are already bought
+        when this runs, so a failure here is reported loudly."""
+        symbol = self.config.symbol
+        try:
+            return self._book_buy_unchecked(order, amount, current_price, signal)
+        except Exception as exc:
+            self.logger.critical(
+                "BUY order %s filled on the exchange but could not be recorded: %s",
+                order.get("id"), exc, exc_info=True,
+            )
+            try:
+                from notify import send_notification
+                who = f"{self.pot} pot" if self.pot else "the bot"
+                send_notification(
+                    "Buy filled but not recorded",
+                    f"Order {order.get('id')} for {who} bought {symbol} on the exchange, "
+                    f"but the bot could not record it ({exc}). Check the pots before the "
+                    f"next hourly check.",
+                    severity="critical",
+                )
+            except Exception:
+                pass
+            raise
+
+    def adopt_filled_buy(self, order_id: str, signal: Optional["StrategySignal"] = None) -> Optional[TradeRecord]:
+        """Record a buy that filled on the exchange but was never booked
+        (e.g. the bot crashed reading the reply)."""
+        order = self.exchange.fetch_order(order_id, self.config.symbol)
+        if order.get("side") != "buy" or not float(order.get("filled") or 0):
+            raise ValueError(f"order {order_id} is not a filled buy")
+        price = float(order.get("average") or order.get("price") or 0)
+        return self._book_buy(order, float(order.get("amount") or order["filled"]), price, signal)
+
+    def _book_buy_unchecked(self, order, amount, current_price, signal):
+        symbol = self.config.symbol
+        order_record = self._parse_order(order)
+
+        # Poll until the order reaches a terminal state so partial fills
+        # are accounted for instead of silently treated as full.
+        order_id = order_record.order_id
+        if order_id:
+            try:
+                final_order = _wait_for_order_terminal(
+                    self.exchange, order_id, symbol,
+                    timeout_seconds=self.order_poll_timeout,
+                    poll_interval=self.order_poll_interval,
+                    retry_attempts=self.retry_attempts,
+                    retry_delay=self.retry_delay,
+                    logger=self.logger,
+                )
+                order = final_order or order
+                order_record = self._parse_order(order)
+            except Exception as exc:
+                self.logger.warning(
+                    "Could not poll order %s to terminal state (%s); "
+                    "proceeding with initial response.",
+                    order_id, exc,
+                )
+
+        self.completed_orders.append(order_record)
+
+        # Use exchange-reported fills; fall back to requested amount only
+        # if the exchange returned no fill data at all.
+        fill_price = float(order.get("average") or order.get("price") or current_price)
+        filled_amount = float(order.get("filled") or 0.0)
+        requested_amount = amount
+
+        if filled_amount <= 0.0:
+            self.logger.error(
+                "Market BUY for %s reported zero fills (status=%s). "
+                "Treating as failed; no position opened.",
+                symbol, order.get("status"),
+            )
+            # Refresh balances anyway so state isn't stale.
+            try:
+                self.sync_balances()
+            except Exception:
+                pass
+            return None
+
+        if filled_amount + 1e-12 < requested_amount:
+            self.logger.warning(
+                "Partial fill: requested %.8f, got %.8f (%.2f%%). "
+                "Position opened for the filled amount only.",
+                requested_amount, filled_amount,
+                100.0 * filled_amount / requested_amount,
+            )
+
+        # Refresh USDT/BASE balances after the fill.
+        self.sync_balances()
+
+        fee_info = self._order_fee(order)
+        notional = filled_amount * fill_price
+        slippage = fill_price - current_price
+
+        # Binance deducts the trading fee from the asset you *receive* -
+        # for a buy that's the base currency (BTC), unless the account
+        # pays fees in BNB. order["filled"] is the gross executed
+        # quantity (ccxt's reading of executedQty), not net of that fee,
+        # so tracking filled_amount as the position size overstates what
+        # we actually hold. That mismatch surfaces later as
+        # InsufficientFunds when either the exchange-side protective
+        # stop or the bot's own stop-loss/take-profit sell tries to sell
+        # the (nonexistent) extra amount - i.e. it can break both
+        # safety nets on the same trade. Net the fee out when it was
+        # actually charged in the base currency.
+        base_currency = symbol.split("/")[0]
+        fee_currency = fee_info.get("currency")
+        position_amount = filled_amount
+        if fee_currency and fee_currency.upper() == base_currency.upper():
+            fee_in_base = float(fee_info.get("cost") or 0.0)
+            position_amount = max(0.0, filled_amount - fee_in_base)
+            if fee_in_base > 0:
+                self.logger.info(
+                    "Fee charged in %s: netting %.8f off tracked position "
+                    "size (filled=%.8f -> position=%.8f)",
+                    base_currency, fee_in_base, filled_amount, position_amount,
+                )
+
+        if fee_info.get("cost") is None:
+            fee = filled_amount * fill_price * self.config.fee_rate   # estimate
+        else:
+            fee = float(fee_info["cost"])
+        self._apply_fill("buy", filled_amount, notional, fee, fee_currency, position_amount)
+        # The trade row shows the fee in dollars
+        fee_usd = fee * fill_price if (fee_currency or "").upper() == base_currency.upper() else fee
+
+        trade = TradeRecord(
+            side="buy",
+            price=fill_price,
+            amount=filled_amount,
+            notional=notional,
+            fee=fee_usd,
+            slippage=slippage,
+            usdt_balance=self.usdt_balance,
+            base_balance=self.base_balance,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            signal=signal.to_dict() if signal else {},
+            order_id=order_record.order_id,
+        )
+
+        # Open + persist position using the fee-netted amount, not the
+        # gross filled amount - this is what we can actually sell later.
+        self._open_long_position(fill_price, position_amount, signal, order_record.order_id)
+
+        self._sync_exchange_protective_stop()
+
+        self.daily_trades += 1
+        self.total_trades += 1
+        self._log_trade(trade)
+
+        self.logger.info(
+            "BUY executed: %.8f @ $%.2f (fee=$%.4f slippage=$%.4f)",
+            filled_amount, fill_price, fee_usd, slippage,
+        )
+        return trade
+
     def execute_market_sell(
         self,
         amount: float,
@@ -1483,8 +1534,9 @@ class LiveTrader:
                     amount, filled_amount, 100.0 * filled_amount / amount,
                 )
 
-            fee_info = order.get("fee") or {}
-            fee = float(fee_info.get("cost") or filled_amount * fill_price * self.config.fee_rate)
+            fee_info = self._order_fee(order)
+            fee = float(fee_info["cost"]) if fee_info.get("cost") is not None \
+                else filled_amount * fill_price * self.config.fee_rate
 
             notional = filled_amount * fill_price
             slippage = current_price - fill_price
@@ -1589,23 +1641,62 @@ class LiveTrader:
     # Order Status & Tracking
     # =========================================================================
     
+    def _order_fee(self, order: Dict) -> Dict:
+        """The fee charged for an order as {"cost", "currency"}, or {} if
+        unknown. Binance.US often leaves the order's own fee empty; the
+        order's fills (its trades) carry it, so read those."""
+        fee = order.get("fee") or {}
+        if fee.get("cost") is not None:
+            return fee
+        fees = [f for f in (order.get("fees") or []) if f and f.get("cost") is not None]
+        if not fees:
+            trades = order.get("trades") or []
+            if not trades and order.get("id"):
+                try:
+                    trades = self.exchange.fetch_my_trades(
+                        self.config.symbol, params={"orderId": order["id"]},
+                    ) or []
+                except Exception as exc:
+                    self.logger.warning("Could not read fills of order %s: %s", order.get("id"), exc)
+                    trades = []
+            fees = [t["fee"] for t in trades if t.get("fee") and t["fee"].get("cost") is not None]
+        if not fees:
+            return {}
+        base, quote = (c.upper() for c in self.config.symbol.split("/"))
+        totals: Dict[str, float] = {}
+        for f in fees:
+            cur = (f.get("currency") or quote).upper()
+            totals[cur] = totals.get(cur, 0.0) + float(f["cost"])
+        if len(totals) == 1:
+            cur, cost = next(iter(totals.items()))
+            return {"cost": cost, "currency": cur}
+        # Mixed currencies (rare): count it all in dollars
+        price = float(order.get("average") or order.get("price") or 0)
+        return {"cost": totals.get(quote, 0.0) + totals.get(base, 0.0) * price, "currency": quote}
+
     def _parse_order(self, order: Dict) -> OrderRecord:
         """Parse CCXT order response into OrderRecord"""
-        fee_info = order.get('fee', {})
-        
+        fee_info = order.get('fee') or {}
+
+        def num(value, default=0.0):
+            try:
+                return float(value) if value is not None else default
+            except (TypeError, ValueError):
+                return default
+
         return OrderRecord(
             order_id=str(order.get('id', '')),
             client_order_id=order.get('clientOrderId'),
             symbol=order.get('symbol', self.config.symbol),
             side=order.get('side', ''),
             order_type=order.get('type', 'market'),
-            amount=float(order.get('amount', 0)),
+            amount=num(order.get('amount')),
             price=float(order.get('price', 0)) if order.get('price') else None,
-            filled=float(order.get('filled', 0)),
-            remaining=float(order.get('remaining', 0)),
+            filled=num(order.get('filled')),
+            remaining=num(order.get('remaining')),
             status=order.get('status', 'unknown'),
-            timestamp=order.get('datetime', datetime.now(timezone.utc).isoformat()),
-            fee=float(fee_info.get('cost', 0)) if fee_info else None,
+            timestamp=order.get('datetime') or datetime.now(timezone.utc).isoformat(),
+            fee=num(fee_info.get('cost'), None),
             fee_currency=fee_info.get('currency'),
             average_price=float(order.get('average', 0)) if order.get('average') else None,
             trades=order.get('trades'),
