@@ -17,7 +17,7 @@ import logging
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, has_request_context, jsonify, request
 
 from app.extensions import limiter, require_auth
 from app.core.state import get_app_state
@@ -59,12 +59,25 @@ def _current_bot_signal(app_state):
     }
 
 
+def _trade_scope():
+    """Which trades the dashboard shows: True = real money only (the bot is
+    trading real money), False = practice only (?practice=1), None = all."""
+    if has_request_context() and request.args.get("practice", "").lower() in ("1", "true", "yes"):
+        return False
+    pots = get_app_state().get_pot_manager()
+    return True if pots is not None and getattr(pots, "live", False) else None
+
+
+def _scope_name(live):
+    return {True: "real", False: "practice", None: "all"}[live]
+
+
 def _latest_trade():
     """Most recent executed trade from the database (None if there are none)."""
     if not DATABASE_AVAILABLE:
         return None
     try:
-        trades = get_database().get_trades(limit=1)
+        trades = get_database().get_trades(limit=1, live=_trade_scope())
     except Exception as exc:
         logger.warning("Could not read latest trade: %s", exc)
         return None
@@ -249,7 +262,8 @@ def get_trades():
         if request.args.get("days_back"):
             filters["start_date"] = datetime.now(timezone.utc) - timedelta(days=int(request.args["days_back"]))
 
-        trades = db.get_trades(limit=limit, **filters)
+        scope = _trade_scope()
+        trades = db.get_trades(limit=limit, live=scope, **filters)
 
         trades_data = []
         for t in trades:
@@ -278,7 +292,8 @@ def get_trades():
             except Exception as exc:
                 logger.error("Error serialising trade %s: %s", getattr(t, "id", "?"), exc)
 
-        return jsonify({"trades": trades_data, "count": len(trades_data)})
+        return jsonify({"trades": trades_data, "count": len(trades_data),
+                        "scope": _scope_name(scope)})
 
     except Exception as exc:
         logger.error("get_trades failed: %s", exc, exc_info=True)
@@ -296,7 +311,7 @@ def get_stats():
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
     try:
-        return jsonify(get_database().get_trade_stats())
+        return jsonify(get_database().get_trade_stats(live=_trade_scope()))
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -309,7 +324,7 @@ def get_positions():
         return jsonify({"error": "Database not available"}), 503
     try:
         db = get_database()
-        positions = db.get_open_positions()
+        positions = db.get_open_positions(live=_trade_scope())
         data = [
             {
                 "id": p.id,
@@ -336,8 +351,9 @@ def get_performance():
         return jsonify({"error": "Database not available"}), 503
     try:
         db = get_database()
-        stats = db.get_trade_stats()
-        recent = db.get_trades(limit=100)
+        scope = _trade_scope()
+        stats = db.get_trade_stats(live=scope)
+        recent = db.get_trades(limit=100, live=scope)
 
         if recent:
             wins = [t for t in recent if t.pnl and t.pnl > 0]

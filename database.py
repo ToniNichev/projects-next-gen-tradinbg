@@ -50,6 +50,12 @@ def _pot_filter(model, pot: str):
     return model.pot == pot
 
 
+def _live_filter(model, live: bool):
+    """Real-money rows (pot tagged 'live-...') or, with live=False, practice rows."""
+    real = model.pot.like("live-%")
+    return real if live else or_(model.pot.is_(None), ~real)
+
+
 class Trade(Base):
     """Trade records table"""
 
@@ -462,6 +468,7 @@ class DatabaseManager:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         pot: Optional[str] = None,
+        live: Optional[bool] = None,
     ) -> List[Trade]:
         """
         Query trades with filters.
@@ -489,6 +496,8 @@ class DatabaseManager:
                 query = query.filter(Trade.timestamp <= end_date)
             if pot:
                 query = query.filter(_pot_filter(Trade, pot))
+            if live is not None:
+                query = query.filter(_live_filter(Trade, live))
 
             query = query.order_by(desc(Trade.timestamp)).limit(limit)
             trades = query.all()
@@ -531,30 +540,37 @@ class DatabaseManager:
             
             return trade
 
-    def get_trade_stats(self) -> Dict:
+    def get_trade_stats(self, live: Optional[bool] = None) -> Dict:
         """
         Get aggregate trade statistics.
-        
+
+        Args:
+            live: True = real-money trades only, False = practice only, None = all
+
         Returns:
             Dictionary with statistics
         """
         with self.get_session() as session:
-            total_trades = session.query(func.count(Trade.id)).scalar() or 0
-            
+            def q(*cols):
+                query = session.query(*cols)
+                return query.filter(_live_filter(Trade, live)) if live is not None else query
+
+            total_trades = q(func.count(Trade.id)).scalar() or 0
+
             winning_trades = (
-                session.query(func.count(Trade.id))
+                q(func.count(Trade.id))
                 .filter(Trade.pnl.isnot(None), Trade.pnl > 0)
                 .scalar() or 0
             )
-            
+
             losing_trades = (
-                session.query(func.count(Trade.id))
+                q(func.count(Trade.id))
                 .filter(Trade.pnl.isnot(None), Trade.pnl < 0)
                 .scalar() or 0
             )
-            
-            total_pnl = session.query(func.sum(Trade.pnl)).scalar() or 0.0
-            avg_pnl = session.query(func.avg(Trade.pnl)).filter(Trade.pnl.isnot(None)).scalar() or 0.0
+
+            total_pnl = q(func.sum(Trade.pnl)).scalar() or 0.0
+            avg_pnl = q(func.avg(Trade.pnl)).filter(Trade.pnl.isnot(None)).scalar() or 0.0
             
             win_rate = (winning_trades / (winning_trades + losing_trades) * 100) if (winning_trades + losing_trades) > 0 else 0.0
             
