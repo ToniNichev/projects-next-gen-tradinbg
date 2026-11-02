@@ -1176,10 +1176,10 @@
 
   <h3>Changes affect the running bot</h3>
   <ul>
-    <li><b>Strategy on/off switches apply instantly.</b> The very next hourly check uses the new mix. At least one strategy must stay on.</li>
+    <li><b>With money pots on, these on/off switches don't change trading.</b> Each pot always runs its own strategy (Trend Hold pot: Trend Hold, Intraday pot: RSI + Bollinger Bands). The switches, weights and voting only matter when pots are off.</li>
     <li><b>Apply configuration</b> saves the form and applies it right away. <b>Preview changes</b> shows what would change first; <b>Reset</b> throws away unsaved edits.</li>
     <li><b>Trading pair and timeframe</b> only take effect after the bot restarts.</li>
-    <li>While a paper or dry-run test is going, avoid changes here. Changing settings mid-test means the results no longer show one setup.</li>
+    <li><b>Settings here can affect pots trading real money.</b> A strategy's own settings (for example RSI levels or the Trend Hold average) change when its pot buys and sells, from the next hourly check.</li>
   </ul>
 
   <h3>Presets</h3>

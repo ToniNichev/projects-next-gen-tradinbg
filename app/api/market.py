@@ -96,7 +96,83 @@ def _latest_trade():
         "pnl": float(t.pnl) if t.pnl is not None else None,
         "exit_reason": t.exit_reason,
         "usdt_balance": float(t.usdt_balance),
+        "pot": _pot_name(getattr(t, "pot", None)),
+        "strategy_name": getattr(t, "strategy_name", None),
     }
+
+
+_UNASSIGNED_CACHE = {"at": 0.0, "value": 0.0}
+
+
+def _cached_unassigned(pots, max_age=60.0):
+    """Cash no pot owns. Asking costs an exchange call, so reuse it for a minute."""
+    import time
+    now = time.monotonic()
+    if _UNASSIGNED_CACHE["at"] and now - _UNASSIGNED_CACHE["at"] < max_age:
+        return _UNASSIGNED_CACHE["value"]
+    try:
+        value = float(pots.unassigned_cash() or 0.0)
+    except Exception as exc:
+        logger.warning("Could not read unassigned cash: %s", exc)
+        value = _UNASSIGNED_CACHE["value"]
+    _UNASSIGNED_CACHE.update(at=now, value=value)
+    return value
+
+
+def _pots_overview(app_state):
+    """All pots together, for the dashboard's top cards (None without pots).
+
+    total: cash + BTC across every pot, plus cash no pot owns yet.
+    holding: each pot holding BTC and what would make it sell.
+    """
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return None
+    try:
+        price = app_state.get_trading_state().current_price
+        if not price:
+            from config import BotConfig
+            price = _get_price(app_state, BotConfig.load().symbol)
+        price = float(price)
+        summary = pots.summary(price)
+        unassigned = _cached_unassigned(pots)
+        rows = summary["pots"]
+        cash = sum(r["cash"] for r in rows) + unassigned
+        btc = sum(r["btc"] for r in rows)
+        sm = app_state.get_strategy_manager()
+        holding = []
+        for r in rows:
+            if not r["holding"]:
+                continue
+            pot = pots.get(r["name"])
+            sells_below = None
+            if pot is not None and pot.strategy is not None and sm is not None:
+                sig = sm.last_signals.get(pot.strategy.name)
+                if sig is not None and (sig.indicators or {}).get("sell_below"):
+                    sells_below = float(sig.indicators["sell_below"])
+            holding.append({
+                "name": r["name"], "label": r["label"], "color": r.get("color"),
+                "btc": r["btc"], "value": r["btc"] * price,
+                "entry_price": r["entry_price"], "stop_loss": r["stop_loss"],
+                "take_profit": r["take_profit"], "sells_below_daily_close": sells_below,
+            })
+        total = summary["total"]
+        return {
+            "real_money": summary["real_money"],
+            "price": price,
+            "value": total["value"] + unassigned,
+            "invested": total["invested"],
+            "pnl": total["pnl"],
+            "pnl_pct": total["pnl_pct"],
+            "cash": cash,
+            "unassigned": unassigned,
+            "btc": btc,
+            "btc_value": btc * price,
+            "holding": holding,
+        }
+    except Exception as exc:
+        logger.warning("Could not build the pots overview: %s", exc)
+        return None
 
 
 @market_bp.route("/state")
@@ -116,6 +192,8 @@ def get_state():
         },
         "last_signal": last_signal,
         "last_trade": last_trade,
+        # With money pots: every pot together (the balances above are one pot's)
+        "pots": _pots_overview(app_state),
         "updated_at": ts.last_update.isoformat(),
         "current_price": ts.current_price,
         "position": {

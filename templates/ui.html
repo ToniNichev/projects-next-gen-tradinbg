@@ -74,6 +74,9 @@
   }
   .stat-chip b { color: var(--text-primary); font-weight: 650; }
   .stat-chip.up { color: var(--accent-green); border-color: rgba(88, 214, 141, 0.3); background: rgba(88, 214, 141, 0.08); }
+  .stat-chip.pot { color: var(--pot); border-color: color-mix(in srgb, var(--pot) 35%, transparent); background: color-mix(in srgb, var(--pot) 10%, transparent); }
+  .stat-chip.pot b { color: inherit; }
+  .risk-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; width: 100%; }
   .stat-chip.down { color: var(--accent-red); border-color: rgba(255, 94, 87, 0.3); background: rgba(255, 94, 87, 0.08); }
   .alloc {
     display: flex; height: 6px; border-radius: 999px; overflow: hidden;
@@ -558,9 +561,9 @@
   <div class="stat-card tone-muted" id="signal-card">
     <div class="stat-top">
       <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span>
-      <span class="stat-label">Bot signal</span>
+      <span class="stat-label" id="signal-label">Bot signal</span>
       <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-          <span class="info-tooltip">What the active strategies say right now. Bullish = hold or buy BTC, Bearish = sell or stay in cash, Neutral = no change.</span>
+          <span class="info-tooltip" id="signal-tip">What the active strategies say right now. Bullish = hold or buy BTC, Bearish = sell or stay in cash, Neutral = no change.</span>
         </span>
     </div>
     <div class="stat-value toned" id="signal-text">--</div>
@@ -571,7 +574,7 @@
       <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M7 4l-3 3M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></svg></span>
       <span class="stat-label">Last trade</span>
       <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-          <span class="info-tooltip">The most recent buy or sell the bot (or you) made, with its price, size and, for sells, the profit or loss.</span>
+          <span class="info-tooltip">The most recent buy or sell by any pot (or by you in Manual Trading), with its price, size, the pot it used and, for sells, the gain or loss.</span>
         </span>
     </div>
     <div class="stat-value toned" id="trade-text">--</div>
@@ -580,9 +583,9 @@
   <div class="stat-card" id="balance-card">
     <div class="stat-top">
       <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1.2" fill="currentColor"/></svg></span>
-      <span class="stat-label">Portfolio</span>
+      <span class="stat-label" id="balance-label">Portfolio</span>
       <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-          <span class="info-tooltip">Total value: cash plus BTC at the current price. The bar shows how much is in BTC versus cash.</span>
+          <span class="info-tooltip" id="balance-tip">Total value: cash plus BTC at the current price. The bar shows how much is in BTC versus cash.</span>
         </span>
     </div>
     <div class="stat-value" id="balance-text">--</div>
@@ -1550,6 +1553,7 @@
         document.getElementById('pots-sub').textContent =
           `Each pot trades only its own money · ${data.real_money ? 'REAL money' : data.live ? 'dry run (simulated)' : 'paper money (simulated)'}`;
         lastData = data;
+        window.__potsRealMoney = !!data.real_money;
         window.__potMeta = {};
         data.pots.forEach(p => {
           if (p.color) POT_COLORS[p.name] = p.color;
@@ -2739,7 +2743,7 @@
           // Fetch state and signal info
           const state = await (await fetch('/state', {credentials: 'include'})).json();
           
-          renderSignalCard(state.last_signal);
+          renderSignalCard(state.last_signal, state.pots);
           renderTradeCard(state.last_trade);
           
           // Update chart info display
@@ -2777,7 +2781,9 @@
               latestPrice = state.last_signal?.price || 0;
             }
             
-            if (state.balances) {
+            if (state.pots) {
+              renderPotsTotalCard(state.pots);
+            } else if (state.balances) {
               renderBalanceCard(state.balances, state.current_price || latestPrice);
             }
           } catch (balanceErr) {
@@ -2798,7 +2804,42 @@
         if (tone) el.classList.add(tone);
       }
 
-      function renderSignalCard(sig) {
+      const potChip = (name, label, color) => {
+        const c = /^#[0-9a-f]{6}$/i.test(color || '') ? color : '#8b949e';
+        return `<span class="stat-chip pot" style="--pot:${c}"><b>${escapeHtml(label || name)}</b></span>`;
+      };
+      const awayPct = (level, price) => `${((level / price - 1) * 100).toFixed(1).replace('-', '−')}%`;
+
+      // With pots there is no single bot signal: show what's at risk instead
+      function renderOpenRisk(o) {
+        document.getElementById('signal-label').textContent = 'Open risk';
+        document.getElementById('signal-tip').textContent =
+          'BTC the pots hold right now, and what would make each pot sell. Each pot follows its own strategy; see Strategy Signals.';
+        const text = document.getElementById('signal-text');
+        const detail = document.getElementById('signal-detail');
+        setCardTone('signal-card', 'tone-muted');
+        if (!o.holding.length) {
+          text.textContent = 'All in cash';
+          detail.textContent = 'No pot holds BTC, so a price drop costs nothing.';
+          return;
+        }
+        text.textContent = `${fmtMoney(o.btc_value)} in BTC`;
+        detail.innerHTML = o.holding.map(h => {
+          let exit;
+          if (h.stop_loss) {
+            exit = `stop ${fmtMoney(h.stop_loss, 0)} (${awayPct(h.stop_loss, o.price)})`;
+            if (h.take_profit) exit += ` · target ${fmtMoney(h.take_profit, 0)}`;
+          } else if (h.sells_below_daily_close) {
+            exit = `sells if a day closes below ${fmtMoney(h.sells_below_daily_close, 0)} (${awayPct(h.sells_below_daily_close, o.price)})`;
+          } else {
+            exit = 'no automatic exit';
+          }
+          return `<span class="risk-line">${potChip(h.name, h.label, h.color)}<span>${fmtMoney(h.value)} · ${exit}</span></span>`;
+        }).join('');
+      }
+
+      function renderSignalCard(sig, pots) {
+        if (pots) return renderOpenRisk(pots);
         const text = document.getElementById('signal-text');
         const detail = document.getElementById('signal-detail');
         if (!sig) {
@@ -2829,7 +2870,12 @@
         const buy = t.side === 'buy';
         setCardTone('trade-card', buy ? 'tone-up' : 'tone-down');
         text.textContent = `${buy ? 'Bought' : 'Sold'} ${fmtMoney(t.notional)}`;
-        let html = `<span>${t.amount.toFixed(6)} BTC @ ${fmtMoney(t.price, 0)}</span><span>·</span><span>${fmtWhen(t.timestamp)}</span>`;
+        let html = '';
+        if (t.pot) {
+          const meta = (window.__potMeta || {})[t.pot] || {};
+          html += potChip(t.pot, meta.label || (t.pot.charAt(0).toUpperCase() + t.pot.slice(1)), meta.color || (window.POT_COLORS || {})[t.pot]);
+        }
+        html += `<span>${t.amount.toFixed(6)} BTC @ ${fmtMoney(t.price, 0)}</span><span>·</span><span>${fmtWhen(t.timestamp)}</span>`;
         if (!buy && t.pnl !== null && t.pnl !== undefined) {
           const up = t.pnl >= 0;
           html += `<span class="stat-chip ${up ? 'up' : 'down'}">${up ? '+' : '−'}${fmtMoney(Math.abs(t.pnl))}</span>`;
@@ -2838,6 +2884,24 @@
           html += `<span class="stat-chip">${escapeHtml(t.exit_reason.replace(/_/g, ' '))}</span>`;
         }
         detail.innerHTML = html;
+      }
+
+      // With pots: every pot plus unassigned cash (the plain balances are one pot's)
+      function renderPotsTotalCard(o) {
+        document.getElementById('balance-label').textContent = o.real_money ? 'All pots · real money' : 'All pots';
+        document.getElementById('balance-tip').textContent =
+          'Cash plus BTC across all pots, plus cash on the exchange that no pot owns yet. The chip is the gain or loss on the money put in.';
+        const total = o.value;
+        document.getElementById('balance-text').textContent = fmtMoney(total);
+        const btcPct = total > 0 ? (o.btc_value / total) * 100 : 0;
+        document.getElementById('alloc-btc').style.width = `${btcPct}%`;
+        document.getElementById('alloc-cash').style.width = `${total > 0 ? 100 - btcPct : 0}%`;
+        const up = o.pnl >= 0;
+        const unassigned = o.unassigned >= 0.01 ? ` (${fmtMoney(o.unassigned)} unassigned)` : '';
+        document.getElementById('balance-detail').innerHTML =
+          `<span><span class="dot" style="background:#f7931a"></span>BTC ${fmtMoney(o.btc_value)} · ${Number(o.btc).toFixed(6)}</span>` +
+          `<span><span class="dot" style="background:rgba(83,155,245,0.9)"></span>Cash ${fmtMoney(o.cash)}${unassigned}</span>` +
+          `<span class="stat-chip ${up ? 'up' : 'down'}">${up ? '+' : '−'}${fmtMoney(Math.abs(o.pnl))} (${up ? '+' : '−'}${Math.abs(o.pnl_pct).toFixed(1)}%) on ${fmtMoney(o.invested, 0)}</span>`;
       }
 
       function renderBalanceCard(balances, price) {
@@ -3831,10 +3895,10 @@
           const totalAmount = pos.amount + newAmount;
           const avgEntry = (oldCost + newCost) / totalAmount;
           
-          modalTitle = '🔼 Confirm Scale In';
+          modalTitle = '🔼 Buy more BTC?';
           modalBody = `
             <div style="margin-bottom: 1rem;">
-              <strong>Adding to Existing Long Position:</strong>
+              <strong>Adding to the BTC you hold:</strong>
             </div>
             <div class="preview-item">
               <span class="preview-label">Current Entry:</span>
@@ -3859,7 +3923,7 @@
             </div>
             <div style="margin-top: 0.75rem; margin-bottom: 0.75rem; border-top: 1px solid rgba(255,255,255,0.1);"></div>
             <div class="preview-item" style="font-weight: bold;">
-              <span class="preview-label">New Avg Entry:</span>
+              <span class="preview-label">New average buy price:</span>
               <span class="preview-value" style="color: #58D68D;">$${avgEntry.toFixed(2)}</span>
             </div>
             <div class="preview-item" style="font-weight: bold;">
@@ -3867,7 +3931,7 @@
               <span class="preview-value" style="color: #58D68D;">${totalAmount.toFixed(6)} BTC</span>
             </div>
             <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
-              This will scale into your position and recalculate your average entry price.
+              Buys more BTC with the Manual pot's cash at the market price, and updates your average buy price.${realMoneyNote()}
             </div>
           `;
         } else {
@@ -3893,7 +3957,7 @@
               <span class="preview-value">${newAmount.toFixed(6)} BTC</span>
             </div>
             <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
-              This will execute a market buy order immediately.
+              Buys BTC with the Manual pot's cash at the market price, right away.${realMoneyNote()}
             </div>
           `;
         }
@@ -3903,6 +3967,13 @@
         document.getElementById('confirmation-modal').classList.add('show');
       }
       
+      // Real-money warning for the confirm boxes (from the Money Pots panel)
+      function realMoneyNote() {
+        return window.__potsRealMoney
+          ? '<div style="margin-top:0.6rem; color:#ffc266; font-weight:650;">This is real money on Binance.US.</div>'
+          : '';
+      }
+
       // Execute sell
       async function executeSell() {
         if (!manualTradingStatus || !manualTradingStatus.can_sell) {
@@ -3957,11 +4028,11 @@
               <span class="preview-value">${pos.amount.toFixed(6)} BTC</span>
             </div>
             <div class="preview-item">
-              <span class="preview-label">Unrealized P&L:</span>
+              <span class="preview-label">Gain/loss now:</span>
               <span class="preview-value ${pnlClass}">${pnlSign}$${pos.unrealized_pnl.toFixed(2)}</span>
             </div>
             <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
-              This will close your ${pos.side} position at market price.
+              Sells the Manual pot's BTC at the market price, right away.${realMoneyNote()}
             </div>
           `;
         } else {
@@ -3978,7 +4049,7 @@
               <span class="preview-value">${(positionSize * 100).toFixed(1)}%</span>
             </div>
             <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
-              This will open a short position (paper trading).
+              Sells BTC from the Manual pot at the market price. It never sells more than the pot holds.${realMoneyNote()}
             </div>
           `;
         }
