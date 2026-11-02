@@ -553,151 +553,8 @@
   }
   
 </style>
-{% endblock %}
-
-{% block content %}
-<h1>Live Dashboard</h1>
-
-<div class="summary">
-  <div class="stat-card tone-muted" id="signal-card">
-    <div class="stat-top">
-      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span>
-      <span class="stat-label" id="signal-label">Bot signal</span>
-      <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-          <span class="info-tooltip" id="signal-tip">What the active strategies say right now. Bullish = hold or buy BTC, Bearish = sell or stay in cash, Neutral = no change.</span>
-        </span>
-    </div>
-    <div class="stat-value toned" id="signal-text">--</div>
-    <div class="stat-detail" id="signal-detail">Waiting for the first check…</div>
-  </div>
-  <div class="stat-card tone-muted" id="trade-card">
-    <div class="stat-top">
-      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M7 4l-3 3M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></svg></span>
-      <span class="stat-label">Last trade</span>
-      <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-          <span class="info-tooltip">The most recent buy or sell by any pot (or by you in Manual Trading), with its price, size, the pot it used and, for sells, the gain or loss.</span>
-        </span>
-    </div>
-    <div class="stat-value toned" id="trade-text">--</div>
-    <div class="stat-detail" id="trade-detail">No trades yet</div>
-  </div>
-  <div class="stat-card" id="balance-card">
-    <div class="stat-top">
-      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1.2" fill="currentColor"/></svg></span>
-      <span class="stat-label" id="balance-label">Portfolio</span>
-      <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
-          <span class="info-tooltip" id="balance-tip">Total value: cash plus BTC at the current price. The bar shows how much is in BTC versus cash.</span>
-        </span>
-    </div>
-    <div class="stat-value" id="balance-text">--</div>
-    <div class="alloc" aria-hidden="true"><i class="btc" id="alloc-btc" style="width:0%"></i><i class="cash" id="alloc-cash" style="width:0%"></i></div>
-    <div class="alloc-key" id="balance-detail"></div>
-  </div>
-</div>
-
-<!-- Start Fresh Session (paper/dry_run only) -->
-<div id="fresh-session-bar" class="fresh-session-bar" style="display:none;">
-  <span><b>Paper trading</b> — clear the history to start a fresh session</span>
-  <button onclick="confirmClearTrades()">Start Fresh Session</button>
-</div>
-
-<!-- Manual Trading Panel -->
-<section class="manual-trading-panel" id="manual-trading-panel">
-  <button class="mt-head" type="button" onclick="toggleManualTrading()" aria-expanded="false" aria-controls="manual-trading-body">
-    <span class="mt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
-    <span>
-      <div class="mt-title">Manual Trading</div>
-      <div class="mt-sub">Place a trade yourself — the bot keeps running</div>
-    </span>
-    <span class="mt-summary" id="mt-summary"></span>
-    <span class="mt-chevron" id="manual-trading-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
-  </button>
-  <div id="manual-trading-body" style="display:none;">
-  <div class="manual-trading-content">
-    <!-- Current Position Status -->
-    <div class="position-status-box">
-      <h3>Current position</h3>
-      <div id="position-info">
-        <div class="no-position-message">Loading position…</div>
-      </div>
-    </div>
-
-    <!-- Trade Controls -->
-    <div class="trade-controls-box">
-      <h3>Place a trade</h3>
-      <div class="control-group">
-        <label for="position-size">
-          <span>Size of available cash</span>
-          <span id="position-size-range"></span>
-        </label>
-        <div class="size-row">
-          <input type="range" id="position-size-slider" min="10" max="100" value="20" step="1" aria-label="Position size">
-          <div class="size-num">
-            <input type="number" id="position-size" min="10" max="100" value="20" step="5">
-            <span>%</span>
-          </div>
-        </div>
-        <div class="size-chips" id="size-chips">
-          <button type="button" data-pct="25">25%</button>
-          <button type="button" data-pct="50">50%</button>
-          <button type="button" data-pct="75">75%</button>
-          <button type="button" data-pct="max">Max</button>
-        </div>
-      </div>
-      <div class="button-group">
-        <button id="buy-btn" class="trade-btn buy-btn" onclick="executeBuy()">Buy</button>
-        <button id="sell-btn" class="trade-btn sell-btn" onclick="executeSell()">Sell</button>
-      </div>
-      <div class="mt-note">Every trade asks you to confirm first. Sell closes the whole position.</div>
-    </div>
-
-    <!-- Trade Preview -->
-    <div class="trade-preview-box">
-      <h3>Estimate</h3>
-      <div id="trade-estimate">
-        <div class="preview-item">
-          <span class="preview-label">BTC price</span>
-          <span class="preview-value" id="preview-price">--</span>
-        </div>
-        <div class="preview-item">
-          <span class="preview-label">Available cash</span>
-          <span class="preview-value" id="preview-balance">--</span>
-        </div>
-        <div class="preview-item total">
-          <span class="preview-label">Order value</span>
-          <span class="preview-value" id="preview-value">--</span>
-        </div>
-        <div class="preview-item">
-          <span class="preview-label">You'd get about</span>
-          <span class="preview-value" id="preview-amount">--</span>
-        </div>
-      </div>
-    </div>
-  </div>
-  </div>
-</section>
-
-
-
-<!-- Notification Toast -->
-<div id="notification-toast" class="notification-toast">
-  <div id="notification-message"></div>
-</div>
-
-<!-- Confirmation Modal -->
-<div id="confirmation-modal" class="modal-overlay">
-  <div class="modal-content">
-    <h3 id="modal-title">Confirm Trade</h3>
-    <div class="modal-body" id="modal-body"></div>
-    <div class="modal-actions">
-      <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Cancel</button>
-      <button class="modal-btn modal-btn-confirm" id="modal-confirm-btn" onclick="confirmTrade()">Confirm</button>
-    </div>
-  </div>
-</div>
-
-<!-- Strategy Signals Panel -->
 <style>
+  /* (moved from the page body) */
   /* Glass panel, same look as the chart below */
   .signals-panel {
     position: relative;
@@ -724,6 +581,8 @@
   .signals-sub { margin-top: 0.2rem; font-size: 0.8rem; color: var(--text-secondary); }
   .consensus-pill {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     align-items: center;
     gap: 0.45rem;
     padding: 0.35rem 0.8rem;
@@ -861,103 +720,8 @@
     .sig-tiles { grid-template-columns: repeat(2, 1fr); }
   }
 </style>
-
-<section class="signals-panel">
-  <div class="signals-head">
-    <div>
-      <h2>Strategy Signals</h2>
-      <div class="signals-sub" id="signals-sub">Each active strategy votes on the next trade</div>
-    </div>
-    <span class="consensus-pill" id="signals-consensus" style="display: none;"></span>
-  </div>
-  <div id="strategy-signals-grid" class="strategy-signals-grid">
-    <div class="signals-empty">Loading…</div>
-  </div>
-  <div id="strategy-signals-off" class="sig-off" style="display: none;"></div>
-</section>
-
-<div class="chart-container">
-  <div class="loading-indicator" id="chart-loading">
-    <div class="spinner"></div>
-    <span>Loading candles...</span>
-  </div>
-  <div class="no-data-indicator" id="chart-no-data">
-    <span class="no-data-title">No Chart Data Available</span>
-    <span class="no-data-detail">Could not load candles from the exchange API and no bot history is available yet. Check that your API keys are configured and the exchange is reachable.</span>
-    <button class="glass-btn" onclick="refresh()">Retry</button>
-  </div>
-
-  <div class="chart-head">
-    <div>
-      <h2>Price Chart</h2>
-      <div class="chart-sub">BTC/USD · bot trades on <b>1h</b> · viewing <b class="tf-view" id="current-tf-display">1h</b></div>
-    </div>
-    <div class="chart-status">
-      <span class="status-pill" id="infinite-scroll-status" data-state="live">Live</span>
-      <span class="status-pill" id="candle-count">0 candles</span>
-      <span class="info-icon">i
-        <span class="info-tooltip">
-          Real-time candlestick chart with trading signals. Green/red candles show price movement. Triangle markers indicate signals and trades.
-          <hr>
-          <strong>Timeframes:</strong><br>
-          • Signals are only shown on the bot's trading timeframe (1h)<br>
-          • Other timeframes show history only<br>
-          <hr>
-          <strong>Navigation:</strong><br>
-          • Click &amp; drag with momentum<br>
-          • Shift + mouse wheel to scroll left/right<br>
-          • Mouse wheel to zoom<br>
-          • Hold arrow keys to scroll<br>
-          • +/- keys to zoom, 0 to reset<br>
-          • F for fullscreen (ESC to exit)
-        </span>
-      </span>
-    </div>
-  </div>
-
-  <div class="chart-toolbar">
-    <div class="seg timeframe-group" role="group" aria-label="Chart timeframe">
-      <span class="seg-label">TF</span>
-      <button onclick="changeTimeframe('5m')" id="tf-5m">5m</button>
-      <button onclick="changeTimeframe('15m')" id="tf-15m">15m</button>
-      <button onclick="changeTimeframe('30m')" id="tf-30m">30m</button>
-      <button onclick="changeTimeframe('1h')" id="tf-1h" class="active">1h</button>
-      <button onclick="changeTimeframe('4h')" id="tf-4h">4h</button>
-      <button onclick="changeTimeframe('1d')" id="tf-1d">1d</button>
-    </div>
-    <div class="toolbar-right">
-      <div class="seg" role="group" aria-label="Pan">
-        <button onclick="panLeft()" title="Pan left (← or Shift+Wheel)" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-        <button onclick="panRight()" title="Pan right (→ or Shift+Wheel)" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
-      </div>
-      <div class="seg" role="group" aria-label="Zoom">
-        <button onclick="zoomOut()" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
-        <button onclick="resetZoom()" title="Reset view (0)" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
-        <button onclick="zoomIn()" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-      </div>
-      <button onclick="toggleTradeMarkers()" id="toggle-trades-btn" class="glass-btn toggle-trades-btn active" aria-pressed="true" title="Show/hide executed trades on the chart">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3l4 6H3z"/><path d="M17 21l-4-6h8z"/><path d="M7 9v12M17 3v12"/></svg><span class="btn-label">Trades</span>
-      </button>
-      <button onclick="toggleFullscreen()" id="fullscreen-btn" class="glass-btn" title="Fullscreen (F, ESC to exit)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="btn-label">Fullscreen</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- Strategy Legend -->
-  <div id="strategy-legend" class="strategy-legend" style="display: none;">
-    <span class="legend-title">Trades</span>
-    <div id="legend-items" style="display: contents;"></div>
-  </div>
-
-  <div class="chart-canvas-wrap">
-    <canvas id="priceChart"></canvas>
-  </div>
-  <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
-</div>
-
-<!-- Money pots: Trend Hold, intraday and manual each keep their own money -->
 <style>
+  /* (moved from the page body) */
   .pots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.9rem; }
   .pot-card {
     display: flex; flex-direction: column; gap: 0.55rem; padding: 1rem 1.1rem; border-radius: 14px;
@@ -994,6 +758,40 @@
     background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.06);
   }
   .pots-move h3 { margin: 0 0 0.6rem; font-size: 0.95rem; }
+  details.pots-move > summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+  }
+  details.pots-move > summary::-webkit-details-marker { display: none; }
+  details.pots-move > summary h3 { margin: 0; }
+  details.pots-move > summary::after {
+    content: ""; margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--text-secondary);
+    border-bottom: 2px solid var(--text-secondary); transform: rotate(45deg); transition: transform 0.15s;
+  }
+  details.pots-move[open] > summary { margin-bottom: 0.6rem; }
+  details.pots-move[open] > summary::after { transform: rotate(-135deg); }
+  details.pots-move > summary .hint { font-size: 0.76rem; color: var(--text-secondary); }
+
+  /* "updated 18:42" next to a panel's title; red when the last refresh failed */
+  .fresh-stamp { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.8; white-space: nowrap; }
+  .fresh-stamp.stale { color: var(--accent-red); opacity: 1; }
+
+  /* Recent trades */
+  .trades-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .trades-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+  .trades-table th {
+    text-align: left; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text-secondary); padding: 0.4rem 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap;
+  }
+  .trades-table td { padding: 0.55rem 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap; }
+  .trades-table td.num, .trades-table th.num { text-align: right; }
+  .trades-table .side-buy { color: var(--accent-green); font-weight: 650; }
+  .trades-table .side-sell { color: var(--accent-red); font-weight: 650; }
+  .trades-table .up { color: var(--accent-green); }
+  .trades-table .down { color: var(--accent-red); }
+  .trades-table .why { color: var(--text-secondary); white-space: normal; min-width: 9rem; }
+  .trade-pot { display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; }
+  .trade-pot i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); display: inline-block; }
+  @media (max-width: 720px) { .trades-table .hide-sm { display: none; } }
   .pots-move-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end; }
   .pots-move label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.74rem; color: var(--text-secondary); flex: 1 1 140px; }
   .pots-move select, .pots-move input {
@@ -1057,14 +855,100 @@
   .pots-section-title { margin: 0 0 0.45rem; font-size: 0.9rem; font-weight: 700; }
   @media (max-width: 720px) { .pots-perf-wrap { height: 200px; } }
 </style>
+<style>
+  /* (moved from the page body) */
+  .paper-panel .sig-tiles { margin-bottom: 0.9rem; }
+  .paper-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; }
+  .paper-legend .legend-line { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: var(--c); }
+  .paper-note { flex: 1 1 260px; font-size: 0.76rem; color: var(--text-secondary); line-height: 1.4; }
+  .paper-chart-wrap {
+    position: relative; height: 280px; padding: 0.6rem 0.4rem 0.2rem 0.2rem; border-radius: 14px;
+    background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+  .paper-caveat { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--text-secondary); opacity: 0.85; }
+  .consensus-pill.ahead { color: var(--accent-green); background: rgba(88, 214, 141, 0.1); border-color: rgba(88, 214, 141, 0.3); }
+  .consensus-pill.behind { color: var(--accent-red); background: rgba(255, 94, 87, 0.1); border-color: rgba(255, 94, 87, 0.3); }
+  .sig-tile b.gold { color: #FFD700; }
+  .sig-tile b.blue { color: #539bf5; }
+  @media (max-width: 720px) { .paper-chart-wrap { height: 240px; } }
+</style>
+{% endblock %}
 
-<section class="signals-panel" id="pots-panel" aria-label="Money pots" style="display: none;">
+{% block content %}
+<script>window.__potsOnAtLoad = {{ 'true' if pots_enabled else 'false' }};</script>
+<h1>Live Dashboard <span class="fresh-stamp" id="cards-fresh"></span></h1>
+
+<div class="summary">
+  <div class="stat-card tone-muted" id="signal-card">
+    <div class="stat-top">
+      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span>
+      <span class="stat-label" id="signal-label">Bot signal</span>
+      <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
+          <span class="info-tooltip" id="signal-tip">What the active strategies say right now. Bullish = hold or buy BTC, Bearish = sell or stay in cash, Neutral = no change.</span>
+        </span>
+    </div>
+    <div class="stat-value toned" id="signal-text">--</div>
+    <div class="stat-detail" id="signal-detail">Waiting for the first check…</div>
+  </div>
+  <div class="stat-card tone-muted" id="trade-card">
+    <div class="stat-top">
+      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M7 4l-3 3M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></svg></span>
+      <span class="stat-label">Last trade</span>
+      <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
+          <span class="info-tooltip">The most recent buy or sell by any pot (or by you in Manual Trading), with its price, size, the pot it used and, for sells, the gain or loss.</span>
+        </span>
+    </div>
+    <div class="stat-value toned" id="trade-text">--</div>
+    <div class="stat-detail" id="trade-detail">No trades yet</div>
+  </div>
+  <div class="stat-card" id="balance-card">
+    <div class="stat-top">
+      <span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1.2" fill="currentColor"/></svg></span>
+      <span class="stat-label" id="balance-label">Portfolio</span>
+      <span class="info-icon" style="font-size: 10px; width: 14px; height: 14px; line-height: 14px;">i
+          <span class="info-tooltip" id="balance-tip">Total value: cash plus BTC at the current price. The bar shows how much is in BTC versus cash.</span>
+        </span>
+    </div>
+    <div class="stat-value" id="balance-text">--</div>
+    <div class="alloc" aria-hidden="true"><i class="btc" id="alloc-btc" style="width:0%"></i><i class="cash" id="alloc-cash" style="width:0%"></i></div>
+    <div class="alloc-key" id="balance-detail"></div>
+  </div>
+</div>
+
+<!-- Start Fresh Session (paper/dry_run only) -->
+<div id="fresh-session-bar" class="fresh-session-bar" style="display:none;">
+  <span><b>Paper trading</b> — clear the history to start a fresh session</span>
+  <button onclick="confirmClearTrades()">Start Fresh Session</button>
+</div>
+
+<!-- Notification Toast -->
+<div id="notification-toast" class="notification-toast">
+  <div id="notification-message"></div>
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirmation-modal" class="modal-overlay">
+  <div class="modal-content">
+    <h3 id="modal-title">Confirm Trade</h3>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="modal-btn modal-btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn modal-btn-confirm" id="modal-confirm-btn" onclick="confirmTrade()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Money pots: Trend Hold, intraday and manual each keep their own money -->
+
+<section class="signals-panel" id="pots-panel" aria-label="Money pots"{% if not pots_enabled %} style="display: none;"{% endif %}>
   <div class="signals-head">
     <div>
       <h2>Money Pots</h2>
       <div class="signals-sub" id="pots-sub">Each pot trades only its own money</div>
     </div>
     <span class="consensus-pill" id="pots-total" style="display: none;"></span>
+    <span class="fresh-stamp" id="pots-fresh"></span>
   </div>
   <div class="pots-alloc" id="pots-alloc"></div>
   <div class="pots-perf" id="pots-perf">
@@ -1074,9 +958,9 @@
     <div class="pots-perf-wrap"><canvas id="potsPerfChart"></canvas></div>
     <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss. Badges mark each pot's buys and sells; hover one for details.</p>
   </div>
-  <div class="pots-grid" id="pots-grid"></div>
-  <div class="pots-move" id="pots-move">
-    <h3>Move money</h3>
+  <div class="pots-grid" id="pots-grid"><div class="signals-empty">Loading…</div></div>
+  <details class="pots-move" id="pots-move">
+    <summary><h3>Move money</h3><span class="hint">between pots</span></summary>
     <p class="pots-move-info" id="pots-move-info">Move cash a pot isn't using. BTC a pot holds stays with it until that pot sells.</p>
     <div class="pots-move-row">
       <label>From <select id="pots-from"></select></label>
@@ -1086,9 +970,9 @@
     </div>
     <div class="pots-move-msg" id="pots-move-msg" role="status"></div>
     <ul class="pots-moves-list" id="pots-moves-list"></ul>
-  </div>
-  <div class="pots-move" id="pots-add">
-    <h3>Add a pot</h3>
+  </details>
+  <details class="pots-move" id="pots-add">
+    <summary><h3>Add a pot</h3><span class="hint">to run another strategy</span></summary>
     <p class="pots-move-info">A new pot runs one strategy with its own money. It starts with $0: fund it with Move money above.
       You can remove it later once it holds no cash and no BTC.</p>
     <div class="pots-move-row">
@@ -1099,7 +983,7 @@
       <button type="button" id="pots-add-btn">Add pot</button>
     </div>
     <div class="pots-move-msg" id="pots-add-msg" role="status"></div>
-  </div>
+  </details>
   <p class="pots-foot">
     A pot never sells another pot's BTC. Pots with a buy limit count buys from midnight UTC (<span class="utc-midnight-local">7 pm</span> your time);
     sells are never blocked. Your trades in Manual Trading use the Manual pot only.
@@ -1109,7 +993,7 @@
 <script>
   (function () {
     const money = (v, d = 2) => TradeWords.money(v, d);
-    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const esc = UI.esc;
     const pnlText = (v, p) => `${v >= 0 ? '+' : '−'}${money(Math.abs(v))} (${TradeWords.signedPct(p)})`;
     const signalWords = { bullish: 'wants to buy / hold', bearish: 'wants to sell', neutral: 'no signal' };
     const POT_COLORS = window.POT_COLORS = { trend: '#FFD700', intraday: '#FF6B9D', manual: '#00D9FF' };
@@ -1542,7 +1426,10 @@
 
     async function loadPots() {
       try {
-        const data = await fetch('/api/pots', { credentials: 'include' }).then(r => r.json());
+        const data = await fetch('/api/pots', { credentials: 'include' }).then(r => {
+          if (!r.ok) throw new Error('status ' + r.status);
+          return r.json();
+        });
         const panel = document.getElementById('pots-panel');
         if (!data.success || !data.enabled) { panel.style.display = 'none'; return; }
         window.__potsPrice = data.price;
@@ -1577,8 +1464,10 @@
         const manual = data.pots.find(p => p.name === 'manual');
         const sub = document.querySelector('#manual-trading-panel .mt-sub');
         if (sub && manual) sub.textContent = `Uses the Manual pot (${money(manual.cash)} cash) — the bot's pots keep running`;
+        UI.stamp('pots-fresh', true);
       } catch (e) {
         console.error('Pots panel:', e);
+        UI.stamp('pots-fresh', false);
       }
     }
 
@@ -1587,32 +1476,263 @@
       el.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     });
 
-    loadPots();
+    // Wait for the whole page (the chart helpers are defined further down)
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadPots); else loadPots();
     setInterval(loadPots, 60 * 1000);
     setInterval(() => { if (window.__potsEnabled) loadPerf(); }, 5 * 60 * 1000);
   })();
 </script>
 
-<!-- Paper test so far: the bot vs. just holding BTC since the first paper trade -->
-<style>
-  .paper-panel .sig-tiles { margin-bottom: 0.9rem; }
-  .paper-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-bottom: 0.6rem; }
-  .paper-legend .legend-line { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: var(--c); }
-  .paper-note { flex: 1 1 260px; font-size: 0.76rem; color: var(--text-secondary); line-height: 1.4; }
-  .paper-chart-wrap {
-    position: relative; height: 280px; padding: 0.6rem 0.4rem 0.2rem 0.2rem; border-radius: 14px;
-    background: rgba(0, 0, 0, 0.22); border: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.35);
-  }
-  .paper-caveat { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--text-secondary); opacity: 0.85; }
-  .consensus-pill.ahead { color: var(--accent-green); background: rgba(88, 214, 141, 0.1); border-color: rgba(88, 214, 141, 0.3); }
-  .consensus-pill.behind { color: var(--accent-red); background: rgba(255, 94, 87, 0.1); border-color: rgba(255, 94, 87, 0.3); }
-  .sig-tile b.gold { color: #FFD700; }
-  .sig-tile b.blue { color: #539bf5; }
-  @media (max-width: 720px) { .paper-chart-wrap { height: 240px; } }
-</style>
+<!-- Manual Trading Panel -->
+<section class="manual-trading-panel" id="manual-trading-panel">
+  <button class="mt-head" type="button" onclick="toggleManualTrading()" aria-expanded="false" aria-controls="manual-trading-body">
+    <span class="mt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+    <span>
+      <div class="mt-title">Manual Trading</div>
+      <div class="mt-sub">Place a trade yourself — the bot keeps running</div>
+    </span>
+    <span class="mt-summary" id="mt-summary"></span>
+    <span class="mt-chevron" id="manual-trading-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
+  </button>
+  <div id="manual-trading-body" style="display:none;">
+  <div class="manual-trading-content">
+    <!-- Current Position Status -->
+    <div class="position-status-box">
+      <h3>Current position</h3>
+      <div id="position-info">
+        <div class="no-position-message">Loading position…</div>
+      </div>
+    </div>
 
-<section class="signals-panel paper-panel" id="paper-panel" aria-label="Paper test so far">
+    <!-- Trade Controls -->
+    <div class="trade-controls-box">
+      <h3>Place a trade</h3>
+      <div class="control-group">
+        <label for="position-size">
+          <span>Size of available cash</span>
+          <span id="position-size-range"></span>
+        </label>
+        <div class="size-row">
+          <input type="range" id="position-size-slider" min="10" max="100" value="20" step="1" aria-label="Position size">
+          <div class="size-num">
+            <input type="number" id="position-size" min="10" max="100" value="20" step="5">
+            <span>%</span>
+          </div>
+        </div>
+        <div class="size-chips" id="size-chips">
+          <button type="button" data-pct="25">25%</button>
+          <button type="button" data-pct="50">50%</button>
+          <button type="button" data-pct="75">75%</button>
+          <button type="button" data-pct="max">Max</button>
+        </div>
+      </div>
+      <div class="button-group">
+        <button id="buy-btn" class="trade-btn buy-btn" onclick="executeBuy()">Buy</button>
+        <button id="sell-btn" class="trade-btn sell-btn" onclick="executeSell()">Sell</button>
+      </div>
+      <div class="mt-note">Every trade asks you to confirm first. Sell closes the whole position.</div>
+    </div>
+
+    <!-- Trade Preview -->
+    <div class="trade-preview-box">
+      <h3>Estimate</h3>
+      <div id="trade-estimate">
+        <div class="preview-item">
+          <span class="preview-label">BTC price</span>
+          <span class="preview-value" id="preview-price">--</span>
+        </div>
+        <div class="preview-item">
+          <span class="preview-label">Available cash</span>
+          <span class="preview-value" id="preview-balance">--</span>
+        </div>
+        <div class="preview-item total">
+          <span class="preview-label">Order value</span>
+          <span class="preview-value" id="preview-value">--</span>
+        </div>
+        <div class="preview-item">
+          <span class="preview-label">You'd get about</span>
+          <span class="preview-value" id="preview-amount">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+
+
+<div class="chart-container">
+  <div class="loading-indicator" id="chart-loading">
+    <div class="spinner"></div>
+    <span>Loading candles...</span>
+  </div>
+  <div class="no-data-indicator" id="chart-no-data">
+    <span class="no-data-title">No Chart Data Available</span>
+    <span class="no-data-detail">Could not load candles from the exchange API and no bot history is available yet. Check that your API keys are configured and the exchange is reachable.</span>
+    <button class="glass-btn" onclick="refresh()">Retry</button>
+  </div>
+
+  <div class="chart-head">
+    <div>
+      <h2>Price Chart</h2>
+      <div class="chart-sub">BTC/USD · bot trades on <b>1h</b> · viewing <b class="tf-view" id="current-tf-display">1h</b></div>
+    </div>
+    <div class="chart-status">
+      <span class="status-pill" id="infinite-scroll-status" data-state="live">Live</span>
+      <span class="status-pill" id="candle-count">0 candles</span>
+      <span class="info-icon">i
+        <span class="info-tooltip">
+          Real-time candlestick chart with trading signals. Green/red candles show price movement. Triangle markers indicate signals and trades.
+          <hr>
+          <strong>Timeframes:</strong><br>
+          • Signals are only shown on the bot's trading timeframe (1h)<br>
+          • Other timeframes show history only<br>
+          <hr>
+          <strong>Navigation:</strong><br>
+          • Click &amp; drag with momentum<br>
+          • Shift + mouse wheel to scroll left/right<br>
+          • Mouse wheel to zoom<br>
+          • Hold arrow keys to scroll<br>
+          • +/- keys to zoom, 0 to reset<br>
+          • F for fullscreen (ESC to exit)
+        </span>
+      </span>
+    </div>
+  </div>
+
+  <div class="chart-toolbar">
+    <div class="seg timeframe-group" role="group" aria-label="Chart timeframe">
+      <span class="seg-label">TF</span>
+      <button onclick="changeTimeframe('5m')" id="tf-5m">5m</button>
+      <button onclick="changeTimeframe('15m')" id="tf-15m">15m</button>
+      <button onclick="changeTimeframe('30m')" id="tf-30m">30m</button>
+      <button onclick="changeTimeframe('1h')" id="tf-1h" class="active">1h</button>
+      <button onclick="changeTimeframe('4h')" id="tf-4h">4h</button>
+      <button onclick="changeTimeframe('1d')" id="tf-1d">1d</button>
+    </div>
+    <div class="toolbar-right">
+      <div class="seg" role="group" aria-label="Pan">
+        <button onclick="panLeft()" title="Pan left (← or Shift+Wheel)" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button onclick="panRight()" title="Pan right (→ or Shift+Wheel)" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+      </div>
+      <div class="seg" role="group" aria-label="Zoom">
+        <button onclick="zoomOut()" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button onclick="resetZoom()" title="Reset view (0)" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+        <button onclick="zoomIn()" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      </div>
+      <button onclick="toggleTradeMarkers()" id="toggle-trades-btn" class="glass-btn toggle-trades-btn active" aria-pressed="true" title="Show/hide executed trades on the chart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3l4 6H3z"/><path d="M17 21l-4-6h8z"/><path d="M7 9v12M17 3v12"/></svg><span class="btn-label">Trades</span>
+      </button>
+      <button onclick="toggleFullscreen()" id="fullscreen-btn" class="glass-btn" title="Fullscreen (F, ESC to exit)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="btn-label">Fullscreen</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Strategy Legend -->
+  <div id="strategy-legend" class="strategy-legend" style="display: none;">
+    <span class="legend-title">Trades</span>
+    <div id="legend-items" style="display: contents;"></div>
+  </div>
+
+  <div class="chart-canvas-wrap">
+    <canvas id="priceChart"></canvas>
+  </div>
+  <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
+</div>
+
+<!-- Strategy Signals Panel -->
+
+<section class="signals-panel">
+  <div class="signals-head">
+    <div>
+      <h2>Strategy Signals</h2>
+      <div class="signals-sub" id="signals-sub">Each active strategy votes on the next trade</div>
+    </div>
+    <span class="consensus-pill" id="signals-consensus" style="display: none;"></span>
+    <span class="fresh-stamp" id="signals-fresh"></span>
+  </div>
+  <div id="strategy-signals-grid" class="strategy-signals-grid">
+    <div class="signals-empty">Loading…</div>
+  </div>
+  <div id="strategy-signals-off" class="sig-off" style="display: none;"></div>
+</section>
+
+<!-- Recent trades: every pot's real buys and sells, newest first -->
+<section class="signals-panel" id="trades-panel" aria-label="Recent trades">
+  <div class="signals-head">
+    <div>
+      <h2>Recent trades</h2>
+      <div class="signals-sub" id="trades-sub">The latest buys and sells, newest first</div>
+    </div>
+    <span class="fresh-stamp" id="trades-fresh"></span>
+  </div>
+  <div id="trades-body"><div class="signals-empty">Loading…</div></div>
+</section>
+<script>
+  (function () {
+    const money = (v, d = 2) => TradeWords.money(v, d);
+    const esc = UI.esc;
+    const WHY = { stop_loss: 'Stop loss', take_profit: 'Profit target', trailing_stop: 'Trailing stop',
+                  manual: 'Sold by you', signal: 'Strategy signal', emergency_stop: 'Emergency stop' };
+
+    function row(t) {
+      const meta = (window.__potMeta || {})[t.pot] || {};
+      const color = /^#[0-9a-f]{6}$/i.test(meta.color || '') ? meta.color : ((window.POT_COLORS || {})[t.pot] || '#8b949e');
+      const label = meta.label || (t.pot ? t.pot.charAt(0).toUpperCase() + t.pot.slice(1) : 'Before pots');
+      const buy = t.side === 'buy';
+      const when = new Date(t.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      let result = '';
+      if (!buy && t.pnl !== null && t.pnl !== undefined) {
+        const up = t.pnl >= 0;
+        result = `<span class="${up ? 'up' : 'down'}">${up ? '+' : '−'}${money(Math.abs(t.pnl))}</span>`;
+      }
+      const why = buy ? (t.strategy_name === 'Manual' ? 'Bought by you' : `${UI.strategyName(t.strategy_name)} signal`)
+                      : (WHY[t.exit_reason] || (t.exit_reason ? t.exit_reason.replace(/_/g, ' ') : 'Strategy signal'));
+      return `<tr>
+        <td>${esc(when)}</td>
+        <td><span class="trade-pot" style="--c:${color}"><i></i>${esc(label)}</span></td>
+        <td class="${buy ? 'side-buy' : 'side-sell'}">${buy ? 'Bought' : 'Sold'}</td>
+        <td class="num">${money(t.notional)}</td>
+        <td class="num hide-sm">${Number(t.amount).toFixed(6)} BTC</td>
+        <td class="num">${money(t.price, 0)}</td>
+        <td class="num">${result || '<span style="opacity:.5">—</span>'}</td>
+        <td class="why hide-sm">${esc(why)}</td>
+      </tr>`;
+    }
+
+    async function loadTrades() {
+      const body = document.getElementById('trades-body');
+      try {
+        const r = await fetch('/api/trades?limit=15', { credentials: 'include' });
+        if (!r.ok) throw new Error('status ' + r.status);
+        const data = await r.json();
+        const trades = data.trades || [];
+        document.getElementById('trades-sub').textContent = data.scope === 'real'
+          ? 'Real-money buys and sells by every pot, newest first'
+          : 'The latest buys and sells, newest first';
+        body.innerHTML = trades.length
+          ? `<div class="trades-wrap"><table class="trades-table">
+               <thead><tr><th>When</th><th>Pot</th><th></th><th class="num">Amount</th><th class="num hide-sm">BTC</th>
+                 <th class="num">Price</th><th class="num">Gain/loss</th><th class="hide-sm">Why</th></tr></thead>
+               <tbody>${trades.map(row).join('')}</tbody></table></div>`
+          : '<div class="signals-empty">No trades yet.</div>';
+        UI.stamp('trades-fresh', true);
+      } catch (e) {
+        console.error('Recent trades:', e);
+        UI.stamp('trades-fresh', false);
+      }
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadTrades); else loadTrades();
+    document.addEventListener('pots:loaded', loadTrades);  // pot names and colors are known now
+    setInterval(loadTrades, 60 * 1000);
+  })();
+</script>
+
+<!-- Paper test so far: the bot vs. just holding BTC since the first paper trade -->
+
+<section class="signals-panel paper-panel" id="paper-panel" aria-label="Paper test so far"{% if pots_enabled %} style="display: none;"{% endif %}>
   <div class="signals-head">
     <div>
       <h2>Paper Test So Far</h2>
@@ -1821,7 +1941,7 @@
     }
 
     async function loadPaper() {
-      if (window.__potsEnabled) {  // the Money Pots chart covers this
+      if (window.__potsEnabled || window.__potsOnAtLoad) {  // the Money Pots chart covers this
         document.getElementById('paper-panel').style.display = 'none';
         return;
       }
@@ -1874,7 +1994,7 @@
         });
         return list;
       }
-      const escHtml = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const escHtml = UI.esc;
       const hiddenPots = new Set();
       const potOfTrade = (t) => t.pot || 'trend';  // untagged = from before pots (Trend Hold's)
       function togglePotOnChart(name) {
@@ -2753,8 +2873,17 @@
         } finally {
           // Always update balance and trade info, even if chart fails
           try {
-            const state = await (await fetch('/state', {credentials: 'include'})).json();
-            
+            const stateResp = await fetch('/state', {credentials: 'include'});
+            if (!stateResp.ok) throw new Error('status ' + stateResp.status);
+            const state = await stateResp.json();
+            renderSignalCard(state.last_signal, state.pots);
+            renderTradeCard(state.last_trade);
+            UI.stamp('cards-fresh', true);
+            if (state.pots) {
+              renderPotsTotalCard(state.pots);
+              return;  // the pots total needs no candle price
+            }
+
             // Always update balance with current price
             let latestPrice = 0;
             try {
@@ -2769,19 +2898,18 @@
               latestPrice = state.last_signal?.price || 0;
             }
             
-            if (state.pots) {
-              renderPotsTotalCard(state.pots);
-            } else if (state.balances) {
+            if (state.balances) {
               renderBalanceCard(state.balances, state.current_price || latestPrice);
             }
           } catch (balanceErr) {
             console.error("Error updating balance:", balanceErr);
+            UI.stamp('cards-fresh', false);
           }
         }
       }
 
       // ---- Top summary cards -------------------------------------------
-      const fmtMoney = (v, d = 2) => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+      const fmtMoney = (v, d = 2) => TradeWords.money(v, d);
       const fmtWhen = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       const STRAT_NAMES = UI.strategyNames();
 
@@ -4377,9 +4505,7 @@
         neutral: ['Neutral', 'No clear direction'],
       };
 
-      function escapeHtml(str) {
-        return String(str).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-      }
+      function escapeHtml(str) { return UI.esc(str); }  // a function so earlier code can call it
 
       const usd0 = v => '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
@@ -4513,6 +4639,7 @@
           const resp = await fetch('/api/strategies/signals', {credentials: 'include'});
           if (!resp.ok) {
             if (resp.status === 503) grid.innerHTML = '<div class="signals-empty">Signals appear once the bot is running.</div>';
+            UI.stamp('signals-fresh', false);
             return;
           }
           const data = await resp.json();
@@ -4547,7 +4674,7 @@
           if (inactive.length) {
             off.innerHTML = potsOn
               ? '<span class="sig-off-label">No pot</span>' + inactive.map(s =>
-                  `<a href="#pots-add-name" title="Add a pot that trades this strategy">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
+                  `<a href="#pots-add" onclick="document.getElementById('pots-add').open = true" title="Add a pot that trades this strategy">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
                 ).join('')
               : '<span class="sig-off-label">Off</span>' + inactive.map(s =>
                   `<a href="/strategy-config" title="Enable in Strategies">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
@@ -4556,8 +4683,10 @@
           } else {
             off.style.display = 'none';
           }
+          UI.stamp('signals-fresh', true);
         } catch (e) {
           console.error('Failed to fetch strategy signals:', e);
+          UI.stamp('signals-fresh', false);
         }
       }
 

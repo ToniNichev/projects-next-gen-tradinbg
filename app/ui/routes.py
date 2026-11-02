@@ -55,7 +55,13 @@ def get_ui():
     Validates: Requirements 15.2, 15.7
     """
     logger.debug("Rendering main UI dashboard")
-    return render_template("ui.html")
+    # With money pots, the page lays out for pots from the first paint
+    try:
+        from app.core.state import get_app_state
+        pots_enabled = get_app_state().get_pot_manager() is not None
+    except Exception:
+        pots_enabled = False
+    return render_template("ui.html", pots_enabled=pots_enabled)
 
 
 @ui_bp.route('/backtest')

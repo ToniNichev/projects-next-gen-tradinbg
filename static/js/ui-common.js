@@ -43,5 +43,29 @@
     Unknown: UNKNOWN,
   });
 
-  window.UI = { STRATEGIES, strategyName, strategyColor, strategyNames, strategyColors };
+  // Text made safe to put inside HTML
+  function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // A panel's "updated 18:42" stamp. When a refresh fails the old numbers stay
+  // on screen, so say so instead of failing quietly.
+  const lastGood = {};
+  function stamp(id, ok) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const hhmm = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (ok) {
+      lastGood[id] = new Date();
+      el.textContent = `updated ${hhmm(lastGood[id])}`;
+      el.classList.remove('stale');
+      el.title = '';
+    } else {
+      el.textContent = lastGood[id] ? `couldn't refresh · numbers from ${hhmm(lastGood[id])}` : "couldn't load";
+      el.classList.add('stale');
+      el.title = 'The last refresh failed. It tries again automatically.';
+    }
+  }
+
+  window.UI = { STRATEGIES, strategyName, strategyColor, strategyNames, strategyColors, esc, stamp };
 })();
