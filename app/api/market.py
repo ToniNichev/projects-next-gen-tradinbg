@@ -418,6 +418,14 @@ def get_paper_performance():
 # Money pots
 # ---------------------------------------------------------------------------
 
+def _get_price(app_state, symbol):
+    """Latest BTC price: from the bot's state, else the exchange."""
+    price = app_state.get_trading_state().current_price
+    if not price:
+        price = float(app_state.get_exchange().fetch_ticker(symbol)["last"])
+    return float(price)
+
+
 def _pot_name(tag):
     """'live-intraday' -> 'intraday'; untagged (pre-pots) trades -> None."""
     if not tag:
@@ -559,6 +567,68 @@ def pause_pot():
         return jsonify({"success": False, "error": str(exc)}), 400
     except Exception as exc:
         logger.error("pause_pot failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@market_bp.route("/api/pots/add", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def add_pot():
+    """Add a pot that starts with $0:
+    {"name": "macd", "strategy": "macd_volume", "max_buys_per_day": 3, "order_pct": 0.95, "label": ""}"""
+    from pots import PotActionError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    params = request.get_json(silent=True) or {}
+    lock = app_state.get_trader_lock()
+    try:
+        with lock if lock else nullcontext():
+            pot = pots.add_pot(
+                params.get("name", ""), params.get("strategy", ""),
+                params.get("max_buys_per_day", 3), params.get("order_pct", 0.95),
+                label=str(params.get("label", ""))[:40],
+            )
+            if hasattr(pot.trader, "sync_balances"):
+                try:
+                    pot.trader.sync_balances()
+                except Exception as exc:
+                    logger.warning("New pot %s: balance sync failed: %s", pot.name, exc)
+        return jsonify({"success": True, "pot": pot.name,
+                        "message": f"Added the {pot.label} pot with $0. Use Move money to fund it"})
+    except PotActionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("add_pot failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@market_bp.route("/api/pots/remove", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def remove_pot():
+    """Remove a pot added from the dashboard, only when it holds nothing: {"pot": "macd"}."""
+    from config import BotConfig
+    from pots import PotActionError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    name = str((request.get_json(silent=True) or {}).get("pot", ""))
+    lock = app_state.get_trader_lock()
+    try:
+        price = _get_price(app_state, BotConfig.load().symbol)
+        with lock if lock else nullcontext():
+            label = pots.get(name).label if pots.get(name) else name
+            pots.remove_pot(name, price)
+        return jsonify({"success": True, "message": f"Removed the {label} pot"})
+    except PotActionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("remove_pot failed: %s", exc, exc_info=True)
         return jsonify({"success": False, "error": str(exc)}), 500
 
 

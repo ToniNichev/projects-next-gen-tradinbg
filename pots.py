@@ -20,6 +20,7 @@ live starts the live pots fresh instead of from the paper balances.
 
 import logging
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -53,6 +54,18 @@ INTRADAY_STRATEGIES = {
     "macd_volume": StrategyNames.MACD_VOLUME_MOMENTUM,
     "macd": StrategyNames.MACD_VOLUME_MOMENTUM,
 }
+
+# Strategies an added pot can run (BOT_POTS_EXTRA / dashboard key -> name).
+# Not the AI pattern strategy: it can take a minute per check.
+POT_STRATEGIES = {"trend_hold": StrategyNames.TREND_HOLD, **INTRADAY_STRATEGIES}
+# One key per strategy, for the dashboard's list
+POT_STRATEGY_CHOICES = ["trend_hold", "rsi_bb", "ema_crossover", "macd_volume"]
+
+BUILTIN_POTS = (POT_TREND, POT_INTRADAY, POT_MANUAL)
+_POT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,11}$")
+POT_COLORS = {POT_TREND: "#FFD700", POT_INTRADAY: "#FF6B9D", POT_MANUAL: "#00D9FF"}
+_EXTRA_COLORS = ["#7EE787", "#B392F0", "#FFA657", "#56D4DD", "#F778BA", "#D2A8FF", "#E3B341", "#A5D6FF"]
+_POT_LETTERS = {POT_TREND: "T", POT_INTRADAY: "I", POT_MANUAL: "M"}
 
 # A stop more than 80% below entry is a "no stop" placeholder (Trend Hold)
 _NO_STOP_FRACTION = 0.2
@@ -185,6 +198,7 @@ class Pot:
     last_note: Optional[str] = None
     start_time: Optional[datetime] = None  # when the pot began (UTC, naive)
     paused: bool = False                   # True = no new buys until resumed
+    source: str = "builtin"                # builtin | env (BOT_POTS_EXTRA) | dashboard
     _buys: Dict[str, int] = field(default_factory=dict)  # no-DB fallback
 
     @property
@@ -228,6 +242,9 @@ class PotManager:
         self.db = db  # where cash moves are saved (None in a dry run)
         self._transfers: List[Dict] = []  # this run's moves when there's no db
         self._mismatch_alerted = False
+        # Set by build_pots so pots can be added while the bot runs
+        self._make_trader: Optional[Callable] = None
+        self._strategy_manager = None
 
     def get(self, name: str) -> Optional[Pot]:
         return self.pots.get(name)
@@ -268,6 +285,9 @@ class PotManager:
                     if sig.direction == "bullish" and not pot.holding and pot.paused:
                         r["note"] = "paused: not buying until you resume it"
                         logger.info("Pot %s: %s", pot.name, r["note"])
+                    elif (sig.direction == "bullish" and not pot.holding
+                          and float(pot.balances()["USDT"]) < 1.0):
+                        r["note"] = "no cash to buy with: move money into this pot"
                     elif sig.direction == "bullish" and not pot.holding and self.cap_reached(pot):
                         r["note"] = f"skipped buy: {pot.max_buys_per_day} buys today already"
                         logger.info("Pot %s: %s", pot.name, r["note"])
@@ -361,11 +381,110 @@ class PotManager:
             if pot.paused:
                 logger.info("Pot %s: paused (not buying until resumed)", pot.name)
 
+    # ------------------------------------------------------- add / remove pots
+
+    def strategy_choices(self) -> List[Dict]:
+        return [{"key": k, "label": StrategyNames.get_display_name(POT_STRATEGIES[k])}
+                for k in POT_STRATEGY_CHOICES]
+
+    def add_pot(self, name: str, strategy: str, max_buys_per_day=3, order_pct=0.95,
+                label: str = "", source: str = "dashboard") -> Pot:
+        """Add a pot that starts with $0 (fund it with a cash move). From the
+        dashboard it is saved, so it's back after a restart. Call with the
+        trader lock held. Raises PotActionError if not allowed."""
+        if self._make_trader is None or self._strategy_manager is None:
+            raise PotActionError("Pots can't be added in this mode")
+        name = str(name or "").strip().lower()
+        if not _POT_NAME_RE.match(name):
+            raise PotActionError("Name: start with a letter, then letters, digits or _ (up to 12)")
+        if name in self.pots or name in BUILTIN_POTS or name == UNASSIGNED:
+            raise PotActionError(f"There is already a pot called '{name}'")
+        key = str(strategy or "").strip().lower()
+        if key not in POT_STRATEGIES:
+            raise PotActionError(f"Unknown strategy '{strategy}' (use one of: {', '.join(POT_STRATEGY_CHOICES)})")
+        strat = self._strategy_manager.get_strategy(POT_STRATEGIES[key])
+        if strat is None:
+            raise PotActionError(f"The strategy '{key}' isn't available")
+        try:
+            max_buys = int(max_buys_per_day)
+            pct = float(order_pct)
+        except (TypeError, ValueError):
+            raise PotActionError("Buys per day and spend per buy must be numbers")
+        if not 0 <= max_buys <= 24:
+            raise PotActionError("Buys per day: 0 (no limit) to 24")
+        if not 0.1 <= pct <= 1.0:
+            raise PotActionError("Spend per buy: 10% to 100% of the pot's cash")
+        label = (str(label or "").strip() or name.replace("_", " ").title())[:40]
+        if source == "dashboard" and self.db is not None:
+            if self.db.pot_name_used(name):
+                raise PotActionError(
+                    f"The name '{name}' was used before; pick a new one so the new pot "
+                    f"doesn't inherit old trades")
+            self.db.add_pot_definition(name, label, key, max_buys, pct)
+
+        pot = Pot(name, label, self._make_trader(name, 0.0), budget=0.0, start_value=0.0,
+                  strategy=strat, order_pct=pct, max_buys_per_day=max_buys, source=source)
+        # A new dict, so readers iterating the old one are never disturbed
+        self.pots = {**self.pots, name: pot}
+        self.restore_start_times(only=[pot])
+        self.refresh_limits(pot)
+        logger.info("Pot %s added (%s, %s, max %d buys/day, %.0f%% per buy)", name, source,
+                    StrategyNames.get_display_name(strat.name), max_buys, pct * 100)
+        return pot
+
+    def remove_pot(self, name: str, price: float) -> None:
+        """Remove a pot added from the dashboard. Only when it holds nothing:
+        no BTC (a sliver too small to sell may stay on the exchange) and no
+        cash (move it out first). Call with the trader lock held."""
+        pot = self.get(name)
+        if pot is None:
+            raise PotActionError(f"Unknown pot '{name}'")
+        if pot.source == "builtin":
+            raise PotActionError(f"The {pot.label} pot is built in and can't be removed")
+        if pot.source == "env":
+            raise PotActionError(f"The {pot.label} pot is listed in BOT_POTS_EXTRA in .env; remove it there")
+        b = pot.balances()
+        if pot.holding or float(b["BASE"]) * price >= 1.0:
+            raise PotActionError(f"The {pot.label} pot holds BTC: sell it first")
+        if float(b["USDT"]) >= 0.01:
+            raise PotActionError(
+                f"The {pot.label} pot has ${float(b['USDT']):.2f} cash: move it to another pot first")
+        if self.db is not None and not self.db.remove_pot_definition(name):
+            raise PotActionError(f"Could not find the saved pot '{name}'")
+        self.pots = {k: v for k, v in self.pots.items() if k != name}
+        logger.info("Pot %s removed", name)
+
+    def pot_style(self, name: str) -> Dict[str, str]:
+        """Color and chart letter for a pot (built-in ones keep theirs)."""
+        names = list(self.pots)
+        if name in POT_COLORS:
+            color = POT_COLORS[name]
+        else:
+            extras = [n for n in names if n not in POT_COLORS]
+            color = _EXTRA_COLORS[extras.index(name) % len(_EXTRA_COLORS)] if name in extras else "#8B949E"
+        letter = _POT_LETTERS.get(name)
+        if letter is None:
+            pot = self.pots.get(name)
+            word = re.sub(r"[^A-Za-z0-9]", "", pot.label if pot else name) or name
+            taken = {self.pot_style(n)["letter"] for n in names[:names.index(name)]} if name in names else set()
+            letter = word[0].upper()
+            if letter in taken:
+                letter = (word[:2]).title()
+        return {"color": color, "letter": letter}
+
     # ------------------------------------------------------------ cash moves
 
     def _real_money(self) -> bool:
         traders = [t for t in self.traders() if isinstance(t, PotLiveTrader)]
         return bool(traders) and traders[0].mode == TradingMode.LIVE
+
+    def refresh_limits(self, pot: Optional[Pot] = None) -> None:
+        """A live pot's daily loss limit is a share of the money put in. An
+        added pot starts at $0, so follow what was moved in since."""
+        for p in ([pot] if pot else self.pots.values()):
+            if isinstance(p.trader, PotLiveTrader):
+                put_in = p.start_value + self.net_in(p)
+                p.trader.initial_usdt = max(p.budget, put_in)
 
     def restore_transfers(self) -> None:
         """At start-up: add cash moved in/out of each pot since its last trade
@@ -384,12 +503,12 @@ class PotManager:
                 self._set_cash(pot, pot.trader.usdt_balance + moved)
                 logger.info("Pot %s: %+.2f cash moved since its last trade", pot.name, moved)
 
-    def restore_start_times(self) -> None:
+    def restore_start_times(self, only: Optional[List[Pot]] = None) -> None:
         """When each pot began: saved the first time it runs, or the time of
         its first trade/move if earlier (the paper Trend Hold pot carries on
         an account that started before pots existed)."""
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        for pot in self.pots.values():
+        for pot in (only if only is not None else self.pots.values()):
             key = f"BOT_INTERNAL_POT_START_{pot.tag}"
             saved = None
             if self.db is not None:
@@ -506,6 +625,9 @@ class PotManager:
         else:
             self._transfers.append(move)
 
+        for p in (src, dst):
+            if p is not None:
+                self.refresh_limits(p)
         label = lambda p, name: p.label if p else ("new money" if name == source else "unassigned")
         message = f"Moved ${amount:.2f} from {label(src, source)} to {label(dst, target)}"
         logger.info("Pots: %s", message)
@@ -578,6 +700,8 @@ class PotManager:
                 "take_profit": take,
                 "buys_today": self.buys_today(pot),
                 "paused": pot.paused,
+                "source": pot.source,
+                **self.pot_style(pot.name),
                 "max_buys_per_day": pot.max_buys_per_day,
                 "last_signal": {
                     "direction": sig.direction,
@@ -591,6 +715,7 @@ class PotManager:
         return {
             "live": self.live,
             "real_money": self._real_money(),
+            "strategy_choices": self.strategy_choices(),
             "price": price,
             "pots": rows,
             "total": {
@@ -675,7 +800,61 @@ def build_pots(config, *, exchange, db_manager, strategy_manager, trading_mode: 
         pots, live=live, notify=notify, trade_alerts=config.pot_trade_alerts,
         db=None if trading_mode == "dry_run" else db_manager,
     )
+    manager._make_trader = trader
+    manager._strategy_manager = strategy_manager
+    # Extra pots come after the built-in three and never change them. One
+    # that can't be set up is skipped with an error; the bot keeps running.
+    specs, errors = parse_extra_pots(getattr(config, "pots_extra", "") or "")
+    for err in errors:
+        logger.error("BOT_POTS_EXTRA: %s", err)
+    for spec in specs:
+        try:
+            manager.add_pot(source="env", **spec)
+        except Exception as exc:
+            logger.error("BOT_POTS_EXTRA: pot '%s' skipped: %s", spec.get("name"), exc)
+    if db_manager is not None:
+        try:
+            saved = db_manager.get_pot_definitions()
+        except Exception as exc:
+            logger.error("Could not read pots added from the dashboard: %s", exc)
+            saved = []
+        for d in saved:
+            if d["name"] in manager.pots:
+                logger.warning("Pot '%s' from the dashboard skipped: a pot with that name exists", d["name"])
+                continue
+            try:
+                manager.add_pot(d["name"], d["strategy"], d["max_buys_per_day"], d["order_pct"],
+                                label=d["label"], source="restored")
+                manager.pots[d["name"]].source = "dashboard"
+            except Exception as exc:
+                logger.error("Pot '%s' from the dashboard skipped: %s", d["name"], exc)
     manager.restore_transfers()
     manager.restore_start_times()
     manager.restore_paused()
+    manager.refresh_limits()
     return manager
+
+
+def parse_extra_pots(text: str):
+    """BOT_POTS_EXTRA -> ([{name, strategy, max_buys_per_day, order_pct}], [errors]).
+    Each item: name:strategy[:max_buys_per_day[:order_pct]]"""
+    specs, errors = [], []
+    for item in (text or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        parts = [x.strip() for x in item.split(":")]
+        if len(parts) < 2 or len(parts) > 4:
+            errors.append(f"'{item}' should be name:strategy[:max_buys[:order_pct]]")
+            continue
+        spec = {"name": parts[0].lower(), "strategy": parts[1].lower()}
+        try:
+            if len(parts) > 2 and parts[2]:
+                spec["max_buys_per_day"] = int(parts[2])
+            if len(parts) > 3 and parts[3]:
+                spec["order_pct"] = float(parts[3])
+        except ValueError:
+            errors.append(f"'{item}': buys per day and order % must be numbers")
+            continue
+        specs.append(spec)
+    return specs, errors

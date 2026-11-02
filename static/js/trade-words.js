@@ -41,6 +41,9 @@
   }
 
   const POT_NAMES = { trend: 'Trend Hold pot', intraday: 'Intraday pot', manual: 'Manual pot' };
+  // Pots added later: their names come from the Money Pots panel (window.__potMeta)
+  const potName = (k) => POT_NAMES[k]
+    || (typeof window !== 'undefined' && window.__potMeta && window.__potMeta[k] ? `${window.__potMeta[k].label} pot` : null);
 
   function whyLines(t, trendOnly) {
     const reason = t.exit_reason || t.reason;
@@ -91,7 +94,7 @@
         lines.push(`Still holding: worth ${money(worth)} now (${signedPct((worth / cost - 1) * 100)})`);
       }
       lines.push(...whyLines(t, opts.trendOnly));
-      if (t.pot && POT_NAMES[t.pot]) lines.push(`Money from: ${POT_NAMES[t.pot]}`);
+      if (t.pot && potName(t.pot)) lines.push(`Money from: ${potName(t.pot)}`);
       return lines;
     }
 
@@ -115,7 +118,7 @@
       lines.push(`${t.pnl >= 0 ? '✅ Made' : '❌ Lost'} ${money(Math.abs(t.pnl))} on this trade`);
     }
     lines.push(...whyLines(t, opts.trendOnly));
-    if (t.pot && POT_NAMES[t.pot]) lines.push(`Money from: ${POT_NAMES[t.pot]}`);
+    if (t.pot && potName(t.pot)) lines.push(`Money from: ${potName(t.pot)}`);
     return lines;
   }
 

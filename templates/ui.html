@@ -1065,9 +1065,22 @@
     <div class="pots-move-msg" id="pots-move-msg" role="status"></div>
     <ul class="pots-moves-list" id="pots-moves-list"></ul>
   </div>
+  <div class="pots-move" id="pots-add">
+    <h3>Add a pot</h3>
+    <p class="pots-move-info">A new pot runs one strategy with its own money. It starts with $0: fund it with Move money above.
+      You can remove it later once it holds no cash and no BTC.</p>
+    <div class="pots-move-row">
+      <label style="flex: 1 1 120px;">Name <input type="text" id="pots-add-name" maxlength="12" placeholder="macd" autocomplete="off"></label>
+      <label>Strategy <select id="pots-add-strategy"></select></label>
+      <label style="flex: 0 1 110px;" title="0 = no limit">Buys per day <input type="number" id="pots-add-buys" min="0" max="24" step="1" value="3"></label>
+      <label style="flex: 0 1 120px;">Spend per buy (%) <input type="number" id="pots-add-pct" min="10" max="100" step="1" value="95"></label>
+      <button type="button" id="pots-add-btn">Add pot</button>
+    </div>
+    <div class="pots-move-msg" id="pots-add-msg" role="status"></div>
+  </div>
   <p class="pots-foot">
-    A pot never sells another pot's BTC. The intraday pot is limited to a few buys per day (counted from midnight UTC);
-    its sells are never blocked. Your trades in Manual Trading use the Manual pot only.
+    A pot never sells another pot's BTC. Pots with a buy limit count buys from midnight UTC;
+    sells are never blocked. Your trades in Manual Trading use the Manual pot only.
   </p>
 </section>
 
@@ -1220,6 +1233,9 @@
         actions.push(p.paused ? btn('resume', '', 'Resume buying', 'Resume buying')
                               : btn('pause', '', 'Pause buying', 'Pause buying'));
       }
+      if (p.source === 'dashboard' && !p.holding) {
+        actions.push(btn('remove', 'sell', 'Remove pot', 'Confirm: remove this pot'));
+      }
       const msg = potMsgs[p.name];
       return `
         <div class="pot-card">
@@ -1241,7 +1257,7 @@
     let potArmedTimer = null;
     let potBusy = false;
     const potMsgs = {};    // pot name -> {cls, text}, kept across refreshes
-    const ARM_CONFIRM = new Set(['sell', 'sellpause']);  // these need a second click
+    const ARM_CONFIRM = new Set(['sell', 'sellpause', 'remove']);  // these need a second click
 
     function redrawPots() {
       if (lastData) document.getElementById('pots-grid').innerHTML = lastData.pots.map(card).join('');
@@ -1252,7 +1268,9 @@
       if (ARM_CONFIRM.has(action) && potArmed !== key) {
         potArmed = key;
         const label = (lastData.pots.find(x => x.name === name) || {}).label || name;
-        potMsgs[name] = { cls: '', text: action === 'sellpause'
+        potMsgs[name] = { cls: '', text: action === 'remove'
+          ? `Remove the ${label} pot? It must hold no cash and no BTC. Its trade history is kept. Click again to confirm.`
+          : action === 'sellpause'
           ? `Sell all of the ${label} pot's BTC at the market price, and stop it buying until you resume it? Click again to confirm.`
           : `Sell all of the ${label} pot's BTC at the market price? Click again to confirm.` };
         clearTimeout(potArmedTimer);
@@ -1263,13 +1281,15 @@
       potArmed = null;
       clearTimeout(potArmedTimer);
       potBusy = true;
-      potMsgs[name] = { cls: '', text: ARM_CONFIRM.has(action) ? 'Selling…' : 'Saving…' };
+      const isSell = action === 'sell' || action === 'sellpause';
+      potMsgs[name] = { cls: '', text: isSell ? 'Selling…' : 'Saving…' };
       redrawPots();
-      const isSell = ARM_CONFIRM.has(action);
+      const url = isSell ? '/api/pots/sell' : action === 'remove' ? '/api/pots/remove' : '/api/pots/pause';
       const body = isSell ? { pot: name, pause: action === 'sellpause' }
-                          : { pot: name, paused: action === 'pause' };
+                 : action === 'remove' ? { pot: name }
+                 : { pot: name, paused: action === 'pause' };
       try {
-        const r = await fetch(isSell ? '/api/pots/sell' : '/api/pots/pause', {
+        const r = await fetch(url, {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         }).then(res => res.json());
@@ -1376,6 +1396,49 @@
     }
 
     document.getElementById('pots-move-btn').addEventListener('click', onMove);
+
+    // ---- Add a pot
+    function renderAddForm(data) {
+      const sel = document.getElementById('pots-add-strategy');
+      const keep = sel.value;
+      sel.innerHTML = (data.strategy_choices || []).map(c =>
+        `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('');
+      if (keep) sel.value = keep;
+    }
+
+    async function onAddPot() {
+      const btn = document.getElementById('pots-add-btn');
+      const msg = document.getElementById('pots-add-msg');
+      const nameInput = document.getElementById('pots-add-name');
+      const body = {
+        name: nameInput.value.trim().toLowerCase(),
+        strategy: document.getElementById('pots-add-strategy').value,
+        max_buys_per_day: parseInt(document.getElementById('pots-add-buys').value || '0', 10),
+        order_pct: (parseFloat(document.getElementById('pots-add-pct').value) || 0) / 100,
+      };
+      if (!/^[a-z][a-z0-9_]{0,11}$/.test(body.name)) {
+        msg.className = 'pots-move-msg err';
+        msg.textContent = 'Name: start with a letter, then letters, digits or _ (up to 12).';
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/pots/add', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }).then(res => res.json());
+        msg.className = 'pots-move-msg ' + (r.success ? 'ok' : 'err');
+        msg.textContent = r.success ? r.message + '.' : (r.error || 'Could not add the pot.');
+        if (r.success) nameInput.value = '';
+      } catch (e) {
+        msg.className = 'pots-move-msg err';
+        msg.textContent = 'Could not add the pot (network error).';
+      } finally {
+        btn.disabled = false;
+        loadPots();
+      }
+    }
+    document.getElementById('pots-add-btn').addEventListener('click', onAddPot);
     ['pots-from', 'pots-to', 'pots-amount'].forEach(id =>
       document.getElementById(id).addEventListener('input', () => { if (armed) resetButton(); }));
 
@@ -1389,7 +1452,13 @@
         document.getElementById('pots-sub').textContent =
           `Each pot trades only its own money · ${data.real_money ? 'REAL money' : data.live ? 'dry run (simulated)' : 'paper money (simulated)'}`;
         lastData = data;
+        window.__potMeta = {};
+        data.pots.forEach(p => {
+          if (p.color) POT_COLORS[p.name] = p.color;
+          window.__potMeta[p.name] = { letter: p.letter, label: p.label, color: p.color };
+        });
         document.getElementById('pots-grid').innerHTML = data.pots.map(card).join('');
+        renderAddForm(data);
         renderMoveForm(data);
         renderAlloc(data);
         if (!window.__potsEnabled) {
@@ -1688,6 +1757,15 @@
         intraday: { letter: 'I', label: 'Intraday' },
         manual: { letter: 'M', label: 'Manual' },
       };
+      // Built-in pots above, plus any added ones (from /api/pots, see loadPots)
+      function potChartList() {
+        const list = { ...POT_CHART };
+        Object.entries(window.__potMeta || {}).forEach(([name, m]) => {
+          list[name] = { letter: m.letter, label: m.label };
+        });
+        return list;
+      }
+      const escHtml = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       const hiddenPots = new Set();
       const potOfTrade = (t) => t.pot || 'trend';  // untagged = from before pots (Trend Hold's)
       function togglePotOnChart(name) {
@@ -2074,13 +2152,13 @@
         const legendItems = document.getElementById('legend-items');
         const colors = window.POT_COLORS || {};
         legendContainer.style.display = 'flex';
-        legendItems.innerHTML = Object.entries(POT_CHART).map(([name, p]) => {
+        legendItems.innerHTML = Object.entries(potChartList()).map(([name, p]) => {
           const off = hiddenPots.has(name);
           return `
             <button type="button" class="legend-item legend-pot${off ? ' off' : ''}" onclick="togglePotOnChart('${name}')"
-                    aria-pressed="${!off}" title="${off ? 'Show' : 'Hide'} ${p.label} pot trades">
-              <span class="legend-pot-badge" style="--c:${colors[name] || '#8b949e'}">${p.letter}</span>
-              <span>${p.label}</span>
+                    aria-pressed="${!off}" title="${off ? 'Show' : 'Hide'} ${escHtml(p.label)} pot trades">
+              <span class="legend-pot-badge" style="--c:${colors[name] || '#8b949e'}">${escHtml(p.letter)}</span>
+              <span>${escHtml(p.label)}</span>
             </button>`;
         }).join('') + `
           <div class="legend-item"><span class="legend-dot buy"></span><span>Buy</span></div>
@@ -2236,7 +2314,7 @@
       function drawPotTradeMarkers(visibleTrades) {
         while (chart.data.datasets.length > 2) chart.data.datasets.pop();
         const colors = window.POT_COLORS || {};
-        Object.entries(POT_CHART).forEach(([name, p]) => {
+        Object.entries(potChartList()).forEach(([name, p]) => {
           if (hiddenPots.has(name)) return;
           ['buy', 'sell'].forEach(side => {
             const data = visibleTrades

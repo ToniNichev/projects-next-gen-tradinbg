@@ -156,6 +156,8 @@ class BotConfig:
     pot_intraday_max_buys_per_day: int = 3  # per UTC day; sells are never capped
     pot_intraday_order_pct: float = 0.95  # share of the pot's cash per buy
     pot_trade_alerts: bool = True  # Telegram message on each pot trade
+    # Extra pots after the three built-in ones: "name:strategy[:max_buys[:order_pct]]", comma-separated
+    pots_extra: str = ""
     
     # Dashboard Security Settings
     dashboard_auth_enabled: bool = True  # Enable/disable authentication
@@ -358,6 +360,7 @@ class BotConfig:
             pot_intraday_max_buys_per_day=int(env.get("BOT_POT_INTRADAY_MAX_BUYS_PER_DAY", 3)),
             pot_intraday_order_pct=float(env.get("BOT_POT_INTRADAY_ORDER_PCT", 0.95)),
             pot_trade_alerts=env.get("BOT_POT_TRADE_ALERTS", "true").lower() == "true",
+            pots_extra=env.get("BOT_POTS_EXTRA", ""),
             # Dashboard Security
             dashboard_auth_enabled=env.get("DASHBOARD_AUTH_ENABLED", "true").lower() == "true",
             dashboard_username=env.get("DASHBOARD_USERNAME", "admin"),

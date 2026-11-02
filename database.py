@@ -168,6 +168,22 @@ class PotTransfer(Base):
         return f"<PotTransfer({self.from_pot or 'new'} -> {self.to_pot or 'out'} ${self.amount:.2f})>"
 
 
+class PotDefinition(Base):
+    """A money pot added from the dashboard (pots.py). The three built-in
+    pots and pots listed in BOT_POTS_EXTRA are not stored here."""
+
+    __tablename__ = "pot_definitions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(12), nullable=False, unique=True)
+    label = Column(String(40), nullable=False)
+    strategy = Column(String(30), nullable=False)
+    max_buys_per_day = Column(Integer, nullable=False, default=3)
+    order_pct = Column(Float, nullable=False, default=0.95)
+    created_at = Column(DateTime, nullable=False)
+    removed_at = Column(DateTime)  # set when removed; the name is never reused
+
+
 class Candle(Base):
     """Market data candles for historical analysis"""
 
@@ -676,6 +692,50 @@ class DatabaseManager:
             session.refresh(row)
             session.expunge(row)
             return row
+
+    # ---- pots added from the dashboard
+
+    def add_pot_definition(self, name: str, label: str, strategy: str,
+                           max_buys_per_day: int, order_pct: float) -> None:
+        with self.get_session() as session:
+            session.add(PotDefinition(
+                name=name, label=label, strategy=strategy,
+                max_buys_per_day=int(max_buys_per_day), order_pct=float(order_pct),
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            ))
+
+    def get_pot_definitions(self, include_removed: bool = False) -> List[Dict]:
+        with self.get_session() as session:
+            query = session.query(PotDefinition)
+            if not include_removed:
+                query = query.filter(PotDefinition.removed_at.is_(None))
+            return [{
+                "name": d.name, "label": d.label, "strategy": d.strategy,
+                "max_buys_per_day": d.max_buys_per_day, "order_pct": d.order_pct,
+                "created_at": d.created_at, "removed_at": d.removed_at,
+            } for d in query.order_by(PotDefinition.id).all()]
+
+    def remove_pot_definition(self, name: str) -> bool:
+        with self.get_session() as session:
+            row = session.query(PotDefinition).filter(
+                PotDefinition.name == name, PotDefinition.removed_at.is_(None)).first()
+            if row is None:
+                return False
+            row.removed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            return True
+
+    def pot_name_used(self, name: str) -> bool:
+        """True if any pot ever had this name (paper or live): a new pot with
+        it would pick up that pot's old trades and balances."""
+        tags = [name, f"live-{name}"]
+        with self.get_session() as session:
+            return bool(
+                session.query(PotDefinition.id).filter(PotDefinition.name == name).first()
+                or session.query(Trade.id).filter(Trade.pot.in_(tags)).first()
+                or session.query(Position.id).filter(Position.pot.in_(tags)).first()
+                or session.query(PotTransfer.id).filter(
+                    or_(PotTransfer.from_pot.in_(tags), PotTransfer.to_pot.in_(tags))).first()
+            )
 
     def get_pot_transfers(self, limit: int = 50, pot: Optional[str] = None) -> List[PotTransfer]:
         """Newest first; with pot, only moves into or out of that pot."""
