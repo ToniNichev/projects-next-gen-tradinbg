@@ -184,6 +184,7 @@ class Pot:
     last_signal: Optional[object] = None
     last_note: Optional[str] = None
     start_time: Optional[datetime] = None  # when the pot began (UTC, naive)
+    paused: bool = False                   # True = no new buys until resumed
     _buys: Dict[str, int] = field(default_factory=dict)  # no-DB fallback
 
     @property
@@ -200,6 +201,10 @@ class Pot:
     def value(self, price: float) -> float:
         b = self.balances()
         return float(b["USDT"]) + float(b["BASE"]) * float(price)
+
+
+class PotActionError(ValueError):
+    """A sell-now / pause request that can't be done (shown to the user)."""
 
 
 class TransferError(ValueError):
@@ -260,7 +265,10 @@ class PotManager:
                         pot.strategy, exchange, symbol, timeframe, candle_data,
                     )
                     r["signal"] = pot.last_signal = sig
-                    if sig.direction == "bullish" and not pot.holding and self.cap_reached(pot):
+                    if sig.direction == "bullish" and not pot.holding and pot.paused:
+                        r["note"] = "paused: not buying until you resume it"
+                        logger.info("Pot %s: %s", pot.name, r["note"])
+                    elif sig.direction == "bullish" and not pot.holding and self.cap_reached(pot):
                         r["note"] = f"skipped buy: {pot.max_buys_per_day} buys today already"
                         logger.info("Pot %s: %s", pot.name, r["note"])
                     else:
@@ -295,6 +303,63 @@ class PotManager:
             self.notify(f"{pot.label} pot{mode}: {verb.lower()} BTC", body, severity="info")
         except Exception as exc:
             logger.warning("Pot trade alert failed: %s", exc)
+
+    # ------------------------------------------------------- sell now / pause
+
+    def sell_now(self, name: str, pause: bool = False):
+        """Sell all of one pot's BTC at the market price, booked to that pot.
+        pause=True also stops the pot buying again until resumed.
+        Returns the trade. Raises PotActionError when there's nothing to sell."""
+        pot = self.get(name)
+        if pot is None:
+            raise PotActionError(f"Unknown pot '{name}'")
+        pos = pot.trader.open_position
+        if pos is None:
+            raise PotActionError(f"The {pot.label} pot holds no BTC to sell")
+        if pause and pot.strategy is not None:
+            self.set_paused(name, True)  # first, so a failed sell still stops new buys
+        trade = pot.trader.execute_market_sell(
+            pos.amount, None, exit_reason="manual", is_closing_sell=True,
+        )
+        if trade is None:
+            raise PotActionError(
+                f"The exchange did not take the sell for the {pot.label} pot (see the bot log)")
+        pot.last_note = "sold by you" + (" · paused" if pot.paused else "")
+        self.record_trade(pot, trade)
+        logger.info("Pot %s: sold by you (%.8f BTC @ $%.2f)%s", pot.name,
+                    trade.amount, trade.price, " and paused" if pot.paused else "")
+        return trade
+
+    def set_paused(self, name: str, paused: bool) -> None:
+        """Pause (no new buys) or resume a pot; remembered across restarts."""
+        pot = self.get(name)
+        if pot is None:
+            raise PotActionError(f"Unknown pot '{name}'")
+        if pot.strategy is None:
+            raise PotActionError("The Manual pot only trades when you click, so it has nothing to pause")
+        pot.paused = bool(paused)
+        pot.last_note = "paused: not buying until you resume it" if paused else "resumed"
+        if self.db is not None:
+            try:
+                self.db.set_strategy_config(
+                    f"BOT_INTERNAL_POT_PAUSED_{pot.tag}", "true" if paused else "false",
+                    "str", "pots", "Internal: pot paused by the user (no new buys)",
+                )
+            except Exception as exc:
+                logger.error("Pot %s: could not save pause state: %s", pot.name, exc)
+        logger.info("Pot %s: %s", pot.name, "paused" if paused else "resumed")
+
+    def restore_paused(self) -> None:
+        if self.db is None:
+            return
+        for pot in self.pots.values():
+            try:
+                row = self.db.get_strategy_config(f"BOT_INTERNAL_POT_PAUSED_{pot.tag}")
+                pot.paused = bool(row and str(row.value).lower() == "true")
+            except Exception as exc:
+                logger.warning("Pot %s: could not read pause state: %s", pot.name, exc)
+            if pot.paused:
+                logger.info("Pot %s: paused (not buying until resumed)", pot.name)
 
     # ------------------------------------------------------------ cash moves
 
@@ -512,6 +577,7 @@ class PotManager:
                 "stop_loss": stop,
                 "take_profit": take,
                 "buys_today": self.buys_today(pot),
+                "paused": pot.paused,
                 "max_buys_per_day": pot.max_buys_per_day,
                 "last_signal": {
                     "direction": sig.direction,
@@ -611,4 +677,5 @@ def build_pots(config, *, exchange, db_manager, strategy_manager, trading_mode: 
     )
     manager.restore_transfers()
     manager.restore_start_times()
+    manager.restore_paused()
     return manager

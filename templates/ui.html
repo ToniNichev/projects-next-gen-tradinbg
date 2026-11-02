@@ -965,6 +965,19 @@
   .pot-rows span { color: var(--text-secondary); }
   .pot-rows b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
   .pot-note { font-size: 0.74rem; color: var(--text-secondary); }
+  .pot-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.2rem; }
+  .pot-actions button {
+    flex: 1 1 auto; padding: 0.4rem 0.7rem; border-radius: 9px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    border: 1px solid rgba(83,155,245,0.4); background: rgba(83,155,245,0.12); color: #cfe3ff;
+  }
+  .pot-actions button.sell { border-color: rgba(248,81,73,0.45); background: rgba(248,81,73,0.12); color: #ffb3ad; }
+  .pot-actions button.confirm { border-color: rgba(255,193,7,0.55); background: rgba(255,193,7,0.16); color: #ffe08a; }
+  .pot-actions button:disabled { opacity: 0.5; cursor: default; }
+  .pot-msg { font-size: 0.76rem; }
+  .pot-msg.ok { color: var(--accent-green); }
+  .pot-msg.err { color: var(--accent-red); }
+  .pot-paused { font-size: 0.68rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 999px;
+    background: rgba(255,193,7,0.16); color: #ffe08a; border: 1px solid rgba(255,193,7,0.4); }
   .pots-foot { margin: 0.8rem 0 0; font-size: 0.74rem; color: var(--text-secondary); opacity: 0.85; line-height: 1.45; }
   .pots-move {
     margin-top: 0.9rem; padding: 0.9rem 1rem; border-radius: 14px;
@@ -1190,18 +1203,91 @@
       }
       if (p.max_buys_per_day) rows.push(['Buys today', `${p.buys_today} of ${p.max_buys_per_day}`]);
       if (p.last_signal) rows.push(['Last check', signalWords[p.last_signal.direction] || p.last_signal.direction]);
+      const worth = p.btc * (window.__potsPrice || 0);
+      const btn = (action, cls, text, confirmText) => {
+        const armedHere = potArmed === `${action}:${p.name}`;
+        return `<button type="button" class="${cls}${armedHere ? ' confirm' : ''}" data-pot-action="${action}" data-pot="${esc(p.name)}"
+          ${potBusy ? 'disabled' : ''}>${esc(armedHere ? confirmText : text)}</button>`;
+      };
+      const actions = [];
+      if (p.holding) {
+        actions.push(btn('sell', 'sell', 'Sell now', `Confirm: sell ~${money(worth)} of BTC`));
+        if (p.name !== 'manual' && !p.paused) {
+          actions.push(btn('sellpause', 'sell', 'Sell & pause', `Confirm: sell ~${money(worth)} & pause`));
+        }
+      }
+      if (p.name !== 'manual') {
+        actions.push(p.paused ? btn('resume', '', 'Resume buying', 'Resume buying')
+                              : btn('pause', '', 'Pause buying', 'Pause buying'));
+      }
+      const msg = potMsgs[p.name];
       return `
         <div class="pot-card">
           <div class="pot-top">
             <span class="pot-name" style="--c:${potColor(p.name)}"><span class="pot-dot"></span>${esc(p.label)}</span>
-            <span class="pot-strategy">${p.name === 'manual' ? 'Traded by you' : esc(p.strategy)}</span>
+            <span class="pot-strategy">${p.paused ? '<span class="pot-paused" title="Not buying until you resume it">Paused</span> ' : ''}${p.name === 'manual' ? 'Traded by you' : esc(p.strategy)}</span>
           </div>
           <div class="pot-value">${money(p.value)}</div>
           <div class="pot-pnl ${p.pnl >= 0 ? 'up' : 'down'}">${pnlText(p.pnl, p.pnl_pct)} <span class="pot-strategy">on ${money(p.invested)} put in</span></div>
           <div class="pot-rows">${rows.map(([k, v]) => `<span>${esc(k)}</span><b>${esc(v)}</b>`).join('')}</div>
           ${p.note ? `<div class="pot-note">${esc(p.note)}</div>` : ''}
+          ${actions.length ? `<div class="pot-actions">${actions.join('')}</div>` : ''}
+          ${msg ? `<div class="pot-msg ${msg.cls}">${esc(msg.text)}</div>` : ''}
         </div>`;
     }
+
+    // ---- Sell now / pause, per pot
+    let potArmed = null;   // "action:pot" waiting for a second click
+    let potArmedTimer = null;
+    let potBusy = false;
+    const potMsgs = {};    // pot name -> {cls, text}, kept across refreshes
+    const ARM_CONFIRM = new Set(['sell', 'sellpause']);  // these need a second click
+
+    function redrawPots() {
+      if (lastData) document.getElementById('pots-grid').innerHTML = lastData.pots.map(card).join('');
+    }
+
+    async function onPotAction(action, name) {
+      const key = `${action}:${name}`;
+      if (ARM_CONFIRM.has(action) && potArmed !== key) {
+        potArmed = key;
+        const label = (lastData.pots.find(x => x.name === name) || {}).label || name;
+        potMsgs[name] = { cls: '', text: action === 'sellpause'
+          ? `Sell all of the ${label} pot's BTC at the market price, and stop it buying until you resume it? Click again to confirm.`
+          : `Sell all of the ${label} pot's BTC at the market price? Click again to confirm.` };
+        clearTimeout(potArmedTimer);
+        potArmedTimer = setTimeout(() => { potArmed = null; delete potMsgs[name]; redrawPots(); }, 10000);
+        redrawPots();
+        return;
+      }
+      potArmed = null;
+      clearTimeout(potArmedTimer);
+      potBusy = true;
+      potMsgs[name] = { cls: '', text: ARM_CONFIRM.has(action) ? 'Selling…' : 'Saving…' };
+      redrawPots();
+      const isSell = ARM_CONFIRM.has(action);
+      const body = isSell ? { pot: name, pause: action === 'sellpause' }
+                          : { pot: name, paused: action === 'pause' };
+      try {
+        const r = await fetch(isSell ? '/api/pots/sell' : '/api/pots/pause', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }).then(res => res.json());
+        potMsgs[name] = r.success ? { cls: 'ok', text: r.message + '.' }
+                                  : { cls: 'err', text: r.error || 'It did not work.' };
+      } catch (e) {
+        potMsgs[name] = { cls: 'err', text: 'Network error: check the pot before trying again.' };
+      } finally {
+        potBusy = false;
+        setTimeout(() => { delete potMsgs[name]; }, 60000);
+        loadPots();
+      }
+    }
+
+    document.getElementById('pots-grid').addEventListener('click', (ev) => {
+      const b = ev.target.closest('button[data-pot-action]');
+      if (b && !b.disabled) onPotAction(b.dataset.potAction, b.dataset.pot);
+    });
 
     // ---- Move money
     let lastData = null;
@@ -1302,6 +1388,7 @@
         panel.style.display = '';
         document.getElementById('pots-sub').textContent =
           `Each pot trades only its own money · ${data.real_money ? 'REAL money' : data.live ? 'dry run (simulated)' : 'paper money (simulated)'}`;
+        lastData = data;
         document.getElementById('pots-grid').innerHTML = data.pots.map(card).join('');
         renderMoveForm(data);
         renderAlloc(data);

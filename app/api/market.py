@@ -485,6 +485,83 @@ def transfer_pot_cash():
         return jsonify({"success": False, "error": str(exc)}), 500
 
 
+@market_bp.route("/api/pots/sell", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def sell_pot_now():
+    """Sell all of one pot's BTC now: {"pot": "trend", "pause": true|false}.
+    pause=true also stops that pot buying again until it is resumed."""
+    from pots import PotActionError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    params = request.get_json(silent=True) or {}
+    name = str(params.get("pot", ""))
+    pause = bool(params.get("pause", False))
+    lock = app_state.get_trader_lock()
+    try:
+        with lock if lock else nullcontext():
+            trade = pots.sell_now(name, pause=pause)
+            pot = pots.get(name)
+            balances = pot.balances()
+            paused = pot.paused
+            if pot.trader is app_state.get_trader():  # the main panels show this pot
+                pos = pot.trader.open_position  # None unless the sell was partial
+                app_state.update_trading_state(
+                    usdt_balance=pot.trader.usdt_balance, base_balance=pot.trader.base_balance,
+                    position_open=pos is not None,
+                    position_entry_price=pos.entry_price if pos else 0.0,
+                    position_amount=pos.amount if pos else 0.0,
+                    position_side="long" if pos else "none",
+                    stop_loss=pos.stop_loss if pos else 0.0,
+                    take_profit=pos.take_profit if pos else 0.0,
+                    trailing_stop=pos.trailing_stop if pos else 0.0,
+                )
+        return jsonify({
+            "success": True,
+            "message": (f"Sold {trade.amount:.6f} BTC at ${trade.price:,.2f} (${trade.notional:,.2f})"
+                        + (". The pot is paused" if paused else "")),
+            "trade": trade.to_dict(),
+            "balances": balances,
+            "paused": paused,
+        })
+    except PotActionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("sell_pot_now failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@market_bp.route("/api/pots/pause", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def pause_pot():
+    """Pause (no new buys) or resume a pot: {"pot": "trend", "paused": true|false}."""
+    from pots import PotActionError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    params = request.get_json(silent=True) or {}
+    name = str(params.get("pot", ""))
+    paused = bool(params.get("paused", True))
+    lock = app_state.get_trader_lock()
+    try:
+        with lock if lock else nullcontext():
+            pots.set_paused(name, paused)
+            label = pots.get(name).label
+        return jsonify({"success": True, "paused": paused,
+                        "message": f"{label} pot {'paused: it will not buy' if paused else 'resumed'}"})
+    except PotActionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("pause_pot failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
 @market_bp.route("/api/pots/performance")
 @limiter.limit("30 per minute")
 @require_auth
