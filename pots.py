@@ -784,6 +784,36 @@ class PotManager:
             self._mismatch_alerted = False
         return problems
 
+    def account_check(self) -> Optional[Dict]:
+        """Live: what the exchange account holds next to what the pots book.
+
+        Uses the balance read by the last sync (unassigned_cash() or
+        reconcile() refresh it). None when not real money or never synced.
+        "Left over" is money in the account that no pot owns: unassigned
+        cash, and BTC dust left by fees and rounding.
+        """
+        if not self._real_money():
+            return None
+        traders = self.traders()
+        ex = traders[0].exchange_balances if traders else None
+        if not ex:
+            return None
+        pots_cash = sum(t.usdt_balance for t in traders)
+        pots_btc = sum(t.base_balance for t in traders)
+        usd, btc = float(ex.get("USDT_total", 0.0)), float(ex.get("BASE_total", 0.0))
+        cash_short = pots_cash - usd > max(0.5, pots_cash * 0.01)
+        btc_short = pots_btc - btc > 2e-05
+        return {
+            "usd": usd,
+            "btc": btc,
+            "btc_locked": max(0.0, btc - float(ex.get("BASE_free", btc))),
+            "pots_usd": pots_cash,
+            "pots_btc": pots_btc,
+            "left_usd": max(0.0, usd - pots_cash),
+            "left_btc": max(0.0, btc - pots_btc),
+            "matches": not (cash_short or btc_short),
+        }
+
     # -------------------------------------------------------------- dashboard
 
     def summary(self, price: float) -> Dict:

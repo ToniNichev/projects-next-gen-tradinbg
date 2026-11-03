@@ -535,6 +535,7 @@ def get_pots():
             except Exception as exc:
                 logger.warning("Could not read unassigned cash: %s", exc)
                 data["unassigned"] = None
+            data["account"] = pots.account_check()
         return jsonify({"success": True, "enabled": True, **data})
     except Exception as exc:
         logger.error("get_pots failed: %s", exc, exc_info=True)

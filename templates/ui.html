@@ -166,6 +166,12 @@
     border-radius: 18px;
   }
   .mt-head:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: -2px; }
+  /* The whole bar opens the panel; make that visible on hover */
+  .mt-head { transition: background 0.15s ease; }
+  .mt-head:hover { background: rgba(255, 255, 255, 0.035); }
+  .mt-head:hover .mt-chevron { color: var(--text-primary); border-color: rgba(83, 155, 245, 0.5); background: rgba(83, 155, 245, 0.12); }
+  .mt-toggle-label { font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+  .mt-head:hover .mt-toggle-label { color: var(--text-primary); }
   .mt-icon {
     display: grid; place-items: center; flex: none;
     width: 36px; height: 36px; border-radius: 11px;
@@ -210,6 +216,7 @@
     .mt-head { padding: 0.9rem 0.75rem; }
     #manual-trading-body { padding: 0 0.75rem 0.9rem; }
     .mt-summary .mt-pill.secondary { display: none; }
+    .mt-toggle-label { display: none; }
     .mt-sub { display: none; }
   }
 
@@ -837,6 +844,24 @@
   .pots-alloc-legend { display: inline-flex; align-items: center; gap: 0.3rem; }
   .pots-swatch { display: inline-block; width: 16px; height: 9px; border-radius: 3px; }
 
+  /* Where the money is: the table under the bar */
+  .money-table { width: 100%; border-collapse: collapse; margin-top: 0.7rem; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+  .money-table th { text-align: left; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); padding: 0.35rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .money-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+  .money-table .num { text-align: right; white-space: nowrap; }
+  .money-table tfoot td { border-bottom: 0; border-top: 1px solid rgba(255,255,255,0.14); font-weight: 650; }
+  .money-table .muted { color: var(--text-secondary); }
+  .money-table .mt-sub-val { display: block; font-size: 0.72rem; color: var(--text-secondary); }
+  .money-note { font-size: 0.74rem; color: var(--text-secondary); margin-top: 0.4rem; }
+  .money-check { font-size: 0.78rem; margin-top: 0.45rem; padding: 0.45rem 0.65rem; border-radius: 8px; }
+  .money-check.ok { color: var(--accent-green); background: rgba(88, 214, 141, 0.08); border: 1px solid rgba(88, 214, 141, 0.2); }
+  .money-check.bad { color: var(--accent-red); background: rgba(255, 94, 87, 0.08); border: 1px solid rgba(255, 94, 87, 0.3); }
+  @media (max-width: 720px) {
+    .money-table { font-size: 0.76rem; }
+    .money-table th, .money-table td { padding: 0.4rem 0.3rem; }
+    .money-table .hide-sm { display: none; }
+  }
+
   /* Results over time */
   .pots-perf { margin-bottom: 1rem; }
   .pots-perf-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1rem; margin-bottom: 0.5rem; font-size: 0.78rem; color: var(--text-secondary); }
@@ -1025,18 +1050,64 @@
                   <div class="cash" style="width:${(1 - btcShare) * 100}%"></div>
                 </div>`;
       }).join('');
-      const keys = data.pots.map(p => {
-        const btcShare = p.value > 0 ? Math.round(p.btc * data.price / p.value * 100) : 0;
-        return `<span style="--c:${potColor(p.name)}"><span class="pot-dot"></span>${esc(p.label)} <b>${money(p.value)}</b> · ${btcShare}% in BTC</span>`;
-      }).join('');
-      const c = '#8b949e';
       document.getElementById('pots-alloc').innerHTML = `
         <div class="pots-section-title">Where the money is</div>
         <div class="pots-alloc-bar">${segs}</div>
-        <div class="pots-alloc-keys">${keys}
-          <span class="pots-alloc-legend"><span class="pots-swatch" style="background:${c}"></span>BTC</span>
-          <span class="pots-alloc-legend"><span class="pots-swatch" style="background:repeating-linear-gradient(135deg, ${c}88 0 4px, ${c}33 4px 8px)"></span>cash</span>
-        </div>`;
+        ${moneyTable(data)}`;
+    }
+
+    // One row per pot, plus money in the account that no pot owns, and a check
+    // that it all adds up to what the exchange holds
+    function moneyTable(data) {
+      const price = data.price || 0;
+      const acct = data.account;
+      const btcCell = (btc) => btc > 0
+        ? `${Number(btc).toFixed(8)}<span class="mt-sub-val">${money(btc * price)}</span>`
+        : '<span class="muted">—</span>';
+      const rows = data.pots.map(p => ({
+        label: `<span style="--c:${potColor(p.name)}"><span class="pot-dot"></span>${esc(p.label)}</span>`,
+        cash: p.cash, btc: p.btc,
+      }));
+      const left = acct
+        ? { usd: acct.left_usd, btc: acct.left_btc }
+        : { usd: Math.max(0, Number(data.unassigned) || 0), btc: 0 };
+      if (left.usd >= 0.01) {
+        rows.push({ label: '<span class="muted" title="Cash in the account that no pot owns yet. Use Move money to give it to a pot.">Unassigned cash</span>', cash: left.usd, btc: 0 });
+      }
+      if (left.btc > 0) {
+        rows.push({ label: '<span class="muted" title="Tiny BTC left over after sales: fees are paid in BTC and amounts are rounded down to the exchange step (0.00001 BTC). Too small to sell on its own.">Leftover BTC (dust)</span>', cash: 0, btc: left.btc });
+      }
+      // With the account known, the total row is exactly what the exchange holds
+      const sumCash = acct ? acct.usd : rows.reduce((a, r) => a + r.cash, 0);
+      const sumBtc = acct ? acct.btc : rows.reduce((a, r) => a + r.btc, 0);
+      const grand = sumCash + sumBtc * price;
+      const body = rows.map(r => {
+        const total = r.cash + r.btc * price;
+        return `<tr><td>${r.label}</td>
+          <td class="num">${r.cash >= 0.005 ? money(r.cash) : '<span class="muted">—</span>'}</td>
+          <td class="num">${btcCell(r.btc)}</td>
+          <td class="num"><b>${money(total)}</b></td>
+          <td class="num hide-sm">${grand > 0 ? Math.round(total / grand * 100) : 0}%</td></tr>`;
+      }).join('');
+      let check = '';
+      if (acct) {
+        const locked = acct.btc_locked > 1e-8
+          ? ` (${Number(acct.btc_locked).toFixed(8)} BTC of it is held by a safety stop order, ready to sell)` : '';
+        check = acct.matches
+          ? `<div class="money-check ok">✓ Matches your Binance.US account: ${money(acct.usd)} USD and ${Number(acct.btc).toFixed(8)} BTC${locked}.</div>`
+          : `<div class="money-check bad">⚠ Doesn't match Binance.US: the pots book ${money(acct.pots_usd)} and ${Number(acct.pots_btc).toFixed(8)} BTC, but the account has ${money(acct.usd)} and ${Number(acct.btc).toFixed(8)} BTC. Check the account before trading.</div>`;
+      }
+      return `<table class="money-table">
+          <thead><tr><th>Where</th><th class="num">Cash (USD)</th><th class="num">BTC</th><th class="num">Total</th><th class="num hide-sm">Share</th></tr></thead>
+          <tbody>${body}</tbody>
+          <tfoot><tr><td>${acct ? 'Whole account' : 'All pots'}</td>
+            <td class="num">${money(sumCash)}</td>
+            <td class="num">${btcCell(sumBtc)}</td>
+            <td class="num"><b>${money(grand)}</b></td>
+            <td class="num hide-sm">100%</td></tr></tfoot>
+        </table>
+        <div class="money-note">BTC valued at ${money(price, 0)}. In the bar, solid = BTC and striped = cash. ${grand > 0 ? `${Math.round(sumCash / grand * 100)}% cash, ${Math.round(sumBtc * price / grand * 100)}% BTC.` : ''}</div>
+        ${check}`;
     }
 
     let perfChart = null;
@@ -1557,6 +1628,7 @@
       <div class="mt-sub">Place a trade yourself — the bot keeps running</div>
     </span>
     <span class="mt-summary" id="mt-summary"></span>
+    <span class="mt-toggle-label" id="mt-toggle-label">Show</span>
     <span class="mt-chevron" id="manual-trading-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
   </button>
   <div id="manual-trading-body" style="display:none;">
@@ -4821,6 +4893,7 @@
         body.style.display = opening ? 'block' : 'none';
         panel.classList.toggle('open', opening);
         panel.querySelector('.mt-head').setAttribute('aria-expanded', String(opening));
+        document.getElementById('mt-toggle-label').textContent = opening ? 'Hide' : 'Show';
       }
       
     </script>
