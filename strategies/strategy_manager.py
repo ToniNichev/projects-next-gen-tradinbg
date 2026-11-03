@@ -104,6 +104,43 @@ class StrategyManager:
         )
         return signal
 
+    def backfill_history(self, strategy: BaseStrategy, exchange, symbol: str, timeframe: str,
+                         closed_candles: list, points: int = 24) -> int:
+        """After a restart the chart history is empty (it lives in memory), so
+        a strategy's chart showed "waiting" for hours. Rebuild its last
+        `points` values from the closed candles we already have.
+
+        Runs on a throwaway copy of the strategy, so nothing it remembers
+        between candles changes; only the dashboard history is filled.
+        Returns how many points were added."""
+        hist = self.signal_history.setdefault(strategy.name, deque(maxlen=50))
+        if len(hist) >= 2 or len(closed_candles) < points + 30:
+            return 0
+        try:
+            import copy
+            shadow = copy.deepcopy(strategy)
+        except Exception as exc:
+            self.logger.debug("[%s] no history backfill (can't copy): %s", strategy.name, exc)
+            return 0
+        added = []
+        # Up to (not including) the newest candle: the caller computes that one
+        for k in range(points, 0, -1):
+            try:
+                sig = shadow.compute_signal(exchange, symbol, timeframe, closed_candles[:-k])
+            except Exception:
+                continue
+            added.append({
+                "t": sig.timestamp.isoformat() if sig.timestamp else None,
+                "d": sig.direction,
+                "c": round(sig.confidence, 3),
+                "i": dict(sig.indicators or {}),
+            })
+        known = {h.get("t") for h in hist}
+        added = [h for h in added if h["t"] not in known]
+        for h in reversed(added):
+            hist.appendleft(h)
+        return len(added)
+
     def get_strategy(self, name: str) -> Optional[BaseStrategy]:
         """The strategy with this internal name (enabled or not)."""
         return self._get_strategy_by_name(name)

@@ -4191,7 +4191,7 @@
                 <div class="pos-amount">${pos.amount.toFixed(6)} BTC</div>
               </div>
               <div class="pos-pnl ${up ? 'positive' : 'negative'}" title="If sold now, after the estimated sell fee (${fmtUsd(pos.sell_fee || 0, 4)})">
-                <b>${sign}${fmtUsd(Math.abs(net))}</b>
+                <b>${sign}${fmtUsd(Math.abs(net), Math.abs(net) < 1 ? 4 : 2)}</b>
                 <span>${sign}${Math.abs(pnlPct).toFixed(2)}%</span>
               </div>
             </div>
@@ -4438,7 +4438,7 @@
             </div>
             <div class="preview-item">
               <span class="preview-label">Gain/loss after fee:</span>
-              <span class="preview-value ${pnlClass}">${pnlSign}$${Math.abs(net).toFixed(2)}</span>
+              <span class="preview-value ${pnlClass}">${pnlSign}$${Math.abs(net).toFixed(Math.abs(net) < 1 ? 4 : 2)}${pos.entry_price * pos.amount ? ` (${pnlSign}${Math.abs(net / (pos.entry_price * pos.amount) * 100).toFixed(2)}%)` : ''}</span>
             </div>
             <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-size: 0.875rem;">
               Sells the Manual pot's BTC at the market price, right away.${realMoneyNote()}

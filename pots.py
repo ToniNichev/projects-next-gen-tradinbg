@@ -333,6 +333,11 @@ class PotManager:
                 if pot.strategy.name in done:
                     pot.last_signal = strategy_manager.last_signals.get(pot.strategy.name)
                     continue
+                # Rebuild the last day of its dashboard chart (empty after a restart)
+                try:
+                    strategy_manager.backfill_history(pot.strategy, exchange, symbol, timeframe, closed)
+                except Exception as exc:
+                    logger.debug("Pot %s: chart history backfill skipped: %s", pot.name, exc)
                 pot.last_signal = strategy_manager.compute_signal_for(
                     pot.strategy, exchange, symbol, timeframe, closed,
                 )
