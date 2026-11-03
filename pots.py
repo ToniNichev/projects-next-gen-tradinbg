@@ -30,9 +30,10 @@ from paper_trader import PaperTrader
 from strategies.constants import StrategyNames
 
 try:
-    from live_trader import LiveTrader, TradingMode
+    from live_trader import LiveTrader, TradingMode, _PEAK_PORTFOLIO_EQUITY_KEY as PEAK_EQUITY_KEY
     LIVE_TRADER_AVAILABLE = True
 except ImportError:  # pragma: no cover
+    PEAK_EQUITY_KEY = "BOT_INTERNAL_PEAK_PORTFOLIO_EQUITY"
     LIVE_TRADER_AVAILABLE = False
     LiveTrader = object  # type: ignore
 
@@ -370,6 +371,90 @@ class PotManager:
                 logger.error("Pot %s: could not save pause state: %s", pot.name, exc)
         logger.info("Pot %s: %s", pot.name, "paused" if paused else "resumed")
 
+    # ------------------------------------------------- loss limit (drawdown)
+    # A live pot stops buying once its value falls max_portfolio_drawdown
+    # below the best value seen at a buy (LiveTrader._check_portfolio_peak_
+    # drawdown). The best value is kept per pot in strategy_config.
+
+    def _peak_key(self, pot: "Pot") -> str:
+        return f"{PEAK_EQUITY_KEY}_{pot.tag}"
+
+    def _read_peak(self, pot: "Pot") -> Optional[float]:
+        if self.db is None:
+            return None
+        try:
+            row = self.db.get_strategy_config(self._peak_key(pot))
+            value = float(row.value) if row and row.value else 0.0
+            return value if value > 0 else None
+        except Exception as exc:
+            logger.debug("Pot %s: could not read its best value: %s", pot.name, exc)
+            return None
+
+    def _write_peak(self, pot: "Pot", value: float) -> None:
+        if self.db is None:
+            return
+        self.db.set_strategy_config(self._peak_key(pot), str(max(0.0, float(value))), "float", "risk",
+                                    "Internal: peak portfolio equity (USDT) for drawdown limit")
+
+    def _shift_peak(self, pot: "Pot", delta: float) -> None:
+        """Money moved in or out isn't a gain or loss: move the best value with it."""
+        peak = self._read_peak(pot)
+        if peak is None:
+            return  # none yet: it's taken at the pot's next buy
+        try:
+            self._write_peak(pot, peak + delta)
+        except Exception as exc:
+            logger.warning("Pot %s: could not adjust its best value: %s", pot.name, exc)
+
+    def loss_limit(self, pot: "Pot", price: float) -> Dict:
+        """Where a pot stands against the loss limits that stop new buys."""
+        trader = pot.trader
+        cfg = getattr(trader, "config", None)  # practice (paper) pots have none and no limit
+        enabled = bool(getattr(cfg, "portfolio_drawdown_kill_enabled", False)) and self.live
+        limit = float(getattr(cfg, "max_portfolio_drawdown", 0.0) or 0.0) if cfg is not None else 0.0
+        equity = float(trader.usdt_balance) + float(trader.base_balance) * float(price)
+        peak = self._read_peak(pot) if enabled else None
+        drop = max(0.0, (peak - equity) / peak) if peak else None
+        halted = bool(getattr(trader, "portfolio_buy_halt", False))
+        # Daily loss limit: losses booked today beyond limit x starting money
+        daily_hit = False
+        daily_pnl = float(getattr(trader, "daily_pnl", 0.0) or 0.0)
+        reset_at = getattr(trader, "daily_reset_time", None)
+        if reset_at is not None and datetime.now(timezone.utc) >= reset_at:
+            daily_pnl = 0.0  # a new day has started; the trader resets on its next check
+        initial = float(getattr(trader, "initial_usdt", 0.0) or 0.0)
+        if self.live and limit > 0 and initial > 0 and daily_pnl < -initial * limit:
+            daily_hit = True
+        return {
+            "enabled": enabled,
+            "limit_pct": limit * 100,
+            "peak": peak,
+            "value": equity,
+            "drop_pct": drop * 100 if drop is not None else None,
+            "halted": enabled and halted,
+            "daily_loss_hit": daily_hit,
+            "daily_pnl": daily_pnl,
+        }
+
+    def reset_loss_limit(self, name: str, price: float) -> Dict:
+        """Let a pot stopped by the loss limit buy again. Its value now
+        becomes its new best value, so the limit counts from here."""
+        pot = self.get(name)
+        if pot is None:
+            raise PotActionError(f"Unknown pot '{name}'")
+        if pot.strategy is None:
+            raise PotActionError("The Manual pot only buys when you click")
+        status = self.loss_limit(pot, price)
+        if not status["halted"]:
+            raise PotActionError(f"{pot.label} isn't stopped by the loss limit")
+        old_peak = status["peak"]
+        self._write_peak(pot, status["value"])
+        pot.trader.portfolio_buy_halt = False
+        pot.last_note = "loss limit reset by you: it counts from today's value"
+        logger.warning("Pot %s: loss limit reset by the user (best value $%.2f -> $%.2f)",
+                       pot.name, old_peak or 0.0, status["value"])
+        return {"old_peak": old_peak, "new_peak": status["value"]}
+
     def restore_paused(self) -> None:
         if self.db is None:
             return
@@ -629,6 +714,11 @@ class PotManager:
         for p in (src, dst):
             if p is not None:
                 self.refresh_limits(p)
+        # Moved money isn't a loss or a gain for the loss limit either
+        if src is not None:
+            self._shift_peak(src, -amount)
+        if dst is not None:
+            self._shift_peak(dst, amount)
         label = lambda p, name: p.label if p else ("new money" if name == source else "unassigned")
         message = f"Moved ${amount:.2f} from {label(src, source)} to {label(dst, target)}"
         logger.info("Pots: %s", message)
@@ -701,6 +791,7 @@ class PotManager:
                 "take_profit": take,
                 "buys_today": self.buys_today(pot),
                 "paused": pot.paused,
+                "loss_limit": self.loss_limit(pot, price),
                 "source": pot.source,
                 **self.pot_style(pot.name),
                 "max_buys_per_day": pot.max_buys_per_day,

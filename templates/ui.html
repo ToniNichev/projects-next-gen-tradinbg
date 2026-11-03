@@ -745,7 +745,14 @@
     border: 1px solid rgba(83,155,245,0.4); background: rgba(83,155,245,0.12); color: #cfe3ff;
   }
   .pot-actions button.sell { border-color: rgba(255,94,87,0.45); background: rgba(255,94,87,0.12); color: #ffb3ad; }
-  .pot-actions button.confirm { border-color: rgba(255,193,7,0.55); background: rgba(255,193,7,0.16); color: #ffe08a; }
+  .pot-actions button.warn { border-color: rgba(255,193,7,0.55); background: rgba(255,193,7,0.14); color: #ffe08a; }
+  .pot-alert {
+    margin-top: 0.6rem; padding: 0.55rem 0.7rem; border-radius: 10px; font-size: 0.76rem; line-height: 1.4;
+    color: #ffb3ad; background: rgba(255,94,87,0.1); border: 1px solid rgba(255,94,87,0.35);
+  }
+  .pot-alert b { color: var(--accent-red); }
+  .pot-alert.warn { color: #ffe08a; background: rgba(255,193,7,0.08); border-color: rgba(255,193,7,0.35); }
+  .pot-alert.warn b { color: #ffc266; }
   .pot-actions button:disabled { opacity: 0.5; cursor: default; }
   .pot-msg { font-size: 0.76rem; }
   .pot-msg.ok { color: var(--accent-green); }
@@ -834,6 +841,12 @@
   .pots-perf { margin-bottom: 1rem; }
   .pots-perf-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1rem; margin-bottom: 0.5rem; font-size: 0.78rem; color: var(--text-secondary); }
   .pots-perf-legend .legend-line { display: inline-block; width: 16px; height: 3px; border-radius: 2px; background: var(--c); margin-right: 0.35rem; vertical-align: middle; }
+  .perf-legend-btn {
+    display: inline-flex; align-items: center; gap: 0; padding: 0.15rem 0.5rem; border-radius: 999px;
+    font: inherit; color: inherit; cursor: pointer; background: transparent; border: 1px solid transparent;
+  }
+  .perf-legend-btn:hover { border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); }
+  .perf-legend-btn.off { opacity: 0.4; text-decoration: line-through; }
   .pots-perf-legend .legend-line.dashed { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 7px); }
   .pots-perf-wrap {
     position: relative; height: 240px; padding: 0.6rem 0.4rem 0.2rem 0.2rem; border-radius: 14px;
@@ -956,7 +969,7 @@
     <div class="pots-vs" id="pots-vs"></div>
     <div class="pots-perf-legend" id="pots-perf-legend"></div>
     <div class="pots-perf-wrap"><canvas id="potsPerfChart"></canvas></div>
-    <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss. Badges mark each pot's buys and sells; hover one for details.</p>
+    <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss. Badges mark each pot's buys and sells; hover one for details. Click a name above the chart to hide or show its line.</p>
   </div>
   <div class="pots-grid" id="pots-grid"><div class="signals-empty">Loading…</div></div>
   <details class="pots-move" id="pots-move">
@@ -1027,6 +1040,19 @@
     }
 
     let perfChart = null;
+    const perfHidden = new Set();  // lines hidden from the pots chart (kept across refreshes)
+    document.getElementById('pots-perf-legend').addEventListener('click', (ev) => {
+      const b = ev.target.closest('button[data-perf-key]');
+      if (!b) return;
+      const key = b.dataset.perfKey;
+      if (perfHidden.has(key)) perfHidden.delete(key); else perfHidden.add(key);
+      b.classList.toggle('off', perfHidden.has(key));
+      b.setAttribute('aria-pressed', String(!perfHidden.has(key)));
+      if (perfChart) {
+        perfChart.data.datasets.forEach(d => { d.hidden = perfHidden.has(d.$key); });
+        perfChart.update('none');
+      }
+    });
     function perfTick(v) {
       const n = Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 1 });
       return (v > 0 ? '+' : v < 0 ? '−' : '') + n + '%';
@@ -1048,10 +1074,10 @@
         });
         const datasets = data.pots.map(p => line(labelOf[p.name] || p.label, potColor(p.name),
           p.points.map(q => ({ x: new Date(q.time).getTime(), y: q.pct, value: q.value, invested: q.invested, holding: q.holding })),
-          { $pot: true }));
+          { $pot: true, $key: p.name }));
         datasets.push(line('Just holding BTC', HOLD_COLOR,
           data.hold.map(q => ({ x: new Date(q.time).getTime(), y: q.pct, price: q.price })),
-          { borderDash: [5, 4], borderWidth: 1.6, $hold: true }));
+          { borderDash: [5, 4], borderWidth: 1.6, $hold: true, $key: 'hold' }));
 
         // Buy/sell badges on each pot's line, at the hourly close that covers the trade
         const GRACE = 5 * 60 * 1000;
@@ -1069,7 +1095,7 @@
             const mine = trades.filter(t => t.pot === pot && (side === 'buy') === (t.side === 'buy'));
             if (!mine.length) return;
             datasets.push({
-              label: `${d.label} ${side}s`, $trade: true, type: 'scatter', data: mine.map(onLine),
+              label: `${d.label} ${side}s`, $trade: true, $key: pot, type: 'scatter', data: mine.map(onLine),
               pointStyle: tradeMarkerImage(side, potColor(pot)), pointRadius: 10, pointHoverRadius: 10,
               showLine: false, clip: false, order: -1,
             });
@@ -1106,9 +1132,15 @@
           `<div class="pots-vs-tile hold" style="--c:${HOLD_COLOR}"><div class="n">Just holding BTC</div>
              <div class="v">${perfTick(lastHold.pct)}</div><div class="e">since ${since} · BTC ${money(lastHold.price, 0)}</div></div>`;
 
+        // Click a legend entry to hide or show that line (and the pot's trade badges)
+        const legendBtn = (key, color, label, dashed) =>
+          `<button type="button" class="perf-legend-btn${perfHidden.has(key) ? ' off' : ''}" data-perf-key="${esc(key)}"
+             style="--c:${color}" aria-pressed="${!perfHidden.has(key)}" title="Show or hide this line">
+             <span class="legend-line${dashed ? ' dashed' : ''}"></span>${esc(label)}</button>`;
         document.getElementById('pots-perf-legend').innerHTML =
-          data.pots.map(p => `<span style="--c:${potColor(p.name)}"><span class="legend-line"></span>${esc(labelOf[p.name] || p.label)}</span>`).join('')
-          + `<span style="--c:${HOLD_COLOR}"><span class="legend-line dashed"></span>Just holding BTC</span>`;
+          data.pots.map(p => legendBtn(p.name, potColor(p.name), labelOf[p.name] || p.label)).join('')
+          + legendBtn('hold', HOLD_COLOR, 'Just holding BTC', true);
+        datasets.forEach(d => { d.hidden = perfHidden.has(d.$key); });
 
         const xs = data.hold.map(q => new Date(q.time).getTime());
         const spanDays = (xs[xs.length - 1] - xs[0]) / 864e5;
@@ -1202,6 +1234,10 @@
       }
       if (p.max_buys_per_day) rows.push(['Buys today', `${p.buys_today} of ${p.max_buys_per_day}`]);
       if (p.last_signal) rows.push(['Last check', signalWords[p.last_signal.direction] || p.last_signal.direction]);
+      const ll = p.loss_limit || {};
+      if (ll.enabled && ll.drop_pct !== null && ll.drop_pct !== undefined && p.strategy !== 'You') {
+        rows.push(['From its best', `−${ll.drop_pct.toFixed(1)}% (stops buying at −${Math.round(ll.limit_pct)}%)`]);
+      }
       const btn = (action, cls, text) =>
         `<button type="button" class="${cls}" data-pot-action="${action}" data-pot="${esc(p.name)}"
           ${potBusy ? 'disabled' : ''}>${esc(text)}</button>`;
@@ -1219,6 +1255,7 @@
       if (p.source === 'dashboard' && !p.holding) {
         actions.push(btn('remove', 'sell', 'Remove pot'));
       }
+      if (ll.halted) actions.unshift(btn('resetlimit', 'warn', 'Allow buying again'));
       const msg = potMsgs[p.name];
       return `
         <div class="pot-card">
@@ -1230,6 +1267,7 @@
           <div class="pot-pnl ${p.pnl >= 0 ? 'up' : 'down'}">${pnlText(p.pnl, p.pnl_pct)} <span class="pot-strategy">on ${money(p.invested)} put in</span></div>
           <div class="pot-rows">${rows.map(([k, v]) => `<span>${esc(k)}</span><b>${esc(v)}</b>`).join('')}</div>
           ${p.note ? `<div class="pot-note">${esc(p.note)}</div>` : ''}
+          ${lossAlert(p)}
           ${actions.length ? `<div class="pot-actions">${actions.join('')}</div>` : ''}
           ${msg ? `<div class="pot-msg ${msg.cls}">${esc(msg.text)}</div>` : ''}
         </div>`;
@@ -1238,10 +1276,35 @@
     // ---- Sell now / pause, per pot
     let potBusy = false;
     const potMsgs = {};    // pot name -> {cls, text}, kept across refreshes
-    const ASK_FIRST = new Set(['sell', 'sellpause', 'remove']);  // these move money: confirm box first
+    const ASK_FIRST = new Set(['sell', 'sellpause', 'remove', 'resetlimit']);  // these move money or risk: confirm box first
+
+    // Why a pot isn't buying because of a loss limit (empty when it can buy)
+    function lossAlert(p) {
+      const ll = p.loss_limit || {};
+      if (ll.halted) {
+        return `<div class="pot-alert"><b>Buying stopped by the loss limit.</b> This pot fell
+          ${ll.drop_pct != null ? ll.drop_pct.toFixed(1) + '%' : 'too far'} below its best value
+          (${ll.peak ? money(ll.peak) : '?'} → ${money(ll.value)}). The ${Math.round(ll.limit_pct)}% limit stops new buys;
+          selling still works. It stays stopped until you allow buying again.</div>`;
+      }
+      if (ll.daily_loss_hit) {
+        return `<div class="pot-alert warn"><b>Daily loss limit reached.</b> This pot lost ${money(Math.abs(ll.daily_pnl))} today,
+          so it won't buy again until midnight UTC (<span class="utc-midnight-local">${midnightLocal()}</span> your time). Selling still works.</div>`;
+      }
+      return '';
+    }
 
     // The confirm box for a pot action: what happens, to which pot, how much
     function potConfirm(action, p) {
+      if (action === 'resetlimit') {
+        const ll = p.loss_limit || {};
+        const row = (k, v) => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value">${v}</span></div>`;
+        return { title: `Let the ${p.label} pot buy again?`, confirmText: 'Allow buying again',
+          html: row('Pot', esc(p.label)) + row('Best value', ll.peak ? money(ll.peak) : '—') +
+                row('Value now', money(ll.value)) + row('Down', ll.drop_pct != null ? `${ll.drop_pct.toFixed(1)}%` : '—') +
+                `<div class="modal-note">The pot will buy again on its next signal. Its value now (${money(ll.value)}) becomes
+                 its new best value, so it stops again only if it falls another ${Math.round(ll.limit_pct)}% from here.</div>` };
+      }
       const worth = p.btc * (window.__potsPrice || 0);
       const row = (k, v) => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value">${v}</span></div>`;
       if (action === 'remove') {
@@ -1270,9 +1333,10 @@
       const isSell = action === 'sell' || action === 'sellpause';
       potMsgs[name] = { cls: '', text: isSell ? 'Selling…' : 'Saving…' };
       redrawPots();
-      const url = isSell ? '/api/pots/sell' : action === 'remove' ? '/api/pots/remove' : '/api/pots/pause';
+      const url = isSell ? '/api/pots/sell' : action === 'remove' ? '/api/pots/remove'
+                : action === 'resetlimit' ? '/api/pots/reset-loss-limit' : '/api/pots/pause';
       const body = isSell ? { pot: name, pause: action === 'sellpause' }
-                 : action === 'remove' ? { pot: name }
+                 : action === 'remove' || action === 'resetlimit' ? { pot: name }
                  : { pot: name, paused: action === 'pause' };
       try {
         const r = await fetch(url, {
@@ -1471,10 +1535,11 @@
       }
     }
 
-    document.querySelectorAll('.utc-midnight-local').forEach(el => {
+    function midnightLocal() {
       const d = new Date(); d.setUTCHours(24, 0, 0, 0);
-      el.textContent = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    });
+      return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+    document.querySelectorAll('.utc-midnight-local').forEach(el => { el.textContent = midnightLocal(); });
 
     // Wait for the whole page (the chart helpers are defined further down)
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadPots); else loadPots();

@@ -648,6 +648,35 @@ def pause_pot():
         return jsonify({"success": False, "error": str(exc)}), 500
 
 
+@market_bp.route("/api/pots/reset-loss-limit", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def reset_pot_loss_limit():
+    """Let a pot stopped by the loss limit buy again: {"pot": "trend"}.
+    Its value now becomes its new best value."""
+    from pots import PotActionError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    name = str((request.get_json(silent=True) or {}).get("pot", ""))
+    lock = app_state.get_trader_lock()
+    try:
+        from config import BotConfig
+        price = _get_price(app_state, BotConfig.load().symbol)
+        with lock if lock else nullcontext():
+            result = pots.reset_loss_limit(name, price)
+            label = pots.get(name).label
+        return jsonify({"success": True, **result,
+                        "message": f"{label} pot can buy again; the loss limit now counts from ${result['new_peak']:.2f}"})
+    except PotActionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("reset_pot_loss_limit failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
 @market_bp.route("/api/pots/add", methods=["POST"])
 @limiter.limit("10 per minute")
 @require_auth
