@@ -1789,8 +1789,25 @@
 
     <!-- Trade Preview -->
     <div class="trade-preview-box">
-      <h3>If you buy now</h3>
-      <div id="trade-estimate"><div class="no-position-message">Loading…</div></div>
+      <h3>Estimate</h3>
+      <div id="trade-estimate">
+        <div class="preview-item">
+          <span class="preview-label">BTC price</span>
+          <span class="preview-value" id="preview-price">--</span>
+        </div>
+        <div class="preview-item">
+          <span class="preview-label">Available cash</span>
+          <span class="preview-value" id="preview-balance">--</span>
+        </div>
+        <div class="preview-item total">
+          <span class="preview-label">Order value</span>
+          <span class="preview-value" id="preview-value">--</span>
+        </div>
+        <div class="preview-item">
+          <span class="preview-label">You'd get about</span>
+          <span class="preview-value" id="preview-amount">--</span>
+        </div>
+      </div>
     </div>
   </div>
   </div>
@@ -4220,35 +4237,37 @@
           const [stopText, stopCls] = levelOrNone(pos.stop_loss, pos.entry_price, 'stop');
           const [tpText, tpCls] = levelOrNone(pos.take_profit, pos.entry_price, 'target');
 
-          const sp = sellPlan(status);
-          const lvl = (level, kind) => {
-            const [text, c] = levelOrNone(level, pos.entry_price, kind);
-            if (c) return [text, c];
-            const r = sp.at(level);
-            return [`${text} <em class="${cls(r)}">${sgn(r)}</em>`, ''];
-          };
-          const [stopText2, stopCls2] = lvl(pos.stop_loss, 'stop');
-          const [tpText2, tpCls2] = lvl(pos.take_profit, 'target');
-
           positionInfo.innerHTML = `
             <div class="pos-hero">
               <div>
                 <span class="pos-side">${pos.side === 'long' ? 'Holding BTC' : escapeHtml(pos.side)}</span>
                 <div class="pos-amount">${pos.amount.toFixed(6)} BTC</div>
               </div>
-              <div class="pos-pnl ${cls(sp.result)}" title="What selling all of it now would gain or lose, after the estimated sell fee (${fmtUsd(sp.fee, 4)})">
-                <b>${sgn(sp.result)}</b>
-                <span>${pctS(sp.result, sp.paid)} if sold now</span>
+              <div class="pos-pnl ${up ? 'positive' : 'negative'}" title="If sold now, after the estimated sell fee (${fmtUsd(pos.sell_fee || 0, 4)})">
+                <b>${sign}${fmtUsd(Math.abs(net), Math.abs(net) < 1 ? 4 : 2)}</b>
+                <span>${sign}${Math.abs(pnlPct).toFixed(2)}%</span>
               </div>
             </div>
-            ${mtRow('You paid', usdS(sp.paid), `${pos.amount.toFixed(6)} BTC at ${fmtUsd(pos.entry_price)}`)}
-            ${mtRow('Worth now', usdS(sp.worth), `BTC at ${fmtUsd(pos.current_price)}`)}
-            ${mtRow('Sell all now: you get', usdS(sp.get + sp.left * pos.current_price),
-                  `cash ${usdS(sp.get)} after a ${usdS(sp.fee)} fee` + (sp.left > 0 ? `, plus ${sp.left.toFixed(8)} BTC too small to sell (stays in the pot)` : ''))}
-            ${mtRow('Break-even price', fmtUsd(sp.breakEven), 'BTC must be above this for a sale to make money (fees included)')}
-            ${mtRow('Stop loss', stopText2, stopCls2 ? '' : 'sells automatically if BTC falls to this; result shown', stopCls2)}
-            ${mtRow('Take profit', tpText2, tpCls2 ? '' : 'sells automatically if BTC rises to this; result shown', tpCls2)}
-            ${mtRow('Each 1% BTC move', '±' + usdS(sp.perPct), 'how much your position gains or loses')}
+            <div class="position-info-item">
+              <span class="position-info-label">Bought at</span>
+              <span class="position-info-value">${fmtUsd(pos.entry_price)}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Price now</span>
+              <span class="position-info-value">${fmtUsd(pos.current_price)}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Value now</span>
+              <span class="position-info-value">${fmtUsd(pos.current_price * pos.amount)}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Stop loss</span>
+              <span class="position-info-value ${stopCls}">${stopText}</span>
+            </div>
+            <div class="position-info-item">
+              <span class="position-info-label">Take profit</span>
+              <span class="position-info-value ${tpCls}">${tpText}</span>
+            </div>
           `;
           summary.innerHTML = `
             <span class="mt-pill"><b>${pos.amount.toFixed(6)} BTC</b><span class="${up ? 'up' : 'down'}">${sign}${Math.abs(pnlPct).toFixed(2)}%</span></span>
@@ -4265,24 +4284,16 @@
       
       // Update trade preview
       function updateTradePreview(status) {
-        const box = document.getElementById('trade-estimate');
         const positionSize = parseFloat(document.getElementById('position-size').value) / 100;
-        const cash = (status.plan && status.plan.spendable_usd) ?? status.balances.USDT;
-        const b = buyPlan(status, cash * positionSize);
-        const minUsd = planOf(status).min_order_usd || 1;
-        if (b.tooSmall) {
-          box.innerHTML = `<div class="mt-warn">${usdS(cash * positionSize)} is under the exchange's ${fmtUsd(minUsd)} minimum.
-            ${cash >= minUsd ? `Pick at least ${Math.ceil(minUsd / cash * 100)}%.` : 'The pot needs more cash first.'}</div>`;
-          return;
-        }
-        box.innerHTML = `
-          ${mtRow('You spend', usdS(b.spend), `${Math.round(positionSize * 100)}% of ${usdS(cash)} cash, at ${fmtUsd(status.current_price)}`)}
-          ${mtRow('You get', `${b.btc.toFixed(8)} BTC`, `after a ${usdS(b.fee)} fee, taken in BTC`)}
-          ${mtRow('Cash left in the pot', usdS(status.balances.USDT - b.spend))}
-          ${mtRow('Break-even price', fmtUsd(b.breakEven), `BTC must rise ${((b.breakEven / status.current_price - 1) * 100).toFixed(2)}% to cover the buy and sell fees`)}
-          ${b.sl ? row('Stop loss', `${fmtUsd(b.sl)} <em class="negative">${sgn(b.slResult)}</em>`, `sells automatically if BTC falls ${((1 - b.sl / status.current_price) * 100).toFixed(1)}% — the most you'd normally lose`) : ''}
-          ${b.tp ? row('Take profit', `${fmtUsd(b.tp)} <em class="positive">${sgn(b.tpResult)}</em>`, `sells automatically if BTC rises ${((b.tp / status.current_price - 1) * 100).toFixed(1)}%`) : ''}
-          ${mtRow('Each 1% BTC move', '±' + usdS(b.perPct), 'how much this buy would gain or lose')}`;
+        
+        document.getElementById('preview-price').textContent = fmtUsd(status.current_price);
+        document.getElementById('preview-balance').textContent = fmtUsd(status.balances.USDT);
+        
+        const positionValue = status.balances.USDT * positionSize;
+        const estimatedAmount = positionValue / status.current_price;
+        
+        document.getElementById('preview-value').textContent = fmtUsd(positionValue);
+        document.getElementById('preview-amount').textContent = `${estimatedAmount.toFixed(6)} BTC`;
       }
       
       // Update button states
