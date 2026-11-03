@@ -6,6 +6,7 @@ leftover can't be sold (below the minimum order), so it must not keep the
 position open - before the fix the bot never bought again.
 """
 
+import ccxt
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -34,9 +35,25 @@ class BinanceUSLike:
         self.cancel_order = MagicMock()
         self.create_market_buy_order = MagicMock(side_effect=self._buy)
         self.create_market_sell_order = MagicMock(side_effect=self._sell)
-        self.fetch_order = MagicMock(side_effect=lambda oid, sym: self._last)
+        self.fetch_order = MagicMock(side_effect=self._fetch)
         self._last = None
         self._n = 0
+        self._by_client_id = {}
+        self._orders = {}
+
+    def _fetch(self, oid, sym=None, params=None):
+        # Like Binance: look up by the client order id when one is given
+        cid = (params or {}).get("origClientOrderId")
+        if cid is not None:
+            if cid not in self._by_client_id:
+                raise ccxt.OrderNotFound(f"Order does not exist ({cid})")
+            return self._by_client_id[cid]
+        if oid in self._orders:
+            return self._orders[oid]
+        if self._last and self._last.get("id") == oid:  # set directly by a test
+            return self._last
+        # Any other id (e.g. the resting stop order): still waiting
+        return {"id": oid, "status": "open", "filled": 0.0}
 
     def load_markets(self):
         return self.markets
@@ -48,25 +65,29 @@ class BinanceUSLike:
         return {"USD": {"free": self.usd, "total": self.usd},
                 "BTC": {"free": self.btc, "total": self.btc}}
 
-    def _order(self, side, amount, fee):
+    def _order(self, side, amount, fee, params=None):
         self._n += 1
         self._last = {"id": f"{side}-{self._n}", "status": "closed", "side": side,
                       "amount": amount, "filled": amount, "remaining": 0.0,
                       "average": PRICE, "fee": fee}
+        self._orders[self._last["id"]] = self._last
+        cid = (params or {}).get("newClientOrderId")
+        if cid:
+            self._by_client_id[cid] = self._last
         return self._last
 
     def _buy(self, symbol, amount, params=None):
         fee_btc = amount * FEE_RATE
         self.usd -= amount * PRICE
         self.btc += amount - fee_btc
-        return self._order("buy", amount, {"cost": fee_btc, "currency": "BTC"})
+        return self._order("buy", amount, {"cost": fee_btc, "currency": "BTC"}, params)
 
     def _sell(self, symbol, amount, params=None):
         assert amount <= self.btc + 1e-12, "sold more BTC than the account has"
         fee_usd = amount * PRICE * FEE_RATE
         self.btc -= amount
         self.usd += amount * PRICE - fee_usd
-        return self._order("sell", amount, {"cost": fee_usd, "currency": "USD"})
+        return self._order("sell", amount, {"cost": fee_usd, "currency": "USD"}, params)
 
 
 def signal(direction):

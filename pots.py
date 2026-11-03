@@ -101,6 +101,9 @@ class PotLiveTrader(LiveTrader):
 
     # Re-read the exchange's free cash before spending if older than this
     EXCHANGE_REFRESH_SECONDS = 30.0
+    # The stop check at start-up waits until the pot's books are complete
+    # (PotManager.startup_stop_sync, run by build_pots)
+    DEFER_STARTUP_STOP_SYNC = True
 
     def __init__(self, exchange, config, mode, db_manager, pot: str, budget: float):
         self.pot = pot
@@ -111,10 +114,33 @@ class PotLiveTrader(LiveTrader):
         self.initial_usdt = self.pot_budget
         self.usdt_balance, self.base_balance = self._restore_ledger()
         self.reserved_balance = self.usdt_balance * 0.001
+        self.needs_check = self._read_needs_check()
         self.logger.info(
             "Pot %s: cash $%.2f, BTC %.8f (budget $%.2f)",
             self.pot, self.usdt_balance, self.base_balance, self.pot_budget,
         )
+        if self.needs_check:
+            self.logger.critical("Pot %s: trading stopped until checked: %s", self.pot, self.needs_check)
+
+    def _needs_check_key(self) -> str:
+        return f"BOT_INTERNAL_POT_NEEDS_CHECK_{self.pot}"
+
+    def _read_needs_check(self) -> Optional[str]:
+        if not self.db_manager:
+            return None
+        try:
+            row = self.db_manager.get_strategy_config(self._needs_check_key())
+            return (str(row.value) or None) if row and row.value else None
+        except Exception as exc:
+            self.logger.error("Pot %s: could not read its 'needs check' flag: %s", self.pot, exc)
+            return None
+
+    def _save_needs_check(self) -> None:
+        if self.db_manager:
+            self.db_manager.set_strategy_config(
+                self._needs_check_key(), self.needs_check or "", "str", "pots",
+                "Internal: an order went through but wasn't recorded; trading stopped until checked",
+            )
 
     def _restore_ledger(self):
         """(cash, btc) from this pot's latest trade, else its budget."""
@@ -251,6 +277,11 @@ class PotManager:
         self.db = db  # where cash moves are saved (None in a dry run)
         self._transfers: List[Dict] = []  # this run's moves when there's no db
         self._mismatch_alerted = False
+        self._excess_alerted = False
+        # Pots don't match the exchange: {"cash", "btc", "text", "since"}.
+        # Stays until a person clears it (clear_mismatch), even if the
+        # numbers later agree, and survives a restart.
+        self.mismatch: Optional[Dict] = None
         # Set by build_pots so pots can be added while the bot runs
         self._make_trader: Optional[Callable] = None
         self._strategy_manager = None
@@ -302,11 +333,32 @@ class PotManager:
         """Run every pot on a closed candle: stops/targets first, then the
         pot's strategy. Returns what happened per pot."""
         results = {}
+        if self.live:
+            # Book stop orders that sold since the last check first: until
+            # then the pots still count those coins, which would look like
+            # missing BTC. Then compare with the exchange before trading, so
+            # a mismatch stops this hour's buys.
+            stop_sales = self.book_stop_fills()
+            try:
+                self.reconcile()
+            except Exception as exc:
+                logger.warning("Pot check before trading failed: %s", exc)
+        else:
+            stop_sales = {}
         for pot in self.pots.values():
             r = {"holding_before": pot.holding, "signal": None, "exit": None,
                  "trade": None, "note": None}
+            if getattr(pot.trader, "needs_check", None):
+                r["note"] = f"stopped until you check it: {pot.trader.needs_check}"
+                r["exit"] = stop_sales.get(pot.name)
+                pot.last_note = r["note"]
+                logger.warning("Pot %s: %s", pot.name, r["note"])
+                if r["exit"]:
+                    self.record_trade(pot, r["exit"])
+                results[pot.name] = r
+                continue
             try:
-                r["exit"] = pot.trader.update_position(price)
+                r["exit"] = stop_sales.get(pot.name) or pot.trader.update_position(price)
                 if pot.strategy is not None:
                     sig = strategy_manager.compute_signal_for(
                         pot.strategy, exchange, symbol, timeframe, candle_data,
@@ -369,11 +421,14 @@ class PotManager:
             raise PotActionError(f"The {pot.label} pot holds no BTC to sell")
         if pause and pot.strategy is not None:
             self.set_paused(name, True)  # first, so a failed sell still stops new buys
+        pot.trader.last_refusal = None
         trade = pot.trader.execute_market_sell(
             pos.amount, None, exit_reason="manual", is_closing_sell=True,
         )
         if trade is None:
+            why = getattr(pot.trader, "last_refusal", None)
             raise PotActionError(
+                f"The {pot.label} pot didn't sell: {why}" if why else
                 f"The exchange did not take the sell for the {pot.label} pot (see the bot log)")
         pot.last_note = "sold by you" + (" · paused" if pot.paused else "")
         self.record_trade(pot, trade)
@@ -757,7 +812,9 @@ class PotManager:
 
     def reconcile(self) -> List[str]:
         """Live only: do the pots claim more cash or BTC than the exchange
-        holds? Alerts once when that starts; returns the problems."""
+        holds? Then buying stops in every pot (and selling too when BTC is
+        short), until a person checks the account and clears it. Returns the
+        problems found now."""
         traders = [t for t in self.traders() if isinstance(t, PotLiveTrader)]
         if not traders or traders[0].mode != TradingMode.LIVE:
             return []
@@ -769,20 +826,135 @@ class PotManager:
         ex = traders[0].exchange_balances or {}
         cash = sum(t.usdt_balance for t in traders)
         btc = sum(t.base_balance for t in traders)
+        ex_cash, ex_btc = ex.get("USDT_total", 0.0), ex.get("BASE_total", 0.0)
         problems = []
-        if cash > ex.get("USDT_total", 0.0) + max(0.5, cash * 0.01):
-            problems.append(f"pots hold ${cash:.2f} cash but the exchange has ${ex.get('USDT_total', 0.0):.2f}")
-        if btc > ex.get("BASE_total", 0.0) + 2e-05:
-            problems.append(f"pots hold {btc:.8f} BTC but the exchange has {ex.get('BASE_total', 0.0):.8f}")
-        if problems and not self._mismatch_alerted:
-            self._mismatch_alerted = True
-            logger.critical("Pot check: %s", "; ".join(problems))
-            if self.notify:
-                self.notify("🚨 Pots don't match the exchange", "; ".join(problems).capitalize()
-                            + ". Check the account before the next trade.", severity="critical")
-        elif not problems:
+        cash_short = cash > ex_cash + max(0.5, cash * 0.01)
+        btc_short = btc > ex_btc + 2e-05
+        if cash_short:
+            problems.append(f"pots hold ${cash:.2f} cash but the exchange has ${ex_cash:.2f}")
+        if btc_short:
+            problems.append(f"pots hold {btc:.8f} BTC but the exchange has {ex_btc:.8f}")
+        if problems:
+            text = "; ".join(problems)
+            old = self.mismatch or {}
+            self._set_mismatch({
+                "cash": bool(old.get("cash")) or cash_short,
+                "btc": bool(old.get("btc")) or btc_short,
+                "text": text,
+                "since": old.get("since") or datetime.now(timezone.utc).isoformat(),
+            })
+            if not self._mismatch_alerted:
+                self._mismatch_alerted = True
+                logger.critical("Pot check: %s. Buying stopped%s until you clear it.",
+                                text, " and selling" if btc_short else "")
+                if self.notify:
+                    stopped = "Buying and selling are" if self.mismatch.get("btc") else "Buying is"
+                    self.notify("🚨 Pots don't match the exchange", text.capitalize()
+                                + f". {stopped} stopped in every pot until you check the account "
+                                + "and clear it on the dashboard.", severity="critical")
+        else:
             self._mismatch_alerted = False
+
+        # More BTC on the exchange than all pots own: an order that went
+        # through twice, or coins added by hand. Alert once; nothing stops.
+        extra = ex_btc - btc
+        if extra > 2e-05:
+            if not self._excess_alerted:
+                self._excess_alerted = True
+                logger.warning("Pot check: the exchange has %.8f BTC that no pot owns", extra)
+                if self.notify:
+                    self.notify("Unowned BTC on the exchange",
+                                f"The account holds {extra:.8f} BTC more than all pots together. "
+                                "If you didn't add it yourself, an order may have gone through twice.",
+                                severity="warning")
+        else:
+            self._excess_alerted = False
         return problems
+
+    def _set_mismatch(self, m: Optional[Dict]) -> None:
+        self.mismatch = m
+        for t in self.traders():
+            t.pots_mismatch = dict(m) if m else None
+        if self.db is not None:
+            try:
+                import json
+                self.db.set_strategy_config(
+                    "BOT_INTERNAL_POTS_MISMATCH", json.dumps(m) if m else "", "str", "pots",
+                    "Internal: pots didn't match the exchange; buying stopped until cleared",
+                )
+            except Exception as exc:
+                logger.error("Could not save the pots-mismatch stop: %s", exc)
+
+    def restore_mismatch(self) -> None:
+        if self.db is None:
+            return
+        try:
+            import json
+            row = self.db.get_strategy_config("BOT_INTERNAL_POTS_MISMATCH")
+            if row and row.value:
+                self.mismatch = json.loads(row.value)
+                for t in self.traders():
+                    t.pots_mismatch = dict(self.mismatch)
+                self._mismatch_alerted = True  # already told
+                logger.critical("Pots-mismatch stop still on from %s: %s",
+                                self.mismatch.get("since"), self.mismatch.get("text"))
+        except Exception as exc:
+            logger.error("Could not read the pots-mismatch stop: %s", exc)
+
+    def clear_mismatch(self) -> None:
+        """A person checked the account. Only clears when the pots match the
+        exchange now."""
+        if self.mismatch is None:
+            return
+        self._mismatch_alerted = True  # don't alert on this re-check
+        self.book_stop_fills()
+        problems = self.reconcile()
+        if problems:
+            raise PotActionError("The pots still don't match the exchange: " + "; ".join(problems))
+        self._mismatch_alerted = False
+        self._set_mismatch(None)
+        logger.info("Pots-mismatch stop cleared by the user")
+
+    def clear_needs_check(self, name: str) -> None:
+        """A person checked a pot after an order that wasn't recorded."""
+        pot = self.get(name)
+        if pot is None:
+            raise PotActionError(f"Unknown pot '{name}'")
+        if not getattr(pot.trader, "needs_check", None):
+            return
+        self.book_stop_fills()
+        problems = self.reconcile()
+        if problems:
+            raise PotActionError("The pots don't match the exchange yet: " + "; ".join(problems))
+        pot.trader.clear_needs_check()
+        pot.last_note = "checked by you: trading again"
+        logger.info("Pot %s: 'needs check' cleared by the user", pot.name)
+
+    def book_stop_fills(self) -> Dict[str, object]:
+        """Record any exchange stop order that sold a pot's coins.
+        Returns {pot name: the booked sale}."""
+        sold = {}
+        for pot in self.pots.values():
+            t = pot.trader
+            if isinstance(t, PotLiveTrader) and t.open_position is not None:
+                try:
+                    trade = t.check_exchange_stop_filled()
+                    t._stop_checked_this_candle = True  # update_position needn't ask again
+                    if trade is not None:
+                        sold[pot.name] = trade
+                except Exception as exc:
+                    logger.warning("Pot %s: could not check its exchange stop: %s", t.pot, exc)
+        return sold
+
+    def startup_stop_sync(self) -> None:
+        """At start-up, once every pot's books are complete: book any
+        exchange stop that sold while the bot was down, then re-arm stops."""
+        for t in self.traders():
+            if isinstance(t, PotLiveTrader):
+                try:
+                    t.startup_stop_sync()
+                except Exception as exc:
+                    logger.error("Pot %s: start-up stop check failed: %s", t.pot, exc)
 
     def account_check(self) -> Optional[Dict]:
         """Live: what the exchange account holds next to what the pots book.
@@ -850,6 +1022,7 @@ class PotManager:
                 "take_profit": take,
                 "buys_today": self.buys_today(pot),
                 "paused": pot.paused,
+                "needs_check": getattr(pot.trader, "needs_check", None),
                 "loss_limit": self.loss_limit(pot, price),
                 "source": pot.source,
                 **self.pot_style(pot.name),
@@ -866,6 +1039,7 @@ class PotManager:
         return {
             "live": self.live,
             "real_money": self._real_money(),
+            "mismatch": self.mismatch,
             "strategy_choices": self.strategy_choices(),
             "price": price,
             "pots": rows,
@@ -982,7 +1156,9 @@ def build_pots(config, *, exchange, db_manager, strategy_manager, trading_mode: 
     manager.restore_transfers()
     manager.restore_start_times()
     manager.restore_paused()
+    manager.restore_mismatch()
     manager.refresh_limits()
+    manager.startup_stop_sync()
     return manager
 
 

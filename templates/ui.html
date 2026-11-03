@@ -758,6 +758,10 @@
     color: #ffb3ad; background: rgba(255,94,87,0.1); border: 1px solid rgba(255,94,87,0.35);
   }
   .pot-alert b { color: var(--accent-red); }
+  .pots-stop-banner { margin-bottom: 1rem; padding: 0.8rem 1rem; border-radius: 10px; font-size: 0.85rem; line-height: 1.45;
+    color: var(--text-primary); background: rgba(255, 94, 87, 0.1); border: 1px solid rgba(255, 94, 87, 0.45); }
+  .pots-stop-banner b { color: var(--accent-red); }
+  .pots-stop-banner button { margin-top: 0.6rem; }
   .pot-alert.warn { color: #ffe08a; background: rgba(255,193,7,0.08); border-color: rgba(255,193,7,0.35); }
   .pot-alert.warn b { color: #ffc266; }
   .pot-actions button:disabled { opacity: 0.5; cursor: default; }
@@ -988,6 +992,7 @@
     <span class="consensus-pill" id="pots-total" style="display: none;"></span>
     <span class="fresh-stamp" id="pots-fresh"></span>
   </div>
+  <div id="pots-stop-banner"></div>
   <div class="pots-alloc" id="pots-alloc"></div>
   <div class="pots-perf" id="pots-perf">
     <div class="pots-section-title">Results over time</div>
@@ -1327,6 +1332,7 @@
         actions.push(btn('remove', 'sell', 'Remove pot'));
       }
       if (ll.halted) actions.unshift(btn('resetlimit', 'warn', 'Allow buying again'));
+      if (p.needs_check) actions.unshift(btn('clearcheck', 'warn', "I've checked it: trade again"));
       const msg = potMsgs[p.name];
       return `
         <div class="pot-card">
@@ -1347,10 +1353,15 @@
     // ---- Sell now / pause, per pot
     let potBusy = false;
     const potMsgs = {};    // pot name -> {cls, text}, kept across refreshes
-    const ASK_FIRST = new Set(['sell', 'sellpause', 'remove', 'resetlimit']);  // these move money or risk: confirm box first
+    const ASK_FIRST = new Set(['sell', 'sellpause', 'remove', 'resetlimit', 'clearcheck', 'clearmismatch']);  // these move money or risk: confirm box first
 
     // Why a pot isn't buying because of a loss limit (empty when it can buy)
     function lossAlert(p) {
+      if (p.needs_check) {
+        return `<div class="pot-alert"><b>Trading stopped until you check this pot.</b> ${esc(p.needs_check)}.
+          Its numbers here may be wrong. Compare its coins and cash with your Binance.US account (the
+          "Where the money is" table above), then turn trading back on. The stop order on Binance.US stays in place.</div>`;
+      }
       const ll = p.loss_limit || {};
       if (ll.halted) {
         return `<div class="pot-alert"><b>Buying stopped by the loss limit.</b> This pot fell
@@ -1367,6 +1378,17 @@
 
     // The confirm box for a pot action: what happens, to which pot, how much
     function potConfirm(action, p) {
+      if (action === 'clearmismatch') {
+        return { title: 'Turn trading back on?', confirmText: 'Turn trading back on',
+          html: `<div class="modal-note">Only do this after checking your Binance.US account. The bot checks again
+                 first: if the pots still don't match the exchange, trading stays stopped.</div>` };
+      }
+      if (action === 'clearcheck') {
+        return { title: `Let the ${p.label} pot trade again?`, confirmText: 'Trade again',
+          html: `<div class="modal-note">${esc(p.needs_check || '')}. Only do this after checking that this pot's coins
+                 and cash match your Binance.US account. The bot checks all pots against the exchange first and
+                 refuses if they don't match.</div>` };
+      }
       if (action === 'resetlimit') {
         const ll = p.loss_limit || {};
         const row = (k, v) => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value">${v}</span></div>`;
@@ -1393,11 +1415,14 @@
     }
 
     function redrawPots() {
-      if (lastData) document.getElementById('pots-grid').innerHTML = lastData.pots.map(card).join('');
+      if (!lastData) return;
+      document.getElementById('pots-grid').innerHTML = lastData.pots.map(card).join('');
+      renderStopBanner(lastData);
     }
 
     async function onPotAction(action, name) {
-      const pot = lastData && lastData.pots.find(x => x.name === name);
+      const pot = action === 'clearmismatch' ? { name: '_all', label: 'All' }
+                : lastData && lastData.pots.find(x => x.name === name);
       if (!pot) return;
       if (ASK_FIRST.has(action) && !(await askConfirm(potConfirm(action, pot)))) return;
       potBusy = true;
@@ -1405,9 +1430,12 @@
       potMsgs[name] = { cls: '', text: isSell ? 'Selling…' : 'Saving…' };
       redrawPots();
       const url = isSell ? '/api/pots/sell' : action === 'remove' ? '/api/pots/remove'
-                : action === 'resetlimit' ? '/api/pots/reset-loss-limit' : '/api/pots/pause';
+                : action === 'resetlimit' ? '/api/pots/reset-loss-limit'
+                : action === 'clearcheck' ? '/api/pots/clear-check'
+                : action === 'clearmismatch' ? '/api/pots/clear-mismatch' : '/api/pots/pause';
       const body = isSell ? { pot: name, pause: action === 'sellpause' }
-                 : action === 'remove' || action === 'resetlimit' ? { pot: name }
+                 : action === 'clearmismatch' ? {}
+                 : action === 'remove' || action === 'resetlimit' || action === 'clearcheck' ? { pot: name }
                  : { pot: name, paused: action === 'pause' };
       try {
         const r = await fetch(url, {
@@ -1429,6 +1457,25 @@
       const b = ev.target.closest('button[data-pot-action]');
       if (b && !b.disabled) onPotAction(b.dataset.potAction, b.dataset.pot);
     });
+    document.getElementById('pots-stop-banner').addEventListener('click', (ev) => {
+      const b = ev.target.closest('button[data-pot-action]');
+      if (b && !b.disabled) onPotAction(b.dataset.potAction, b.dataset.pot);
+    });
+
+    // Trading stopped because the pots didn't match the exchange
+    function renderStopBanner(data) {
+      const el = document.getElementById('pots-stop-banner');
+      const m = data.mismatch;
+      if (!m) { el.innerHTML = ''; el.className = ''; return; }
+      const since = m.since ? new Date(m.since).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      const msg = potMsgs._all;
+      el.className = 'pots-stop-banner';
+      el.innerHTML = `<b>${m.btc ? 'Buying and selling are' : 'Buying is'} stopped in every pot.</b>
+        The pots didn't match your Binance.US account${since ? ` (since ${esc(since)})` : ''}: ${esc(m.text)}.
+        Check the account against the "Where the money is" table below. Stop orders on Binance.US stay in place.
+        <div class="pot-actions"><button type="button" class="warn" data-pot-action="clearmismatch" data-pot="_all" ${potBusy ? 'disabled' : ''}>I've checked: turn trading back on</button></div>
+        ${msg ? `<div class="pot-msg ${msg.cls}">${esc(msg.text)}</div>` : ''}`;
+    }
 
     // ---- Move money
     let lastData = null;
@@ -1582,6 +1629,7 @@
         renderAddForm(data);
         renderMoveForm(data);
         renderAlloc(data);
+        renderStopBanner(data);
         if (!window.__potsEnabled) {
           window.__potsEnabled = true;
           loadPerf();

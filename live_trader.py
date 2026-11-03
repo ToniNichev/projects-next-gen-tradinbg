@@ -71,6 +71,17 @@ _ORDER_ALERT_REPEAT_SECONDS = 6 * 3600
 _TERMINAL_ORDER_STATUSES = {"closed", "canceled", "expired", "rejected"}
 
 
+class OrderStateUnknown(Exception):
+    """An order request got no clear answer and the exchange can't tell us
+    whether it went through. It may have filled."""
+
+
+class StopCancelError(Exception):
+    """The exchange stop order couldn't be cancelled and we don't know for
+    sure that it is gone. It may still sell the coins, so nothing else may
+    be sold or re-armed against them until this is sorted out."""
+
+
 def _permanent_by_code(exc: Exception) -> bool:
     text = str(exc).replace(" ", "")
     return any(code in text for code in _PERMANENT_BINANCE_CODES)
@@ -354,6 +365,16 @@ class LiveTrader:
         # Sells that reduce risk remain permitted.
         self.portfolio_buy_halt: bool = False
 
+        # Set when an order filled on the exchange but couldn't be recorded:
+        # this trader's books may be wrong, so it does no trades at all until
+        # a person checks the account and clears it. (Pots save it.)
+        self.needs_check: Optional[str] = None
+        # Set by the pot manager when the pots don't match the exchange:
+        # {"cash": bool, "btc": bool, "text": str}. Cash short -> no buys;
+        # BTC short -> no buys and no sells.
+        self.pots_mismatch: Optional[Dict] = None
+        self.last_refusal: Optional[str] = None  # why the last order wasn't sent
+
         self.logger.info(f"LiveTrader initialized in {mode.value} mode")
 
         # Try to restore an existing open position from the database before
@@ -368,18 +389,39 @@ class LiveTrader:
                     "Could not restore open position from DB: %s", exc,
                 )
 
-        if (
+        if not self.DEFER_STARTUP_STOP_SYNC:
+            self.startup_stop_sync()
+
+    # A money pot's cash is restored after this class's __init__ (and cash
+    # moves after that), so a pot runs startup_stop_sync() itself once its
+    # books are complete. Booking a stop sale earlier would save the trade
+    # with the wrong balances.
+    DEFER_STARTUP_STOP_SYNC = False
+
+    def startup_stop_sync(self) -> None:
+        """At start-up: first find out whether the exchange stop sold the
+        coins while the bot was down (and book it), then re-arm the stop.
+        Re-arming used to cancel first and, when the stop had already
+        filled, lose that sale."""
+        if not (
             self.mode == TradingMode.LIVE
             and self.open_position
             and getattr(self.config, "exchange_stop_loss_enabled", True)
         ):
-            try:
-                self._sync_exchange_protective_stop()
-            except Exception as exc:
-                self.logger.warning(
-                    "Could not re-arm exchange protective stop after startup restore: %s",
-                    exc,
-                )
+            return
+        try:
+            self.check_exchange_stop_filled()
+        except Exception as exc:
+            self.logger.warning("Could not check the exchange stop at start-up: %s", exc)
+        if self.open_position is None:
+            return
+        try:
+            self._sync_exchange_protective_stop()
+        except Exception as exc:
+            self.logger.warning(
+                "Could not re-arm exchange protective stop after startup restore: %s",
+                exc,
+            )
 
     def _get_daily_reset_time(self) -> datetime:
         """Get the next daily reset time (midnight UTC)"""
@@ -738,14 +780,23 @@ class LiveTrader:
             trigger = max(trigger, float(pos.trailing_stop))
         return trigger
 
-    def _cancel_exchange_protective_stop(self) -> None:
-        """Cancel the optional STOP_LOSS_LIMIT resting on the exchange."""
+    def _cancel_exchange_protective_stop(self) -> Optional[TradeRecord]:
+        """Cancel the STOP_LOSS_LIMIT resting on the exchange, then make sure
+        of what it did. If it sold some or all of the coins first, that sale
+        is booked and returned.
+
+        Raises StopCancelError when the stop may still be resting (the cancel
+        failed and the exchange can't confirm the order is done). The order
+        id is kept, so it is checked again later instead of forgotten.
+        """
         if not self.open_position or not self.open_position.exchange_stop_order_id:
-            return
+            return None
         oid = self.open_position.exchange_stop_order_id
         sym = self.config.symbol
+        cancel_error = None
+        order = None
         try:
-            _retry_call(
+            order = _retry_call(
                 self.exchange.cancel_order,
                 oid, sym,
                 attempts=self.retry_attempts,
@@ -755,13 +806,45 @@ class LiveTrader:
             )
             self.logger.info("Cancelled exchange protective stop order %s", oid)
         except Exception as exc:
+            cancel_error = exc
             self.logger.warning(
-                "Could not cancel protective stop %s (may already be filled): %s",
+                "Could not cancel protective stop %s (may already be filled): %s; checking it",
                 oid, exc,
             )
-        finally:
-            self.open_position.exchange_stop_order_id = None
-            self._update_open_position_in_db()
+        order = order if isinstance(order, dict) else {}
+
+        # A cancel reply may not say how much sold first; ask for the order.
+        if cancel_error is not None or order.get("filled") is None:
+            try:
+                fetched = _retry_call(
+                    self.exchange.fetch_order, oid, sym,
+                    attempts=self.retry_attempts, delay=self.retry_delay,
+                    logger=self.logger, description=f"fetch_order(stop {oid})",
+                )
+                if isinstance(fetched, dict) and fetched:
+                    order = fetched
+            except Exception as exc:
+                if cancel_error is not None:
+                    raise StopCancelError(
+                        f"stop order {oid} could not be cancelled ({cancel_error}) "
+                        f"or looked up ({exc})"
+                    ) from exc
+                self.logger.warning("Stop %s cancelled; could not look it up (%s)", oid, exc)
+
+        status = order.get("status")
+        filled = float(order.get("filled") or 0.0)
+        if cancel_error is not None and status not in _TERMINAL_ORDER_STATUSES:
+            raise StopCancelError(
+                f"stop order {oid} could not be cancelled and is still '{status or 'unknown'}' "
+                f"({cancel_error})"
+            )
+        if filled > 0:
+            # It sold before the cancel: book it (no new stop here; the
+            # caller decides what to do with what's left)
+            return self._book_stop_fill(order, oid, rearm=False)
+        self.open_position.exchange_stop_order_id = None
+        self._update_open_position_in_db()
+        return None
 
     def _sync_exchange_protective_stop(self) -> None:
         """
@@ -785,7 +868,11 @@ class LiveTrader:
             # The strategy has no real stop (Trend Hold exits on the trend
             # rule). Placing one at a near-zero price would be rejected by the
             # exchange and fire a false "unprotected" alert on every buy.
-            self._cancel_exchange_protective_stop()
+            try:
+                self._cancel_exchange_protective_stop()
+            except StopCancelError as exc:
+                self.logger.error("Old exchange stop may still be resting: %s", exc)
+                return
             self.logger.info(
                 "No exchange protective stop: strategy stop $%.2f is more than "
                 "%.0f%% below entry $%.2f (treated as no stop).",
@@ -800,12 +887,19 @@ class LiveTrader:
         if limit_px >= trigger:
             limit_px = self.round_price(trigger * 0.995)
 
+        # Replace existing bracket. If the old stop can't be confirmed gone,
+        # keep it: a second stop would try to sell the same coins twice.
+        try:
+            self._cancel_exchange_protective_stop()
+        except StopCancelError as exc:
+            self.logger.error("Keeping the existing exchange stop: %s", exc)
+            return
+        pos = self.open_position
+        if pos is None:
+            return  # the old stop had already sold everything
         qty = self.round_amount(pos.amount)
         if qty <= 0:
             return
-
-        # Replace existing bracket
-        self._cancel_exchange_protective_stop()
 
         try:
             # See execute_market_buy for why: one clientOrderId reused across
@@ -903,12 +997,23 @@ class LiveTrader:
             self._sync_exchange_protective_stop()
             return None
 
+        return self._book_stop_fill(order, oid, rearm=True)
+
+    def _book_stop_fill(self, order: Dict, oid: str, rearm: bool = True) -> TradeRecord:
+        """Book coins the exchange stop sold. rearm: place a new stop for
+        whatever is left (not when the caller is about to sell it)."""
+        pos = self.open_position
+        symbol = self.config.symbol
+        filled = float(order.get("filled") or 0.0)
         fill_price = float(order.get("average") or order.get("price") or 0.0)
         if fill_price <= 0:
             fill_price = float(order.get("stopPrice") or pos.stop_loss)
         notional = filled * fill_price
-        fee_info = order.get("fee") or {}
-        fee = float(fee_info.get("cost") or notional * self.config.fee_rate)
+        try:
+            fee_info = self._order_fee(order)
+        except Exception:
+            fee_info = order.get("fee") or {}
+        fee = float(fee_info["cost"]) if fee_info.get("cost") is not None else notional * self.config.fee_rate
         fee_currency = fee_info.get("currency")
         quote = symbol.split("/")[1].upper()
         fee_in_quote = fee if (fee_currency or quote).upper() == quote else 0.0
@@ -948,7 +1053,8 @@ class LiveTrader:
         else:
             pos.amount = self.round_amount(pos.amount - filled)
             self._update_open_position_in_db()
-            self._sync_exchange_protective_stop()
+            if rearm:
+                self._sync_exchange_protective_stop()
 
         self.daily_trades += 1
         self.total_trades += 1
@@ -1068,6 +1174,16 @@ class LiveTrader:
 
         bypass_entry_gates = is_closing_sell or is_emergency_close
 
+        # Books may be wrong: no trades of any kind until a person checks
+        if self.needs_check:
+            return False, f"Trading is stopped until you check the account: {self.needs_check}"
+        mismatch = self.pots_mismatch
+        if mismatch:
+            if side == "buy":
+                return False, f"Buying is stopped: the pots don't match the exchange ({mismatch.get('text')})"
+            if mismatch.get("btc"):
+                return False, f"Selling is stopped: the pots claim more BTC than the exchange holds ({mismatch.get('text')})"
+
         if not is_emergency_close:
             # Check emergency stop
             if self.emergency_stop:
@@ -1186,6 +1302,7 @@ class LiveTrader:
         is_valid, error_msg = self.validate_trade('buy', amount, current_price)
         if not is_valid:
             self.logger.warning(f"Trade validation failed: {error_msg}")
+            self.last_refusal = error_msg
             return None
         
         # DRY_RUN mode - log but don't execute
@@ -1205,25 +1322,10 @@ class LiveTrader:
             self.logger.info(f"Executing MARKET BUY: {amount} {symbol}")
 
             # One clientOrderId generated BEFORE the retry loop, reused across
-            # every retry of this logical order. _TRANSIENT_CCXT_ERRORS (the
-            # only errors _retry_call retries on) are exactly the "ambiguous
-            # outcome" case - the exchange may have already received and
-            # filled the order while the response was lost in transit.
-            # Without an idempotency key, a retry after that submits a brand
-            # new real order for the same amount, doubling the position.
-            # Binance deduplicates by clientOrderId, so a retry that
-            # reaches an already-filled order returns/rejects instead of
-            # placing a second one.
+            # every attempt of this logical order (see _place_order).
             client_order_id = f"buy{uuid.uuid4().hex[:24]}"
-            order = _retry_call(
-                self.exchange.create_market_buy_order,
-                symbol=symbol,
-                amount=amount,
-                params={"newClientOrderId": client_order_id},
-                attempts=self.retry_attempts,
-                delay=self.retry_delay,
-                logger=self.logger,
-                description=f"create_market_buy_order({amount} {symbol})",
+            order = self._place_order(
+                self.exchange.create_market_buy_order, "buy", amount, client_order_id,
             )
 
         except _PERMANENT_CCXT_ERRORS as exc:
@@ -1231,6 +1333,11 @@ class LiveTrader:
             self.logger.error("Market BUY rejected by exchange: %s", exc)
             self._alert_order_failed("buy", amount, exc)
             return None
+        except OrderStateUnknown as e:
+            self.logger.critical("Market BUY: %s", e)
+            self._alert_order_unknown("buy", amount, e)
+            self.flag_needs_check(f"a buy may or may not have gone through ({str(e)[:120]})")
+            raise
         except Exception as e:
             self.logger.error(f"Market buy failed: {e}", exc_info=True)
             self._alert_order_failed("buy", amount, e)
@@ -1269,7 +1376,27 @@ class LiveTrader:
                 )
             except Exception:
                 pass
+            self.flag_needs_check(f"buy order {order.get('id')} filled but wasn't recorded")
             raise
+
+    def flag_needs_check(self, reason: str) -> None:
+        """Stop all trading by this trader until a person clears it."""
+        self.needs_check = reason
+        self.logger.critical("Trading stopped until checked: %s", reason)
+        try:
+            self._save_needs_check()
+        except Exception as exc:
+            self.logger.error("Could not save the 'needs check' flag: %s", exc)
+
+    def clear_needs_check(self) -> None:
+        self.needs_check = None
+        try:
+            self._save_needs_check()
+        except Exception as exc:
+            self.logger.error("Could not save the cleared 'needs check' flag: %s", exc)
+
+    def _save_needs_check(self) -> None:
+        """Pots save the flag so a restart keeps it (pots.py)."""
 
     def adopt_filled_buy(self, order_id: str, signal: Optional["StrategySignal"] = None) -> Optional[TradeRecord]:
         """Record a buy that filled on the exchange but was never booked
@@ -1335,8 +1462,12 @@ class LiveTrader:
                 100.0 * filled_amount / requested_amount,
             )
 
-        # Refresh USDT/BASE balances after the fill.
-        self.sync_balances()
+        # Refresh USDT/BASE balances after the fill. The booking below uses
+        # the order itself, so a failed refresh must not stop it.
+        try:
+            self.sync_balances()
+        except Exception as exc:
+            self.logger.warning("Balance refresh after the buy failed (booking anyway): %s", exc)
 
         fee_info = self._order_fee(order)
         notional = filled_amount * fill_price
@@ -1444,6 +1575,7 @@ class LiveTrader:
         )
         if not is_valid:
             self.logger.warning(f"Trade validation failed: {error_msg}")
+            self.last_refusal = error_msg
             return None
         
         # DRY_RUN mode - log but don't execute
@@ -1470,150 +1602,212 @@ class LiveTrader:
                 return stopped
             amount = min(amount, self.round_amount(self.open_position.amount))
 
+        # Release coins locked by the resting STOP_LOSS_LIMIT before we
+        # submit a market sell for the same asset. If the stop can't be
+        # confirmed gone, don't sell: it may still sell the same coins.
+        try:
+            booked = self._cancel_exchange_protective_stop()
+        except StopCancelError as exc:
+            self.logger.error("Market SELL not sent: %s", exc)
+            self._alert_order_failed("sell", amount, exc)
+            return None
+        if booked is not None:
+            if self.open_position is None:
+                self.logger.info("The exchange stop had already sold this position; no market sell needed")
+                return booked
+            amount = min(amount, self.round_amount(self.open_position.amount))
+
         # LIVE mode - execute real order
         try:
             self.logger.info(f"Executing MARKET SELL: {amount} {symbol} (reason: {exit_reason})")
-
-            # Release coins locked by the resting STOP_LOSS_LIMIT before we
-            # submit a market sell for the same asset.
-            self._cancel_exchange_protective_stop()
 
             # See execute_market_buy for why: one clientOrderId reused across
             # every retry of this logical sell, so a lost response doesn't
             # cause a duplicate real sell order.
             client_order_id = f"sell{uuid.uuid4().hex[:24]}"
-            order = _retry_call(
-                self.exchange.create_market_sell_order,
-                symbol=symbol,
-                amount=amount,
-                params={"newClientOrderId": client_order_id},
-                attempts=self.retry_attempts,
-                delay=self.retry_delay,
-                logger=self.logger,
-                description=f"create_market_sell_order({amount} {symbol})",
+            order = self._place_order(
+                self.exchange.create_market_sell_order, "sell", amount, client_order_id,
             )
-
-            order_record = self._parse_order(order)
-
-            # Poll until the order is terminal so we use real fill data.
-            order_id = order_record.order_id
-            if order_id:
-                try:
-                    final_order = _wait_for_order_terminal(
-                        self.exchange, order_id, symbol,
-                        timeout_seconds=self.order_poll_timeout,
-                        poll_interval=self.order_poll_interval,
-                        retry_attempts=self.retry_attempts,
-                        retry_delay=self.retry_delay,
-                        logger=self.logger,
-                    )
-                    order = final_order or order
-                    order_record = self._parse_order(order)
-                except Exception as exc:
-                    self.logger.warning(
-                        "Could not poll sell order %s to terminal state (%s); "
-                        "proceeding with initial response.",
-                        order_id, exc,
-                    )
-
-            self.completed_orders.append(order_record)
-
-            fill_price = float(order.get("average") or order.get("price") or current_price)
-            filled_amount = float(order.get("filled") or 0.0)
-            if filled_amount <= 0.0:
-                self.logger.error(
-                    "Market SELL for %s reported zero fills (status=%s). "
-                    "Position state preserved; investigate before retrying.",
-                    symbol, order.get("status"),
-                )
-                return None
-            if filled_amount + 1e-12 < amount:
-                self.logger.warning(
-                    "Partial sell: requested %.8f, got %.8f (%.2f%%). "
-                    "Open position will be reduced by the filled amount only.",
-                    amount, filled_amount, 100.0 * filled_amount / amount,
-                )
-
-            fee_info = self._order_fee(order)
-            fee = float(fee_info["cost"]) if fee_info.get("cost") is not None \
-                else filled_amount * fill_price * self.config.fee_rate
-
-            notional = filled_amount * fill_price
-            slippage = current_price - fill_price
-
-            # Realised P&L on *this fill*'s cost basis only.
-            pnl = None
-            if self.open_position and self.open_position.side == "long":
-                cost_basis = self.open_position.entry_price * filled_amount
-                exit_value = filled_amount * fill_price
-                pnl = exit_value - cost_basis - fee
-                self.total_pnl += pnl
-                self.daily_pnl += pnl
-                if pnl > 0:
-                    self.winning_trades += 1
-
-            # Balances for logging reflect the exchange state post-fill.
-            self.sync_balances()
-            self._apply_fill(
-                "sell", filled_amount, notional, fee, fee_info.get("currency"), filled_amount,
-            )
-
-            trade = TradeRecord(
-                side="sell",
-                price=fill_price,
-                amount=filled_amount,
-                notional=notional,
-                fee=fee,
-                slippage=slippage,
-                usdt_balance=self.usdt_balance,
-                base_balance=self.base_balance,
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                signal=signal.to_dict() if signal else {},
-                exit_reason=exit_reason,
-                pnl=pnl,
-                order_id=order_record.order_id,
-            )
-
-            pos = self.open_position
-            # A leftover too small to sell (sells round down to the exchange's
-            # precision, and the buy fee came out of the coins) still counts
-            # as closed - otherwise the position stays "open" on dust forever.
-            is_full_exit = (
-                pos is None
-                or filled_amount + 1e-10 >= pos.amount
-                or self._is_dust(pos.amount - filled_amount, fill_price)
-            )
-
-            if is_full_exit:
-                self._close_position_in_db(fill_price, exit_reason, pnl)
-                self.open_position = None
-            else:
-                if pos:
-                    pos.amount -= filled_amount
-                    pos.amount = self.round_amount(max(pos.amount, 0.0))
-                self._update_open_position_in_db()
-                self._sync_exchange_protective_stop()
-
-            self.daily_trades += 1
-            self.total_trades += 1
-            self._log_trade(trade)
-
-            pnl_for_log = pnl if pnl is not None else 0.0
-            self.logger.info(
-                "SELL executed: %.8f @ $%.2f (fee=$%.4f P&L=$%.2f reason=%s)",
-                filled_amount, fill_price, fee, pnl_for_log, exit_reason,
-            )
-            return trade
 
         except _PERMANENT_CCXT_ERRORS as exc:
             self.logger.error("Market SELL rejected by exchange: %s", exc)
             self._alert_order_failed("sell", amount, exc)
+            self._rearm_stop_after_failed_sell()
             return None
+        except OrderStateUnknown as e:
+            # Don't put the stop back: if the sell went through, a new stop
+            # would sit on another pot's coins
+            self.logger.critical("Market SELL: %s", e)
+            self._alert_order_unknown("sell", amount, e)
+            self.flag_needs_check(f"a sell may or may not have gone through ({str(e)[:120]})")
+            raise
         except Exception as e:
             self.logger.error(f"Market sell failed: {e}", exc_info=True)
             self._alert_order_failed("sell", amount, e)
+            self._rearm_stop_after_failed_sell()
             raise
-    
+
+        # The exchange accepted the order: from here on the coins are sold.
+        return self._book_sell(order, amount, current_price, signal, exit_reason)
+
+    def _rearm_stop_after_failed_sell(self) -> None:
+        """The sell cancelled the exchange stop first; put it back."""
+        if self.open_position is None:
+            return
+        try:
+            self._sync_exchange_protective_stop()
+        except Exception as exc:
+            self.logger.warning("Could not re-arm the exchange stop after a failed sell: %s", exc)
+
+    def _book_sell(self, order, amount, current_price, signal, exit_reason) -> Optional[TradeRecord]:
+        """Book a sell the exchange accepted. The coins are already sold when
+        this runs, so a failure stops this trader until a person checks it
+        (otherwise the next check would sell the same coins again, out of
+        another pot's BTC)."""
+        try:
+            return self._book_sell_unchecked(order, amount, current_price, signal, exit_reason)
+        except Exception as exc:
+            self.logger.critical(
+                "SELL order %s went through on the exchange but could not be recorded: %s",
+                order.get("id") if isinstance(order, dict) else None, exc, exc_info=True,
+            )
+            try:
+                from notify import send_notification
+                who = f"{self.pot} pot" if getattr(self, "pot", None) else "the bot"
+                send_notification(
+                    "Sell went through but not recorded",
+                    f"Order {order.get('id') if isinstance(order, dict) else '?'} for {who} sold "
+                    f"{self.config.symbol} on the exchange, but the bot could not record it ({exc}). "
+                    f"That pot has stopped trading until you check it.",
+                    severity="critical",
+                )
+            except Exception:
+                pass
+            self.flag_needs_check(
+                f"sell order {order.get('id') if isinstance(order, dict) else '?'} went through but wasn't recorded"
+            )
+            raise
+
+    def _book_sell_unchecked(self, order, amount, current_price, signal, exit_reason):
+        symbol = self.config.symbol
+        order_record = self._parse_order(order)
+
+        # Poll until the order is terminal so we use real fill data.
+        order_id = order_record.order_id
+        if order_id:
+            try:
+                final_order = _wait_for_order_terminal(
+                    self.exchange, order_id, symbol,
+                    timeout_seconds=self.order_poll_timeout,
+                    poll_interval=self.order_poll_interval,
+                    retry_attempts=self.retry_attempts,
+                    retry_delay=self.retry_delay,
+                    logger=self.logger,
+                )
+                order = final_order or order
+                order_record = self._parse_order(order)
+            except Exception as exc:
+                self.logger.warning(
+                    "Could not poll sell order %s to terminal state (%s); "
+                    "proceeding with initial response.",
+                    order_id, exc,
+                )
+
+        self.completed_orders.append(order_record)
+
+        fill_price = float(order.get("average") or order.get("price") or current_price)
+        filled_amount = float(order.get("filled") or 0.0)
+        if filled_amount <= 0.0:
+            self.logger.error(
+                "Market SELL for %s reported zero fills (status=%s). "
+                "Position state preserved; investigate before retrying.",
+                symbol, order.get("status"),
+            )
+            self._rearm_stop_after_failed_sell()  # the sell cancelled it first
+            return None
+        if filled_amount + 1e-12 < amount:
+            self.logger.warning(
+                "Partial sell: requested %.8f, got %.8f (%.2f%%). "
+                "Open position will be reduced by the filled amount only.",
+                amount, filled_amount, 100.0 * filled_amount / amount,
+            )
+
+        fee_info = self._order_fee(order)
+        fee = float(fee_info["cost"]) if fee_info.get("cost") is not None \
+            else filled_amount * fill_price * self.config.fee_rate
+
+        notional = filled_amount * fill_price
+        slippage = current_price - fill_price
+
+        # Realised P&L on *this fill*'s cost basis only.
+        pnl = None
+        if self.open_position and self.open_position.side == "long":
+            cost_basis = self.open_position.entry_price * filled_amount
+            exit_value = filled_amount * fill_price
+            pnl = exit_value - cost_basis - fee
+            self.total_pnl += pnl
+            self.daily_pnl += pnl
+            if pnl > 0:
+                self.winning_trades += 1
+
+        # Balances for logging reflect the exchange state post-fill. The
+        # booking uses the order itself, so a failed refresh must not stop it.
+        try:
+            self.sync_balances()
+        except Exception as exc:
+            self.logger.warning("Balance refresh after the sell failed (booking anyway): %s", exc)
+        self._apply_fill(
+            "sell", filled_amount, notional, fee, fee_info.get("currency"), filled_amount,
+        )
+
+        trade = TradeRecord(
+            side="sell",
+            price=fill_price,
+            amount=filled_amount,
+            notional=notional,
+            fee=fee,
+            slippage=slippage,
+            usdt_balance=self.usdt_balance,
+            base_balance=self.base_balance,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            signal=signal.to_dict() if signal else {},
+            exit_reason=exit_reason,
+            pnl=pnl,
+            order_id=order_record.order_id,
+        )
+
+        pos = self.open_position
+        # A leftover too small to sell (sells round down to the exchange's
+        # precision, and the buy fee came out of the coins) still counts
+        # as closed - otherwise the position stays "open" on dust forever.
+        is_full_exit = (
+            pos is None
+            or filled_amount + 1e-10 >= pos.amount
+            or self._is_dust(pos.amount - filled_amount, fill_price)
+        )
+
+        if is_full_exit:
+            self._close_position_in_db(fill_price, exit_reason, pnl)
+            self.open_position = None
+        else:
+            if pos:
+                pos.amount -= filled_amount
+                pos.amount = self.round_amount(max(pos.amount, 0.0))
+            self._update_open_position_in_db()
+            self._sync_exchange_protective_stop()
+
+        self.daily_trades += 1
+        self.total_trades += 1
+        self._log_trade(trade)
+
+        pnl_for_log = pnl if pnl is not None else 0.0
+        self.logger.info(
+            "SELL executed: %.8f @ $%.2f (fee=$%.4f P&L=$%.2f reason=%s)",
+            filled_amount, fill_price, fee, pnl_for_log, exit_reason,
+        )
+        return trade
+
+
     def _is_dust(self, amount: float, price: float) -> bool:
         """True when an amount is below what the exchange would let us sell."""
         try:
@@ -1790,6 +1984,88 @@ class LiveTrader:
             self.db_position_id,
         )
 
+    def _place_order(self, create_fn, side: str, amount: float, client_order_id: str) -> Dict:
+        """Send a market order, safely.
+
+        A network error or timeout doesn't say whether the order reached the
+        exchange. Sending it again blindly could buy or sell twice (Binance
+        only rejects a repeated client order id while the first order is
+        still open, and a market order is done at once). So after such an
+        error, ask the exchange about this client order id first: book it if
+        it went through, try again only if it didn't. Raises
+        OrderStateUnknown when the exchange can't tell us.
+        """
+        symbol = self.config.symbol
+        attempts = max(1, int(self.retry_attempts or 1))
+        delay = float(self.retry_delay or 0.0)
+        last_exc = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return create_fn(symbol=symbol, amount=amount,
+                                 params={"newClientOrderId": client_order_id})
+            except _PERMANENT_CCXT_ERRORS:
+                raise
+            except _TRANSIENT_CCXT_ERRORS as exc:
+                if _permanent_by_code(exc):  # e.g. -2015: the key can't trade
+                    raise ccxt.PermissionDenied(str(exc)) from exc
+                last_exc = exc
+                self.logger.warning("%s order attempt %d/%d got no clear answer: %s",
+                                    side.upper(), attempt, attempts, exc)
+                found = self._find_lost_order(client_order_id, side)
+                if found:
+                    self.logger.warning("The %s did go through (order %s)", side, found.get("id"))
+                    return found
+                if found is None:
+                    raise OrderStateUnknown(
+                        f"no clear answer ({exc}) and the exchange couldn't say whether "
+                        f"order {client_order_id} went through"
+                    ) from exc
+                if attempt < attempts and delay:
+                    time.sleep(delay * (2 ** (attempt - 1)))
+        self.logger.error("%s order failed after %d attempts: %s", side.upper(), attempts, last_exc)
+        raise last_exc
+
+    def _find_lost_order(self, client_order_id: str, side: str):
+        """After an unclear error placing an order: did it reach the exchange?
+
+        Returns the order when it did (it filled or is filling), {} when the
+        exchange says there is no such order or it ended with nothing filled,
+        and None when we can't find out.
+        """
+        try:
+            order = _retry_call(
+                self.exchange.fetch_order, None, self.config.symbol,
+                {"origClientOrderId": client_order_id},
+                attempts=self.retry_attempts, delay=self.retry_delay,
+                logger=self.logger, description=f"fetch_order({side} {client_order_id})",
+            )
+        except ccxt.OrderNotFound:
+            return {}
+        except Exception as exc:
+            self.logger.error("Could not find out whether the %s went through: %s", side, exc)
+            return None
+        if not isinstance(order, dict) or not order:
+            return None
+        filled = float(order.get("filled") or 0.0)
+        if filled > 0 or order.get("status") not in _TERMINAL_ORDER_STATUSES:
+            return order
+        return {}
+
+    def _alert_order_unknown(self, side: str, amount: float, exc: Exception) -> None:
+        """We can't tell whether a real order went through."""
+        who = f"{self.pot} pot" if getattr(self, "pot", None) else "the bot"
+        try:
+            from notify import send_notification
+            send_notification(
+                f"🚨 Not sure a {side} went through",
+                f"A real {side.upper()} of {amount:.8f} {self.config.symbol} for {who} got no clear "
+                f"answer from the exchange ({str(exc)[:200]}). It may or may not have filled. "
+                f"That pot has stopped trading until you check the account and clear it on the dashboard.",
+                severity="critical",
+            )
+        except Exception:
+            pass
+
     def _alert_order_failed(self, side: str, amount: float, exc: Exception) -> None:
         """Telegram alert when a real order is rejected or fails. The same
         failure alerts at most every few hours (the bot retries hourly)."""
@@ -1860,11 +2136,16 @@ class LiveTrader:
         if not self.open_position:
             return None
 
-        try:
-            stopped = self.check_exchange_stop_filled()
-        except Exception as exc:
-            self.logger.warning("Could not check the exchange stop order: %s", exc)
+        # The pot manager may have just checked the stop for this candle
+        if getattr(self, "_stop_checked_this_candle", False):
+            self._stop_checked_this_candle = False
             stopped = None
+        else:
+            try:
+                stopped = self.check_exchange_stop_filled()
+            except Exception as exc:
+                self.logger.warning("Could not check the exchange stop order: %s", exc)
+                stopped = None
         if stopped is not None and self.open_position is None:
             return stopped
 

@@ -678,6 +678,56 @@ def reset_pot_loss_limit():
         return jsonify({"success": False, "error": str(exc)}), 500
 
 
+@market_bp.route("/api/pots/clear-mismatch", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def clear_pots_mismatch():
+    """The user checked the account after "pots don't match the exchange".
+    Only clears when the pots match the exchange now."""
+    from pots import PotActionError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    lock = app_state.get_trader_lock()
+    try:
+        with lock if lock else nullcontext():
+            pots.clear_mismatch()
+        return jsonify({"success": True, "message": "The pots match the exchange again: trading is back on"})
+    except PotActionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("clear_pots_mismatch failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@market_bp.route("/api/pots/clear-check", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def clear_pot_check():
+    """The user checked a pot whose order went through but wasn't recorded:
+    {"pot": "intraday"}. Only clears when the pots match the exchange."""
+    from pots import PotActionError
+
+    app_state = get_app_state()
+    pots = app_state.get_pot_manager()
+    if pots is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    name = str((request.get_json(silent=True) or {}).get("pot", ""))
+    lock = app_state.get_trader_lock()
+    try:
+        with lock if lock else nullcontext():
+            pots.clear_needs_check(name)
+            label = pots.get(name).label
+        return jsonify({"success": True, "message": f"{label} pot is trading again"})
+    except PotActionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("clear_pot_check failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
 @market_bp.route("/api/pots/add", methods=["POST"])
 @limiter.limit("10 per minute")
 @require_auth

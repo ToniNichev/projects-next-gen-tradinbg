@@ -425,8 +425,11 @@ def main():
                     pot_trader.sync_positions()
                 problems = pot_manager.reconcile()
                 if problems and trading_mode == "live":
-                    logging.critical("Pots don't match the exchange: %s. Exiting.", "; ".join(problems))
-                    return
+                    # Keep running with trading stopped (reconcile set the
+                    # stop and alerted): the dashboard stays up to check and
+                    # clear it, and the exchange stops stay in place.
+                    logging.critical("Pots don't match the exchange: %s. Starting with trading stopped.",
+                                     "; ".join(problems))
             except Exception as exc:
                 logging.error("Failed to sync pots with exchange: %s", exc)
                 if trading_mode == "live":
@@ -899,7 +902,9 @@ def main():
             # Live pots: make sure they don't claim more than the exchange holds
             if pot_manager is not None and pot_manager.live:
                 try:
-                    pot_manager.reconcile()
+                    # Under the lock, so it never sees a dashboard trade half done
+                    with trader_lock:
+                        pot_manager.reconcile()
                 except Exception as exc:
                     logging.warning("Pot check failed: %s", exc)
 
