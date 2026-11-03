@@ -689,6 +689,12 @@ def main():
                         initial_signal.price,
                         min(100, len(candle_buffer)),
                     )
+                    # Each pot's strategy too (it may be switched off in Strategies),
+                    # so the dashboard has every signal right after a restart. Reads only.
+                    if pot_manager is not None:
+                        pot_manager.prime_signals(
+                            strategy_manager, exchange, config.symbol, config.timeframe, candle_buffer,
+                        )
             except Exception as e:
                 logging.warning("Failed to compute initial signal: %s", e)
     except Exception as e:
@@ -824,6 +830,8 @@ def main():
                             ),
                             f" | {r['note']}" if r["note"] else "",
                         )
+                    # Each pot's signal this hour, for the chart's signal markers
+                    pot_signals = {name: r["signal"].direction for name, r in results.items() if r["signal"]}
                     trend_result = results[POT_TREND]
                     signal_obj = trend_result["signal"] or strategy_manager.last_signals.get(
                         StrategyNames.TREND_HOLD
@@ -834,6 +842,7 @@ def main():
                         None,
                     )
                 else:
+                    pot_signals = None
                     # Check if open position should be closed (stop loss, take profit, trailing stop)
                     exit_trade = trader.update_position(current_price)
                     if exit_trade:
@@ -882,6 +891,7 @@ def main():
                     ),
                     "price": signal_price,
                     "signal_direction": signal_obj.direction if signal_obj is not None else "neutral",
+                    "pot_signals": pot_signals,
                     "trade_side": trade.side if trade else None,
                     **ohlc,
                 })

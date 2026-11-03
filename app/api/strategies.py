@@ -687,6 +687,10 @@ def get_strategy_signals():
                 "history": history,
                 # Pots that trade this strategy (they run even when it's switched off here)
                 "pots": pot_runs.get(strategy.name, []),
+                # The strategy's own thresholds, so hints match its settings
+                "params": {k: getattr(strategy, k) for k in
+                           ("rsi_oversold", "rsi_overbought", "bb_touch_threshold", "require_both_signals")
+                           if isinstance(getattr(strategy, k, None), (int, float, bool))},
             }
             result.append(entry)
         return jsonify({"signals": result, "count": len(result), "pots_enabled": _pot_manager() is not None})

@@ -1505,7 +1505,7 @@
         window.__potMeta = {};
         data.pots.forEach(p => {
           if (p.color) POT_COLORS[p.name] = p.color;
-          window.__potMeta[p.name] = { letter: p.letter, label: p.label, color: p.color };
+          window.__potMeta[p.name] = { letter: p.letter, label: p.label, color: p.color, strategy: p.strategy };
         });
         document.getElementById('pots-grid').innerHTML = data.pots.map(card).join('');
         renderAddForm(data);
@@ -2064,7 +2064,14 @@
       const potOfTrade = (t) => t.pot || 'trend';  // untagged = from before pots (Trend Hold's)
       function togglePotOnChart(name) {
         if (hiddenPots.has(name)) hiddenPots.delete(name); else hiddenPots.add(name);
+        applySignalFilter();
         updateTradeMarkers();
+      }
+      // Signal markers of hidden pots are left out too
+      let allSignalPoints = [];
+      function applySignalFilter() {
+        if (!chart || !chart.data.datasets[1]) return;
+        chart.data.datasets[1].data = allSignalPoints.filter(p => !p.pot || !hiddenPots.has(p.pot));
       }
       document.addEventListener('pots:loaded', () => { if (chart) updateTradeMarkers(); });
       let cachedTrades = [];  // Cache trades to avoid repeated fetches
@@ -2312,6 +2319,15 @@
                   // For signal markers
                   if (context.dataset.label === "Signals") {
                     const price = TradeWords.money(context.parsed.y, 0);
+                    const pot = context.raw && context.raw.pot;
+                    if (pot) {
+                      const meta = (window.__potMeta || {})[pot] || {};
+                      const who = `${meta.label || pot} pot`;
+                      const strat = meta.strategy ? `Strategy: ${meta.strategy}` : '';
+                      return context.raw.dir === "bearish"
+                        ? [`🔻 ${who}: signal turned bearish`, strat, `It expected the price to fall (BTC ${price}).`, 'If the pot held BTC, it sells here.'].filter(Boolean)
+                        : [`🔺 ${who}: signal turned bullish`, strat, `It expected the price to rise (BTC ${price}).`, 'If the pot had cash, it buys here.'].filter(Boolean);
+                    }
                     return context.raw && context.raw.dir === "bearish"
                       ? ['🔻 Signal turned bearish', `The strategy now expects the price to fall (BTC ${price}).`, 'A pot running this strategy usually sells here if it holds BTC.']
                       : ['🔺 Signal turned bullish', `The strategy now expects the price to rise (BTC ${price}).`, 'A pot running this strategy usually buys here if it has cash.'];
@@ -2866,21 +2882,24 @@
               const signalBody = await signalResp.json();
               // Mark only the hours where the signal changed direction;
               // a steady "bullish" every hour would bury the candles.
-              let prevDir = null;
-              signalPoints = (signalBody.history || [])
+              // With pots, each pot's signal is tracked on its own.
+              const prevDir = {};
+              (signalBody.history || [])
                 .slice()
                 .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-                .filter((row) => {
-                  const dir = row.signal_direction;
-                  const changed = dir !== prevDir;
-                  prevDir = dir;
-                  return changed && dir !== "neutral";
-                })
-                .map((row) => ({
-                  x: new Date(row.timestamp).getTime(),
-                  y: row.price,
-                  dir: row.signal_direction,
-                }));
+                .forEach((row) => {
+                  const perPot = row.pot_signals && Object.keys(row.pot_signals).length
+                    ? Object.entries(row.pot_signals)
+                    : [[null, row.signal_direction]];
+                  perPot.forEach(([pot, dir]) => {
+                    const key = pot || '_';
+                    const changed = dir !== prevDir[key];
+                    prevDir[key] = dir;
+                    if (changed && dir && dir !== "neutral") {
+                      signalPoints.push({ x: new Date(row.timestamp).getTime(), y: row.price, dir, pot });
+                    }
+                  });
+                });
             } catch (error) {
               console.error("Error fetching signals:", error);
             }
@@ -3012,7 +3031,7 @@
           } else if (h.sells_below_daily_close) {
             exit = `sells if a day closes below ${fmtMoney(h.sells_below_daily_close, 0)} (${awayPct(h.sells_below_daily_close, o.price)})`;
           } else {
-            exit = 'no automatic exit';
+            exit = 'sells when its strategy turns bearish';
           }
           return `<span class="risk-line">${potChip(h.name, h.label, h.color)}<span>${fmtMoney(h.value)} · ${exit}</span></span>`;
         }).join('');
@@ -3131,16 +3150,18 @@
             // Scriptable: colour and direction come from each point
             rotation: (ctx) => (ctx.raw && ctx.raw.dir === "bearish" ? 180 : 0),
             backgroundColor: (ctx) =>
-              ctx.raw && ctx.raw.dir === "bearish" ? "rgba(255, 94, 87, 0.85)" : "rgba(46, 204, 113, 0.85)",
-            borderColor: "rgba(13, 17, 23, 0.9)",
-            borderWidth: 1.5,
+              ctx.raw && ctx.raw.dir === "bearish" ? "rgba(255, 94, 87, 0.85)" : "rgba(88, 214, 141, 0.85)",
+            // Outlined in the pot's color, so you can tell whose signal it is
+            borderColor: (ctx) => (ctx.raw && ctx.raw.pot && (window.POT_COLORS || {})[ctx.raw.pot]) || "rgba(13, 17, 23, 0.9)",
+            borderWidth: (ctx) => (ctx.raw && ctx.raw.pot ? 2 : 1.5),
             data: [],
             showLine: false,
             yAxisID: "y",
             order: 5, // Draw signals in middle layer
           });
         }
-        chart.data.datasets[1].data = signalPoints;
+        allSignalPoints = signalPoints;
+        applySignalFilter();
 
         if (candleData.length > 0) {
           const timestamps = candleData.map(d => d.x);
@@ -4633,8 +4654,9 @@
         const ind = s.indicators || {};
         if (typeof ind.rsi !== 'number' || typeof ind.bb_lower !== 'number') return '';
         const rsi = ind.rsi;
+        const lo = (s.params || {}).rsi_oversold ?? 30, hi = (s.params || {}).rsi_overbought ?? 70;
         const tiles = [
-          ['RSI', rsi.toFixed(1), rsi < 30 ? 'up' : rsi > 70 ? 'down' : ''],
+          ['RSI', rsi.toFixed(1), rsi < lo ? 'up' : rsi > hi ? 'down' : ''],
           ['Lower band', usd0(ind.bb_lower), ''],
           ['Upper band', usd0(ind.bb_upper), ''],
           ['Volume', typeof ind.volume_ratio === 'number' ? `${ind.volume_ratio.toFixed(1)}× avg` : '—',
@@ -4644,21 +4666,41 @@
           `<div class="sig-tile"><span>${k}</span><b class="${c}">${v}</b></div>`).join('')}</div>`;
       }
 
+      // Any strategy a pot is holding with: how that pot gets out
+      function holdingLine(s) {
+        if (!(s.pots || []).some(p => p.holding)) return '';
+        return '<div class="sig-next"><b>Holding:</b> the pot sells at its profit target or its stop (see the pot card), ' +
+               'or when this strategy turns bearish. It won\'t buy again until then.</div>';
+      }
+
+      // Pots running EMA Crossover or MACD + Volume: what makes them act
+      function otherNextMove(s) {
+        if (!(s.pots || []).length) return '';
+        const held = holdingLine(s);
+        if (held) return held;
+        return '<div class="sig-next"><b>Next buy:</b> when this strategy turns bullish at an hourly close and the pot has cash.</div>';
+      }
+
       function rsiNextMove(s) {
         const ind = s.indicators || {};
-        if (typeof ind.rsi !== 'number' || typeof ind.bb_lower !== 'number') return '';
-        if ((s.pots || []).some(p => p.holding)) {
-          return '<div class="sig-next"><b>Holding:</b> the pot sells at its take-profit target or its stop on Binance (see the pot card). It won\'t buy again until then.</div>';
-        }
+        if (typeof ind.rsi !== 'number' || typeof ind.bb_lower !== 'number') return otherNextMove(s);
+        const held = holdingLine(s);
+        if (held) return held;
+        const params = s.params || {};
+        const lo = params.rsi_oversold ?? 30;
+        const touch = params.bb_touch_threshold ?? 0.995;
+        // "Touching" the band = within the last (1 - touch) of the band's width above it
+        const buyLevel = ind.bb_lower + (ind.bb_upper - ind.bb_lower) * (1 - touch);
         const price = s.price || (ind.bb_lower + (ind.bb_upper - ind.bb_lower) * (ind.bb_percent ?? 0));
-        const away = ((ind.bb_lower / price - 1) * 100);
-        const rsiOk = ind.rsi < 30;
+        const away = ((buyLevel / price - 1) * 100);
+        const rsiOk = ind.rsi < lo;
         const parts = [
-          rsiOk ? `RSI is oversold (${ind.rsi.toFixed(1)}) ✓` : `RSI must drop below 30 (now ${ind.rsi.toFixed(1)})`,
-          away < 0 ? `the price must fall to the lower band <b>${usd0(ind.bb_lower)}</b>, ${Math.abs(away).toFixed(1)}% under ${usd0(price)}`
+          rsiOk ? `RSI is oversold (${ind.rsi.toFixed(1)}, below ${lo}) ✓` : `RSI must drop below ${lo} (now ${ind.rsi.toFixed(1)})`,
+          away < 0 ? `the price must fall to the lower band, about <b>${usd0(buyLevel)}</b>, ${Math.abs(away).toFixed(1)}% under ${usd0(price)}`
                    : `the price is at the lower band ✓`,
         ];
-        return `<div class="sig-next"><b>Next buy:</b> needs both — ${parts.join('; ')}. Checked when each hour closes; strong volume makes it more likely to fire.</div>`;
+        const both = params.require_both_signals === false ? 'needs the RSI (the band helps)' : 'needs both';
+        return `<div class="sig-next"><b>Next buy:</b> ${both} — ${parts.join('; ')}. Checked when each hour closes; strong volume makes it more likely to fire.</div>`;
       }
 
       function signalCard(s) {
@@ -4689,7 +4731,7 @@
           </div>
           <div class="sig-meter"><i style="width:${pct}%"></i></div>
           ${isTrend ? signalTiles(s) : rsiTiles(s)}
-          ${isTrend ? nextMove(s) : rsiNextMove(s)}
+          ${isTrend ? nextMove(s) : s.name === 'RSI_BB_MeanReversion' ? rsiNextMove(s) : otherNextMove(s)}
           ${spark ? `<div class="sig-spark">${sparkCaption}${spark}</div>` : ''}
           <div class="sig-desc">${escapeHtml(s.pattern || '—')}</div>
         </div>`;

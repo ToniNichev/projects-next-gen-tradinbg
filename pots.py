@@ -39,6 +39,14 @@ except ImportError:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+
+def _timeframe_ms(timeframe: str) -> Optional[int]:
+    """'1h' -> 3600000 (None if unknown)."""
+    m = re.fullmatch(r"(\d+)([mhdw])", str(timeframe or ""))
+    if not m:
+        return None
+    return int(m.group(1)) * {"m": 60_000, "h": 3_600_000, "d": 86_400_000, "w": 604_800_000}[m.group(2)]
+
 POT_TREND = "trend"
 POT_INTRADAY = "intraday"
 POT_MANUAL = "manual"
@@ -268,6 +276,27 @@ class PotManager:
         return pot.max_buys_per_day > 0 and self.buys_today(pot) >= pot.max_buys_per_day
 
     # ----------------------------------------------------------- every candle
+
+    def prime_signals(self, strategy_manager, exchange, symbol, timeframe, candle_data) -> None:
+        """At startup: compute each pot's signal for the dashboard. Never trades.
+        Uses closed candles only, like the hourly check."""
+        step_ms = _timeframe_ms(timeframe)
+        now_ms = time.time() * 1000
+        closed = [c for c in (candle_data or []) if c[0] + step_ms <= now_ms] if step_ms else list(candle_data or [])
+        done = set()
+        for pot in self.pots.values():
+            if pot.strategy is None:
+                continue
+            try:
+                if pot.strategy.name in done:
+                    pot.last_signal = strategy_manager.last_signals.get(pot.strategy.name)
+                    continue
+                pot.last_signal = strategy_manager.compute_signal_for(
+                    pot.strategy, exchange, symbol, timeframe, closed,
+                )
+                done.add(pot.strategy.name)
+            except Exception as exc:
+                logger.warning("Pot %s: could not compute its starting signal: %s", pot.name, exc)
 
     def on_candle(self, price, strategy_manager, exchange, symbol, timeframe, candle_data) -> Dict[str, dict]:
         """Run every pot on a closed candle: stops/targets first, then the
