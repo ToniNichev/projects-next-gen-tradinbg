@@ -313,6 +313,10 @@ def test_manual_api_trades_in_the_manual_pot_only():
             status = client.get("/api/manual/status").get_json()
             assert status["pot"] == "manual" and status["balances"]["USDT"] == 6.0
             assert status["position"] is None  # not Trend Hold's position
+            # The numbers the dashboard needs to say what a buy would do
+            plan = status["plan"]
+            assert plan["fee_rate"] == config.fee_rate and plan["spendable_usd"] <= 6.0
+            assert plan["stop_loss"] < PRICE < plan["take_profit"]
 
             r = client.post("/api/manual/buy", json={"position_size": 0.5})
             assert r.status_code == 200, r.get_json()

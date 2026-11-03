@@ -178,11 +178,34 @@ def get_manual_status():
             "min_position_size": config.min_position_size,
             "max_position_size": config.max_position_size,
             "pot": "manual" if _manual_pot() is not None else None,
+            # So the dashboard can say exactly what a buy or sell would do
+            "plan": _trade_plan(price, config, trader),
         })
 
     except Exception as exc:
         logger.error("get_manual_status failed: %s", exc, exc_info=True)
         return jsonify({"error": str(exc), "available": False}), 500
+
+
+def _trade_plan(price: float, config, trader) -> dict:
+    """The numbers behind a manual trade: fee, the exchange's rounding and
+    minimum, cash really spendable, and the stop / target a buy now gets."""
+    plan = {"fee_rate": float(getattr(config, "fee_rate", 0.0) or 0.0),
+            "amount_step": 0.00001, "min_order_usd": 1.0,
+            "spendable_usd": _available_usdt(trader)}
+    try:
+        sig = _create_manual_signal("bullish", price, 1.0, config)
+        plan["stop_loss"], plan["take_profit"] = float(sig.stop_loss), float(sig.take_profit)
+    except Exception:
+        pass
+    try:  # live: the exchange's real limits
+        if hasattr(trader, "get_amount_precision"):
+            plan["amount_step"] = 10 ** -int(trader.get_amount_precision())
+        if hasattr(trader, "get_min_notional"):
+            plan["min_order_usd"] = float(trader.get_min_notional())
+    except Exception:
+        pass
+    return plan
 
 
 # ---------------------------------------------------------------------------
