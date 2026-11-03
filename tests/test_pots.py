@@ -319,6 +319,11 @@ def test_manual_api_trades_in_the_manual_pot_only():
             assert pots.get(POT_MANUAL).holding
             assert pots.get(POT_MANUAL).balances()["USDT"] == pytest.approx(3.0, abs=0.01)
 
+            # The position shows the estimated fee for selling it now
+            pos = client.get("/api/manual/status").get_json()["position"]
+            assert pos["sell_fee"] == pytest.approx(PRICE * pos["amount"] * config.fee_rate)
+            assert pos["sell_fee"] > 0
+
             r = client.post("/api/manual/sell")
             assert r.status_code == 200, r.get_json()
             assert not pots.get(POT_MANUAL).holding

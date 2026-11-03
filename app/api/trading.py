@@ -156,6 +156,8 @@ def get_manual_status():
                     "amount": pos.amount,
                     "current_price": price,
                     "unrealized_pnl": unrealised,
+                    # Estimated fee to sell it all now (subtract it for "if I sold now")
+                    "sell_fee": price * pos.amount * float(getattr(config, "fee_rate", 0.0) or 0.0),
                     "stop_loss": pos.stop_loss,
                     "take_profit": pos.take_profit,
                     "trailing_stop": pos.trailing_stop,
