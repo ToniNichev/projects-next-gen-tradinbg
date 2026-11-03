@@ -195,6 +195,8 @@ def get_state():
         # With money pots: every pot together (the balances above are one pot's)
         "pots": _pots_overview(app_state),
         "updated_at": ts.last_update.isoformat(),
+        # When the bot last checked, and the hourly close its prices are from
+        "check": app_state.get_last_check(),
         "current_price": ts.current_price,
         "position": {
             "open": ts.position_open,

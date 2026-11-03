@@ -2,6 +2,14 @@
 # System Monitoring Script
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# The running bot's process id, from the lock file it holds (empty if not running)
+bot_pid() {
+    local pid
+    pid=$(cat "$(dirname "$0")/data/bot.lock" 2>/dev/null)
+    if [ -n "$pid" ] && ps -p "$pid" -o command= 2>/dev/null | grep -q "main.py"; then
+        echo "$pid"
+    fi
+}
 
 echo "========================================="
 echo "Trading Bot Health Check"
@@ -16,7 +24,7 @@ else
 fi
 
 # Check process
-PID=$(pgrep -f "python3 main.py")
+PID=$(bot_pid)
 if [ -n "$PID" ]; then
     echo "✓ Process ID: $PID"
     

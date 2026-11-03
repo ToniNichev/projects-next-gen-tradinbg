@@ -176,9 +176,65 @@ def stream_problem(
     return None
 
 
+_INSTANCE_LOCK = None  # held open for the life of the process
+LOCK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "bot.lock")
+
+
+def _take_single_instance_lock() -> bool:
+    """Only one copy of the bot may run: two would place every trade twice.
+    The lock file also holds this process's id (stop.sh uses it)."""
+    global _INSTANCE_LOCK
+    import fcntl
+    os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
+    f = open(LOCK_PATH, "a+")
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.seek(0)
+        other = f.read().strip() or "?"
+        f.close()
+        logging.critical("Another copy of the bot is already running (process %s). Not starting a second one.", other)
+        return False
+    f.seek(0)
+    f.truncate()
+    f.write(str(os.getpid()))
+    f.flush()
+    _INSTANCE_LOCK = f
+    return True
+
+
+def _fail_start(reason: str) -> int:
+    """The bot can't start: log it, alert (once an hour at most, since
+    launchd will keep retrying), and return a non-zero exit code so launchd
+    restarts it. It used to exit with 0, which launchd treats as "stopped on
+    purpose", so the bot stayed down with no alert."""
+    logging.critical("Not starting: %s", reason)
+    stamp = os.path.join(os.path.dirname(LOCK_PATH), ".start_failure_alert")
+    try:
+        recent = os.path.exists(stamp) and time.time() - os.path.getmtime(stamp) < 3600
+    except OSError:
+        recent = False
+    if not recent:
+        try:
+            from notify import send_notification_and_wait
+            send_notification_and_wait(
+                "🚨 Trading bot can't start",
+                f"{reason[:400]} It will keep trying every few seconds. Stop orders on "
+                f"Binance.US stay in place; nothing else is watching the pots until it starts.",
+                severity="critical",
+            )
+            with open(stamp, "w") as fh:
+                fh.write(str(time.time()))
+        except Exception as exc:
+            logging.error("Could not send the start-up failure alert: %s", exc)
+    return 1
+
+
 def main():
     _configure_logging()
     _register_stack_dump_signal()
+    if not _take_single_instance_lock():
+        return 0  # not an error: the other copy keeps running (launchd won't restart this one)
 
     # Initialize database BEFORE loading config so config can read from DB
     if DATABASE_AVAILABLE:
@@ -228,7 +284,7 @@ def main():
             "error logged just before this), or run in 'paper' mode.",
             config.trading_mode,
         )
-        return
+        return _fail_start("the database isn't working (see the bot log).")
 
     # Determine trading mode and create appropriate trader
     trading_mode = config.trading_mode.lower()
@@ -288,7 +344,7 @@ def main():
             logging.error(f"Failed to sync with exchange: {e}")
             if trading_mode == "live":
                 logging.error("Cannot start live trading without exchange sync. Exiting.")
-                return
+                return _fail_start(f"couldn't reach the exchange ({e}).")
     else:
         # Create PaperTrader for paper trading (default/safe mode)
         logging.info("=" * 80)
@@ -405,7 +461,7 @@ def main():
     if config.pots_enabled:
         if strategy_manager is None:
             logging.critical("Money pots need the multi-strategy system (BOT_USE_MULTI_STRATEGY). Exiting.")
-            return
+            return _fail_start("money pots need BOT_USE_MULTI_STRATEGY=true.")
         pots_mode = trading_mode if use_live_trader else "paper"
         try:
             pot_manager = build_pots(
@@ -418,7 +474,7 @@ def main():
             )
         except Exception as exc:
             logging.critical("Could not set up money pots: %s. Exiting.", exc, exc_info=True)
-            return
+            return _fail_start(f"couldn't set up the money pots ({exc}).")
         if use_live_trader:
             try:
                 for pot_trader in pot_manager.traders():
@@ -435,7 +491,7 @@ def main():
                 logging.error("Failed to sync pots with exchange: %s", exc)
                 if trading_mode == "live":
                     logging.error("Cannot start live trading without exchange sync. Exiting.")
-                    return
+                    return _fail_start(f"couldn't reach the exchange ({exc}).")
         for pot in pot_manager.pots.values():
             b = pot.balances()
             logging.info(
@@ -463,6 +519,9 @@ def main():
             app_state.update_trading_state(emergency_stop=True, trading_enabled=False)
         elif any(not getattr(t, "trading_enabled", True) for t in _traders):
             app_state.update_trading_state(trading_enabled=False)
+        else:
+            # The dashboard copy starts "off"; show what the traders really have
+            app_state.update_trading_state(trading_enabled=True, emergency_stop=False)
     except Exception as exc:
         logging.warning("Could not show the saved trading switches: %s", exc)
     start_app(flask_app, config.dashboard_host, config.dashboard_port)
@@ -746,6 +805,27 @@ def main():
         """Open time of the candle that most recently closed."""
         return (now_ms // timeframe_ms) * timeframe_ms - timeframe_ms
 
+    def _heartbeat_ping() -> None:
+        """Tell an outside monitor the hourly check ran (optional:
+        BOT_HEARTBEAT_URL, e.g. a free healthchecks.io check). If the pings
+        stop - the bot hung, crashed or the Mac is off - that service alerts
+        you; the bot itself can't when it's down."""
+        url = os.environ.get("BOT_HEARTBEAT_URL", "").strip()
+        if not url:
+            return
+
+        def ping():
+            import urllib.request
+            for wait in (0, 30, 120):
+                try:
+                    time.sleep(wait)
+                    with urllib.request.urlopen(url, timeout=10) as resp:
+                        resp.read()
+                    return
+                except Exception as exc:
+                    logging.warning("Heartbeat ping failed: %s", exc)
+        threading.Thread(target=ping, daemon=True, name="heartbeat").start()
+
     # Open time of the last closed candle the hourly check ran on
     processed_candle = {"open": 0}
 
@@ -923,6 +1003,13 @@ def main():
                     **ohlc,
                 })
 
+            # Done: record it for the freshness check (/health, dashboard)
+            try:
+                app_state.mark_hourly_check(int(kline.get("t", 0)) + timeframe_ms)
+            except Exception as exc:
+                logging.warning("Could not record the hourly check: %s", exc)
+            _heartbeat_ping()
+
             # Live pots: make sure they don't claim more than the exchange holds
             if pot_manager is not None and pot_manager.live:
                 try:
@@ -1075,4 +1162,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

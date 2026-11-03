@@ -47,7 +47,7 @@ def never_touch_live_data(monkeypatch, tmp_path):
 @pytest.fixture(autouse=True)
 def no_real_notifications(monkeypatch):
     sent = []
-    monkeypatch.setattr(notify, "_send_all_sync", lambda title, body, severity: sent.append((title, body, severity)))
+    monkeypatch.setattr(notify, "_send_all_sync", lambda title, body, severity, **_: sent.append((title, body, severity)))
     for key in (
         "BOT_NOTIFY_WEBHOOK_URL",
         "BOT_NOTIFY_NTFY_TOPIC",

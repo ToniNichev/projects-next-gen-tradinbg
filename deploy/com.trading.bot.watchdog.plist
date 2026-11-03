@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Outside check that the trading bot is alive (watchdog.py), every 10 minutes.
+     Install:  cp deploy/com.trading.bot.watchdog.plist ~/Library/LaunchAgents/
+               launchctl load ~/Library/LaunchAgents/com.trading.bot.watchdog.plist
+     Remove:   launchctl unload ~/Library/LaunchAgents/com.trading.bot.watchdog.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trading.bot.watchdog</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/toninichev/Applications/trading.toninichev.com/venv/bin/python3</string>
+        <string>/Users/toninichev/Applications/trading.toninichev.com/watchdog.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com</string>
+    <key>StartInterval</key>
+    <integer>600</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com/logs/watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com/logs/watchdog.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

@@ -919,7 +919,8 @@
 
 {% block content %}
 <script>window.__potsOnAtLoad = {{ 'true' if pots_enabled else 'false' }};</script>
-<h1>Live Dashboard <span class="fresh-stamp" id="cards-fresh"></span></h1>
+<h1>Live Dashboard <span class="fresh-stamp" id="cards-fresh"></span> <span class="fresh-stamp" id="priced-at"></span></h1>
+<div id="bot-late-banner" class="pots-stop-banner" style="display: none;"></div>
 
 <div class="summary">
   <div class="stat-card tone-muted" id="signal-card">
@@ -3083,6 +3084,7 @@
             renderSignalCard(state.last_signal, state.pots);
             renderTradeCard(state.last_trade);
             UI.stamp('cards-fresh', true);
+            renderCheckFreshness(state.check);
             if (state.pots) {
               renderPotsTotalCard(state.pots);
               return;  // the pots total needs no candle price
@@ -3206,6 +3208,27 @@
       }
 
       // With pots: every pot plus unassigned cash (the plain balances are one pot's)
+      // Values here use the price at the last hourly close (the bot checks once
+      // an hour), and a warning when those checks stop coming
+      function renderCheckFreshness(check) {
+        const priced = document.getElementById('priced-at');
+        const banner = document.getElementById('bot-late-banner');
+        if (!check) { priced.textContent = ''; banner.style.display = 'none'; return; }
+        const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        priced.textContent = check.priced_at ? `· prices from the ${hhmm(check.priced_at)} close` : '';
+        priced.title = 'Pot values and results use BTC\'s price when the last hourly candle closed. The price chart below is live.';
+        const mins = Number(check.minutes_since_check);
+        if (mins > 75) {
+          const since = check.last_check_at ? `since ${hhmm(check.last_check_at)}` : 'since it started';
+          banner.innerHTML = `<b>The bot hasn't done its hourly check ${since} (${Math.round(mins)} minutes).</b>
+            It isn't trading or watching its stops until it does. Stop orders on Binance.US stay in place.
+            Check that the bot is running (and the Mac is awake and online).`;
+          banner.style.display = '';
+        } else {
+          banner.style.display = 'none';
+        }
+      }
+
       function renderPotsTotalCard(o) {
         document.getElementById('balance-label').textContent = o.real_money ? 'All pots · real money' : 'All pots';
         document.getElementById('balance-tip').textContent =

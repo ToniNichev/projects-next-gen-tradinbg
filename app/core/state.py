@@ -6,7 +6,7 @@ This module provides thread-safe state management for trading and backtest opera
 
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 
@@ -103,6 +103,7 @@ class ApplicationState:
         self._exchange = None
         self._strategy_manager = None
         self._pot_manager = None
+        self._started_at = datetime.now(timezone.utc)
         
         # Configuration constants
         self._max_history_size = 250
@@ -205,6 +206,29 @@ class ApplicationState:
     def get_pot_manager(self):
         with self._lock:
             return self._pot_manager
+
+    def mark_hourly_check(self, candle_close_ms: Optional[int] = None) -> None:
+        """The bot finished its check on a closed candle. Prices in /state
+        and /api/pots are that candle's close."""
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            self._last_check_at = now
+            self._last_candle_close = (
+                datetime.fromtimestamp(candle_close_ms / 1000, tz=timezone.utc)
+                if candle_close_ms else now
+            )
+
+    def get_last_check(self) -> Dict[str, Optional[str]]:
+        """When the bot last checked, and the close time its prices are from (ISO, UTC)."""
+        with self._lock:
+            at = getattr(self, "_last_check_at", None)
+            close = getattr(self, "_last_candle_close", None)
+        since = at or self._started_at  # before the first check: time since start-up
+        return {
+            "last_check_at": at.isoformat() if at else None,
+            "priced_at": close.isoformat() if close else None,
+            "minutes_since_check": round((datetime.now(timezone.utc) - since).total_seconds() / 60, 1),
+        }
 
     def get_trader(self):
         """

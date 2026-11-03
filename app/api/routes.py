@@ -83,12 +83,18 @@ def create_response(
 def health_check():
     """Lightweight health probe — no auth required."""
     try:
-        ts = get_app_state().get_trading_state()
+        state = get_app_state()
+        ts = state.get_trading_state()
+        check = state.get_last_check()
         return jsonify(create_response(success=True, data={
             "status": "healthy",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "trading_enabled": ts.trading_enabled,
             "emergency_stop": ts.emergency_stop,
+            # Is the bot still doing its hourly checks? (the watchdog reads this)
+            **check,
+            "checks_late": check["minutes_since_check"] > 75,
+            "pots_mismatch": bool(getattr(state.get_pot_manager(), "mismatch", None)),
             "services": {
                 "config_service": _config_service is not None,
                 "backtest_manager": _backtest_manager is not None,
