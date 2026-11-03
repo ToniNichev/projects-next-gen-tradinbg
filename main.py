@@ -9,6 +9,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 import json
+import candle_buffer as candle_buffer_lib
 import websocket
 import ccxt
 
@@ -455,6 +456,15 @@ def main():
     flask_app = create_app()
     app_state = init_services(trader, trader_lock, exchange, strategy_manager, config)
     app_state.set_pot_manager(pot_manager)
+    # Switches saved from before a restart (emergency stop, trading off)
+    try:
+        _traders = pot_manager.traders() if pot_manager is not None else [trader]
+        if any(getattr(t, "emergency_stop", False) for t in _traders):
+            app_state.update_trading_state(emergency_stop=True, trading_enabled=False)
+        elif any(not getattr(t, "trading_enabled", True) for t in _traders):
+            app_state.update_trading_state(trading_enabled=False)
+    except Exception as exc:
+        logging.warning("Could not show the saved trading switches: %s", exc)
     start_app(flask_app, config.dashboard_host, config.dashboard_port)
 
     logging.info("Application started — dashboard + service layer ready")
@@ -604,6 +614,12 @@ def main():
             except Exception as exc:
                 logging.warning("Could not save candle to DB: %s", exc)
 
+    def _closed_only(candles, now_ms=None):
+        """Closed candles only (see candle_buffer.py)."""
+        tf_ms = int(exchange.parse_timeframe(config.timeframe) * 1000)
+        return candle_buffer_lib.closed_only(
+            candles, tf_ms, now_ms if now_ms is not None else int(time.time() * 1000))
+
     def _backfill_candle_gap() -> None:
         """Re-fetch recent candles via REST after every (re)connect.
 
@@ -625,8 +641,8 @@ def main():
             fresh = exchange.fetch_ohlcv(config.symbol, config.timeframe, limit=fetch_limit)
             if not fresh:
                 return
-            merged = {c[0]: c for c in candle_buffer}
-            merged.update({c[0]: c for c in fresh})
+            merged = {c[0]: c for c in _closed_only(candle_buffer)}
+            merged.update({c[0]: c for c in _closed_only(fresh)})
             candle_buffer = sorted(merged.values(), key=lambda c: c[0])[-max_buffer_size:]
             # Save the last day of closed candles so a disconnect doesn't leave
             # a gap in the chart (skip the one still forming, if present)
@@ -649,8 +665,8 @@ def main():
         initial_candles = exchange.fetch_ohlcv(
             config.symbol, config.timeframe, limit=500
         )
-        candle_buffer = initial_candles
-        logging.info("Loaded %d initial candles", len(candle_buffer))
+        candle_buffer = _closed_only(initial_candles)
+        logging.info("Loaded %d initial candles (closed only)", len(candle_buffer))
         
         # Compute initial signal and populate dashboard with historical data
         if len(candle_buffer) >= config.long_window:
@@ -730,6 +746,9 @@ def main():
         """Open time of the candle that most recently closed."""
         return (now_ms // timeframe_ms) * timeframe_ms - timeframe_ms
 
+    # Open time of the last closed candle the hourly check ran on
+    processed_candle = {"open": 0}
+
     ws_activity = {
         "last_mono": time.monotonic(),
         "connected": False,
@@ -786,12 +805,17 @@ def main():
                 float(kline.get("c", 0.0)),  # close
                 float(kline.get("v", 0.0)),  # volume
             ]
-            candle_buffer.append(candle_data)
+            is_new = candle_buffer_lib.add_closed(candle_buffer, candle_data, max_buffer_size)
             _save_candles([candle_data])
-            
-            # Keep buffer at max size
-            if len(candle_buffer) > max_buffer_size:
-                candle_buffer.pop(0)
+
+            # The same closed candle again (a reconnect can resend it): its
+            # check already ran, so don't trade on it twice
+            if int(candle_data[0]) <= processed_candle["open"]:
+                logging.info("Closed candle %s seen again; already checked", candle_data[0])
+                return
+            processed_candle["open"] = int(candle_data[0])
+            if not is_new:
+                logging.info("Closed candle %s replaced a copy in the buffer", candle_data[0])
             
             # Skip signal computation until we have enough candles
             if len(candle_buffer) < config.long_window:

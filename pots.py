@@ -122,6 +122,17 @@ class PotLiveTrader(LiveTrader):
         if self.needs_check:
             self.logger.critical("Pot %s: trading stopped until checked: %s", self.pot, self.needs_check)
 
+    def _full_close_amount(self, amount: float) -> float:
+        """A sell that closes the position sells all of this pot's BTC that
+        the exchange will take, not only the last purchase. Each buy leaves
+        a sliver below the exchange's 0.00001 BTC step (the fee is taken in
+        BTC and sells round down); before, those slivers piled up in the pot,
+        about $0.77 per round trip, and no sell ever included them."""
+        pos = self.open_position
+        if pos is None or amount + 1e-12 < self.round_amount(pos.amount):
+            return amount  # nothing open, or selling only part of it
+        return max(amount, self.round_amount(self.base_balance))
+
     def _needs_check_key(self) -> str:
         return f"BOT_INTERNAL_POT_NEEDS_CHECK_{self.pot}"
 
@@ -339,6 +350,7 @@ class PotManager:
             # missing BTC. Then compare with the exchange before trading, so
             # a mismatch stops this hour's buys.
             stop_sales = self.book_stop_fills()
+            self.seed_peaks(price)
             try:
                 self.reconcile()
             except Exception as exc:
@@ -479,6 +491,25 @@ class PotManager:
             return
         self.db.set_strategy_config(self._peak_key(pot), str(max(0.0, float(value))), "float", "risk",
                                     "Internal: peak portfolio equity (USDT) for drawdown limit")
+
+    def seed_peaks(self, price: float) -> None:
+        """Give every live pot a best value for its loss limit. It used to
+        be taken only when a buy passed the bot's checks, so a buy recovered
+        by hand (Trend Hold, 2026-11-02) left the pot with none: the
+        dashboard couldn't show how far it was from its best. The money put
+        in counts as its value at the start."""
+        if self.db is None or not self.live:
+            return
+        for pot in self.pots.values():
+            if not isinstance(pot.trader, PotLiveTrader) or self._read_peak(pot) is not None:
+                continue
+            try:
+                value = pot.value(price)
+                put_in = pot.start_value + self.net_in(pot)
+                self._write_peak(pot, max(value, put_in))
+                logger.info("Pot %s: loss limit now counts from $%.2f", pot.name, max(value, put_in))
+            except Exception as exc:
+                logger.warning("Pot %s: could not set its best value: %s", pot.name, exc)
 
     def _shift_peak(self, pot: "Pot", delta: float) -> None:
         """Money moved in or out isn't a gain or loss: move the best value with it."""

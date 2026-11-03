@@ -389,8 +389,56 @@ class LiveTrader:
                     "Could not restore open position from DB: %s", exc,
                 )
 
+        self._restore_safety_state()
+
         if not self.DEFER_STARTUP_STOP_SYNC:
             self.startup_stop_sync()
+
+    # Account-wide switches from the dashboard, saved so a restart keeps them
+    _EMERGENCY_KEY = "BOT_INTERNAL_EMERGENCY_STOP"
+    _DISABLED_KEY = "BOT_INTERNAL_TRADING_DISABLED"
+
+    def _save_flag(self, key: str, on: bool, what: str) -> None:
+        if not self.db_manager or self.mode != TradingMode.LIVE:
+            return
+        try:
+            self.db_manager.set_strategy_config(key, "true" if on else "false", "str", "risk",
+                                                f"Internal: {what} (kept across restarts)")
+        except Exception as exc:
+            self.logger.error("Could not save %s: %s", what, exc)
+
+    def _read_flag(self, key: str) -> bool:
+        row = self.db_manager.get_strategy_config(key)
+        return bool(row and str(row.value).lower() == "true")
+
+    def _restore_safety_state(self) -> None:
+        """After a restart: keep the emergency stop / disabled trading, and
+        count today's trades and result again. These lived only in memory,
+        so a crash used to switch trading back on and reset the daily loss
+        limit mid-day (audit, 2026-11-02)."""
+        if not self.db_manager or self.mode != TradingMode.LIVE:
+            return
+        try:
+            if self._read_flag(self._EMERGENCY_KEY):
+                self.emergency_stop = True
+                self.trading_enabled = False
+                self.logger.critical("Emergency stop is still on (from before the restart)")
+            elif self._read_flag(self._DISABLED_KEY):
+                self.trading_enabled = False
+                self.logger.warning("Trading is still disabled (from before the restart)")
+        except Exception as exc:
+            self.logger.error("Could not read the saved trading switches: %s", exc)
+        try:
+            midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            today = self.db_manager.get_trades(
+                limit=500, start_date=midnight.replace(tzinfo=None), pot=self.pot, live=True,
+            )
+            self.daily_trades = len(today)
+            self.daily_pnl = sum(float(t.pnl) for t in today if t.side == "sell" and t.pnl is not None)
+            if today:
+                self.logger.info("Today so far: %d trades, result $%.2f", self.daily_trades, self.daily_pnl)
+        except Exception as exc:
+            self.logger.error("Could not count today's trades: %s", exc)
 
     # A money pot's cash is restored after this class's __init__ (and cash
     # moves after that), so a pot runs startup_stop_sync() itself once its
@@ -897,7 +945,7 @@ class LiveTrader:
         pos = self.open_position
         if pos is None:
             return  # the old stop had already sold everything
-        qty = self.round_amount(pos.amount)
+        qty = self._full_close_amount(self.round_amount(pos.amount))
         if qty <= 0:
             return
 
@@ -1081,6 +1129,11 @@ class LiveTrader:
             row = self.db_manager.get_strategy_config(peak_key)
             peak = float(row.value) if row and row.value else 0.0
         except Exception as exc:
+            if self.mode == TradingMode.LIVE:
+                # Real money: without the best value the loss limit can't be
+                # checked, so don't buy (it used to let the buy through)
+                self.logger.error("Could not read the loss-limit best value: %s", exc)
+                return False, "Couldn't check the loss limit (database error), so not buying"
             self.logger.debug("Could not read peak equity: %s", exc)
             return True, ""
 
@@ -1565,7 +1618,7 @@ class LiveTrader:
         current_price = float(ticker['bid'])
 
         # Round amount to exchange precision
-        amount = self.round_amount(amount)
+        amount = self._full_close_amount(self.round_amount(amount))
 
         # Validate trade
         is_valid, error_msg = self.validate_trade(
@@ -1807,6 +1860,11 @@ class LiveTrader:
         )
         return trade
 
+
+    def _full_close_amount(self, amount: float) -> float:
+        """How much a sell that closes the position should sell. A money pot
+        also sells the leftover BTC from earlier trades (see pots.py)."""
+        return amount
 
     def _is_dust(self, amount: float, price: float) -> bool:
         """True when an amount is below what the exchange would let us sell."""
@@ -2409,11 +2467,13 @@ class LiveTrader:
     def enable_trading(self):
         """Enable trading"""
         self.trading_enabled = True
+        self._save_flag(self._DISABLED_KEY, False, "trading disabled")
         self.logger.info("Trading ENABLED")
     
     def disable_trading(self):
         """Disable trading"""
         self.trading_enabled = False
+        self._save_flag(self._DISABLED_KEY, True, "trading disabled")
         self.logger.warning("Trading DISABLED")
     
     def trigger_emergency_stop(self, close_positions: bool = True):
@@ -2425,6 +2485,8 @@ class LiveTrader:
         """
         self.emergency_stop = True
         self.trading_enabled = False
+        self._save_flag(self._EMERGENCY_KEY, True, "emergency stop")
+        self._save_flag(self._DISABLED_KEY, True, "trading disabled")
         self.logger.critical("🚨 EMERGENCY STOP TRIGGERED 🚨")
 
         try:
@@ -2473,6 +2535,7 @@ class LiveTrader:
     def reset_emergency_stop(self):
         """Reset emergency stop (manual intervention required)"""
         self.emergency_stop = False
+        self._save_flag(self._EMERGENCY_KEY, False, "emergency stop")
         self.logger.warning("Emergency stop RESET - trading still disabled until manually enabled")
     
     # =========================================================================
