@@ -801,6 +801,9 @@ class PotManager:
                 f"(BTC it holds can't be moved; it moves when the pot sells)"
             )
         if src is None and self._real_money():
+            # A stop that sold since the last check isn't booked yet; its
+            # dollars would look unassigned and could be given to another pot
+            self.book_stop_fills()
             free = self.unassigned_cash() or 0.0
             if amount > free + 1e-9:
                 raise TransferError(f"Only ${free:.2f} on the exchange isn't in a pot yet")
@@ -856,7 +859,11 @@ class PotManager:
             return []
         ex = traders[0].exchange_balances or {}
         cash = sum(t.usdt_balance for t in traders)
-        btc = sum(t.base_balance for t in traders)
+        # Coins a pot's exchange stop has already sold but the pot hasn't
+        # booked (part-filled stop still resting, or a fill seconds ago) are
+        # gone from the exchange for a normal reason: not a mismatch.
+        pending = sum(t.unbooked_stop_fill() for t in traders)
+        btc = sum(t.base_balance for t in traders) - pending
         ex_cash, ex_btc = ex.get("USDT_total", 0.0), ex.get("BASE_total", 0.0)
         problems = []
         cash_short = cash > ex_cash + max(0.5, cash * 0.01)
@@ -945,6 +952,7 @@ class PotManager:
         self._mismatch_alerted = False
         self._set_mismatch(None)
         logger.info("Pots-mismatch stop cleared by the user")
+        self._rearm_missing_stops()
 
     def clear_needs_check(self, name: str) -> None:
         """A person checked a pot after an order that wasn't recorded."""
@@ -960,6 +968,14 @@ class PotManager:
         pot.trader.clear_needs_check()
         pot.last_note = "checked by you: trading again"
         logger.info("Pot %s: 'needs check' cleared by the user", pot.name)
+        self._rearm_missing_stops()
+
+    def _rearm_missing_stops(self) -> None:
+        """Holding pots with no exchange stop (held back while the account
+        didn't match) get one again."""
+        self.rearm_stops([t for t in self.traders() if isinstance(t, PotLiveTrader)
+                          and t.open_position is not None
+                          and not t.open_position.exchange_stop_order_id])
 
     def book_stop_fills(self) -> Dict[str, object]:
         """Record any exchange stop order that sold a pot's coins.
@@ -978,14 +994,38 @@ class PotManager:
         return sold
 
     def startup_stop_sync(self) -> None:
-        """At start-up, once every pot's books are complete: book any
-        exchange stop that sold while the bot was down, then re-arm stops."""
-        for t in self.traders():
-            if isinstance(t, PotLiveTrader):
-                try:
-                    t.startup_stop_sync()
-                except Exception as exc:
-                    logger.error("Pot %s: start-up stop check failed: %s", t.pot, exc)
+        """At start-up, once every pot's books are complete:
+        1. book any exchange stop that sold while the bot was down;
+        2. compare the pots with the exchange;
+        3. only then re-arm stops, and not for a pot whose coins may be gone
+           (a sell cut short by a crash): that stop would rest on another
+           pot's coins and could sell them."""
+        traders = [t for t in self.traders() if isinstance(t, PotLiveTrader)
+                   and t.mode == TradingMode.LIVE and t.open_position is not None
+                   and getattr(t.config, "exchange_stop_loss_enabled", True)]
+        if not traders:
+            return
+        for t in traders:
+            try:
+                t.check_exchange_stop_filled(rearm=False)
+            except Exception as exc:
+                logger.warning("Pot %s: could not check its exchange stop at start-up: %s", t.pot, exc)
+        try:
+            self.reconcile()
+        except Exception as exc:
+            logger.warning("Pot check at start-up failed: %s", exc)
+        self.rearm_stops(traders)
+
+    def rearm_stops(self, traders=None) -> None:
+        """Place (or replace) the exchange stop of every holding pot that may
+        have one. Pots waiting for a check are skipped inside the trader."""
+        for t in traders if traders is not None else self.traders():
+            if not isinstance(t, PotLiveTrader) or t.open_position is None:
+                continue
+            try:
+                t._sync_exchange_protective_stop()
+            except Exception as exc:
+                logger.error("Pot %s: could not re-arm its exchange stop: %s", t.pot, exc)
 
     def account_check(self) -> Optional[Dict]:
         """Live: what the exchange account holds next to what the pots book.

@@ -386,6 +386,12 @@ def clear_all_trades():
         from config import BotConfig
         config = BotConfig.load()
         initial = config.initial_usdt
+        # Wiping the records while real BTC is held would forget it (the pots
+        # would say "all cash" and buy again with money that isn't there)
+        if str(config.trading_mode).lower() != "paper":
+            return jsonify({"success": False,
+                            "error": "Clearing trades only works in paper mode: the records "
+                                     "of real trades must be kept"}), 403
 
         trader, lock = _get_trader_and_lock()
         # Hold the lock across the WHOLE operation (DB wipe + in-memory

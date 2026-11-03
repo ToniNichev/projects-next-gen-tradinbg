@@ -6,6 +6,8 @@ Call ``init_extensions(app)`` from the application factory after the app
 is created.
 """
 
+from urllib.parse import urlparse
+
 from flask import request
 from flask_limiter import Limiter
 
@@ -33,9 +35,53 @@ limiter = Limiter(
 )
 
 
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _own_hosts() -> set:
+    """Host names this dashboard is reached under (directly or via the proxy)."""
+    hosts = {request.host.lower()}
+    fwd = request.headers.get("X-Forwarded-Host", "")
+    hosts.update(h.strip().lower() for h in fwd.split(",") if h.strip())
+    try:
+        from config import BotConfig
+        for o in (BotConfig.load().allowed_origins or "").split(","):
+            o = o.strip()
+            if o and o != "*":
+                hosts.add(urlparse(o).netloc.lower() or o.lower())
+    except Exception:
+        pass
+    return hosts
+
+
+def cross_site_refusal():
+    """Refuse a money-changing request sent by another website.
+
+    The browser re-sends the dashboard login with any request, even one a
+    different site makes it send (a hidden form posting to emergency-stop,
+    manual sell, ...). Browsers always say where such a request comes from
+    (Origin, or at least Referer), so a write from a page that isn't this
+    dashboard is refused. Scripts and the API key (curl, the watchdog) send
+    neither header and are let through to the normal login check.
+    """
+    if request.method in SAFE_METHODS:
+        return None
+    source = request.headers.get("Origin") or request.headers.get("Referer")
+    if not source:
+        return None
+    host = urlparse(source).netloc.lower()
+    if host and host in _own_hosts():
+        return None
+    import logging
+    logging.getLogger(__name__).warning(
+        "Refused %s %s from another website (%s)", request.method, request.path, source[:100])
+    return {"success": False, "error": "Refused: this request came from another website"}, 403
+
+
 def init_extensions(app) -> None:
     """Bind all extensions to the Flask app instance."""
     limiter.init_app(app)
+    app.before_request(cross_site_refusal)
 
 
 # ---------------------------------------------------------------------------

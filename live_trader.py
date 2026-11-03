@@ -909,6 +909,13 @@ class LiveTrader:
             return
         if not self.open_position or self.open_position.side != "long":
             return
+        # The coins may already be sold (an order with no clear answer, or the
+        # pots short of BTC): a new stop would rest on another pot's coins and
+        # could sell them. Wait until a person has checked the account.
+        blocked = self._stop_blocked_reason()
+        if blocked:
+            self.logger.warning("Not placing an exchange stop: %s", blocked)
+            return
 
         pos = self.open_position
         trigger = self._effective_protective_trigger(pos)
@@ -1007,7 +1014,31 @@ class LiveTrader:
             except Exception:
                 pass
 
-    def check_exchange_stop_filled(self) -> Optional[TradeRecord]:
+    def _stop_blocked_reason(self) -> Optional[str]:
+        if getattr(self, "needs_check", None):
+            return f"this pot needs a check first ({self.needs_check})"
+        if (getattr(self, "pots_mismatch", None) or {}).get("btc"):
+            return "the pots claim more BTC than the exchange holds"
+        return None
+
+    def unbooked_stop_fill(self) -> float:
+        """BTC this pot's exchange stop has sold that isn't booked yet: a stop
+        that is part-filled and still resting (the price gapped through its
+        limit), or one that filled since the last look. The pots still count
+        those coins, so the account check must allow for them."""
+        pos = self.open_position
+        if self.mode != TradingMode.LIVE or not pos or not pos.exchange_stop_order_id:
+            return 0.0
+        try:
+            order = self.exchange.fetch_order(pos.exchange_stop_order_id, self.config.symbol) or {}
+            filled = float(order.get("filled") or 0.0)
+        except Exception as exc:
+            # Can't tell: at most the whole position could have sold
+            self.logger.warning("Could not look up exchange stop %s: %s", pos.exchange_stop_order_id, exc)
+            filled = pos.amount
+        return max(0.0, min(filled, pos.amount))
+
+    def check_exchange_stop_filled(self, rearm: bool = True) -> Optional[TradeRecord]:
         """Did the stop order resting on the exchange sell our coins?
 
         The exchange fires it the moment the price touches it (often mid-
@@ -1042,10 +1073,11 @@ class LiveTrader:
             )
             pos.exchange_stop_order_id = None
             self._update_open_position_in_db()
-            self._sync_exchange_protective_stop()
+            if rearm:
+                self._sync_exchange_protective_stop()
             return None
 
-        return self._book_stop_fill(order, oid, rearm=True)
+        return self._book_stop_fill(order, oid, rearm=rearm)
 
     def _book_stop_fill(self, order: Dict, oid: str, rearm: bool = True) -> TradeRecord:
         """Book coins the exchange stop sold. rearm: place a new stop for
