@@ -830,6 +830,19 @@
   .pots-moves-list { margin: 0.6rem 0 0; padding: 0; list-style: none; font-size: 0.76rem; color: var(--text-secondary); }
   .pots-moves-list li { padding: 0.15rem 0; }
 
+  /* How is the bot doing? (on-demand summary) */
+  .digest-box { margin-bottom: 1rem; }
+  .digest-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+  .digest-head .pots-section-title { margin: 0; }
+  .digest-btns { display: flex; gap: 0.5rem; margin: 0; }
+  .digest-btns button { padding: 0.4rem 0.85rem; font-size: 0.82rem; }
+  .digest-out { margin-top: 0.5rem; padding: 0.75rem 0.9rem; border-radius: 10px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+  .digest-out.attention { border-color: rgba(255,193,7,0.55); }
+  .digest-summary { margin: 0 0 0.6rem; line-height: 1.5; font-size: 0.9rem; }
+  .digest-facts { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.76rem;
+    line-height: 1.45; color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
   /* Where the money is: one bar, a part per pot, solid = BTC, faded = cash */
   .pots-alloc { margin-bottom: 1rem; }
   .pots-alloc-bar {
@@ -994,6 +1007,17 @@
     <span class="fresh-stamp" id="pots-fresh"></span>
   </div>
   <div id="pots-stop-banner"></div>
+  <div class="digest-box" id="digest-box">
+    <div class="digest-head">
+      <div class="pots-section-title">How is the bot doing?</div>
+      <div class="pots-move digest-btns">
+        <button type="button" id="digest-ai" title="A local AI (Ollama) writes a short summary of the last 24 hours, with the exact facts underneath">Summarize</button>
+        <button type="button" id="digest-facts" title="Just the exact numbers, instantly">Facts only</button>
+      </div>
+    </div>
+    <div class="pots-move-msg" id="digest-msg"></div>
+    <div class="digest-out" id="digest-out" hidden></div>
+  </div>
   <div class="pots-alloc" id="pots-alloc"></div>
   <div class="pots-perf" id="pots-perf">
     <div class="pots-section-title">Results over time</div>
@@ -1043,6 +1067,40 @@
     const POT_COLORS = window.POT_COLORS = { trend: '#FFD700', intraday: '#FF6B9D', manual: '#00D9FF' };
     const HOLD_COLOR = '#539bf5';
     const potColor = (name) => POT_COLORS[name] || '#8b949e';
+
+    // "How is the bot doing?": runs digest.py on the server (read-only)
+    async function runDigest(ai) {
+      const btns = [document.getElementById('digest-ai'), document.getElementById('digest-facts')];
+      const msg = document.getElementById('digest-msg');
+      const out = document.getElementById('digest-out');
+      btns.forEach(b => { b.disabled = true; });
+      msg.className = 'pots-move-msg';
+      msg.textContent = ai ? 'Writing a summary… (about 10–20 seconds)' : 'Collecting the facts…';
+      try {
+        const r = await fetch('/api/digest', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hours: 24, ai }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
+        const d = j.data;
+        out.hidden = false;
+        out.classList.toggle('attention', !!d.attention);
+        out.innerHTML = (d.summary ? `<p class="digest-summary">${esc(d.summary)}</p>` : '')
+          + `<pre class="digest-facts">${esc(d.sheet)}</pre>`;
+        const at = new Date(d.made_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        msg.className = 'pots-move-msg ' + (d.attention ? 'err' : 'ok');
+        msg.textContent = (d.attention ? 'Something needs a look. ' : 'All fine. ') + `Made at ${at}.`;
+      } catch (e) {
+        msg.className = 'pots-move-msg err';
+        msg.textContent = 'Could not make the summary: ' + e.message;
+      } finally {
+        btns.forEach(b => { b.disabled = false; });
+      }
+    }
+    document.getElementById('digest-ai').addEventListener('click', () => runDigest(true));
+    document.getElementById('digest-facts').addEventListener('click', () => runDigest(false));
 
     function renderAlloc(data) {
       const total = data.pots.reduce((a, p) => a + Math.max(0, p.value), 0) || 1;

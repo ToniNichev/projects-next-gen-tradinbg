@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Daily plain-English summary of the bot (digest.py), every day at 8:30.
+     Install:  cp deploy/com.trading.bot.digest.plist ~/Library/LaunchAgents/
+               launchctl load ~/Library/LaunchAgents/com.trading.bot.digest.plist
+     Remove:   launchctl unload ~/Library/LaunchAgents/com.trading.bot.digest.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trading.bot.digest</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/toninichev/Applications/trading.toninichev.com/venv/bin/python3</string>
+        <string>/Users/toninichev/Applications/trading.toninichev.com/digest.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com/logs/digest.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com/logs/digest.out</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

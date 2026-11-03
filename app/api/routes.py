@@ -23,7 +23,12 @@ POST /api/backtest/clear          Delete all results
 GET  /api/backtest/timing-history Historical run-time data for ETA estimation
 """
 
+import json
 import logging
+import os
+import subprocess
+import sys
+import threading
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -36,6 +41,7 @@ except ImportError:
         return f
 
 from app.core.state import get_app_state
+from app.extensions import limiter
 from app.services.config_service import ConfigService
 from app.services.backtest_manager import BacktestManager
 
@@ -103,6 +109,50 @@ def health_check():
     except Exception as exc:
         logger.error("Health check failed: %s", exc)
         return jsonify(create_response(success=False, error=str(exc))), 500
+
+
+# ---------------------------------------------------------------------------
+# On-demand summary (digest.py, run as its own process)
+# ---------------------------------------------------------------------------
+
+_digest_running = threading.Lock()
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def run_digest(hours: float, ai: bool, label: str = "now", timeout: float = 240) -> Dict[str, Any]:
+    """Run digest.py in a separate process: a slow or stuck local model can't
+    hold up anything in the bot. Raises RuntimeError with a readable reason."""
+    cmd = [sys.executable, os.path.join(_ROOT, "digest.py"), "--json",
+           "--hours", str(hours), "--label", label]
+    if not ai:
+        cmd.append("--facts-only")
+    proc = subprocess.run(cmd, cwd=_ROOT, capture_output=True, text=True, timeout=timeout)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or "digest failed").strip().splitlines()[-1][:300])
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+@api_bp.route("/digest", methods=["POST"])
+@limiter.limit("3 per minute")
+@require_auth
+def make_digest():
+    """Summary of how the bot is doing. Body: hours (default 24), ai (default true)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        hours = min(max(float(data.get("hours", 24)), 1), 24 * 7)
+    except (TypeError, ValueError):
+        return jsonify(create_response(success=False, error="hours must be a number")), 400
+    if not _digest_running.acquire(blocking=False):
+        return jsonify(create_response(success=False, error="A summary is already being written")), 409
+    try:
+        return jsonify(create_response(success=True, data=run_digest(hours, bool(data.get("ai", True)))))
+    except subprocess.TimeoutExpired:
+        return jsonify(create_response(success=False, error="The summary took too long")), 504
+    except Exception as exc:
+        logger.error("Digest failed: %s", exc)
+        return jsonify(create_response(success=False, error=str(exc))), 500
+    finally:
+        _digest_running.release()
 
 
 # ---------------------------------------------------------------------------

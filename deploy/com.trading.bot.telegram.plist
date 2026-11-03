@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Answers /status and /summary from your Telegram chat (telegram_bot.py, read-only).
+     Install:  cp deploy/com.trading.bot.telegram.plist ~/Library/LaunchAgents/
+               launchctl load ~/Library/LaunchAgents/com.trading.bot.telegram.plist
+     Remove:   launchctl unload ~/Library/LaunchAgents/com.trading.bot.telegram.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trading.bot.telegram</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/toninichev/Applications/trading.toninichev.com/venv/bin/python3</string>
+        <string>/Users/toninichev/Applications/trading.toninichev.com/telegram_bot.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com/logs/telegram_bot.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/toninichev/Applications/trading.toninichev.com/logs/telegram_bot.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
