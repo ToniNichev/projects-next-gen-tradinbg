@@ -89,7 +89,30 @@ def strategies_page():
     Validates: Requirements 15.4, 15.7
     """
     logger.debug("Rendering strategies page")
-    return render_template("strategy_config.html")
+    return _strategies_or_pots()
+
+
+def _pots_on() -> bool:
+    try:
+        from app.core.state import get_app_state
+        return get_app_state().get_pot_manager() is not None
+    except Exception:
+        return False
+
+
+def _strategies_or_pots():
+    """With money pots on, the Strategies page is one card per pot with the
+    settings it really uses; the old all-strategies page is at /strategies/all."""
+    if _pots_on():
+        return render_template("pot_strategies.html")
+    return render_template("strategy_config.html", pots_enabled=False)
+
+
+@ui_bp.route('/strategies/all')
+@require_auth
+def all_strategies_page():
+    """The old page with every strategy and setting (most unused with pots)."""
+    return render_template("strategy_config.html", pots_enabled=_pots_on())
 
 
 @ui_bp.route('/settings')
@@ -97,7 +120,7 @@ def strategies_page():
 def settings_page():
     """Settings page — renders the unified strategy / config UI."""
     logger.debug("Rendering settings page")
-    return render_template("strategy_config.html")
+    return _strategies_or_pots()
 
 
 @ui_bp.route('/strategy-config')
@@ -105,7 +128,7 @@ def settings_page():
 def strategy_config_page():
     """Strategy configuration and parameter adjustment page."""
     logger.debug("Rendering strategy-config page")
-    return render_template("strategy_config.html")
+    return _strategies_or_pots()
 
 
 @ui_bp.route('/logout')

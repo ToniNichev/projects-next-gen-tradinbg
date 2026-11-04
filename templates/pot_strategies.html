@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+
+{% block title %}Pot Strategies - Crypto Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .ps-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .ps-head h1 { margin: 0 0 0.3rem; }
+  .ps-head p { margin: 0; color: var(--text-secondary); max-width: 46rem; line-height: 1.5; }
+  .ps-live { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.7rem; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 600; color: #ffc107; border: 1px solid rgba(255,193,7,0.45); background: rgba(255,193,7,0.08); }
+  .ps-grid { display: grid; gap: 1rem; }
+  .ps-card { border: 1px solid var(--border-color); border-left: 4px solid var(--c, #8b949e); border-radius: 14px;
+    background: var(--bg-secondary); padding: 1.1rem 1.25rem; }
+  .ps-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+  .ps-title { display: flex; align-items: center; gap: 0.6rem; }
+  .ps-letter { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700;
+    font-size: 0.8rem; color: #0d1117; background: var(--c, #8b949e); }
+  .ps-title h2 { margin: 0; font-size: 1.15rem; }
+  .ps-strat { color: var(--text-secondary); font-size: 0.85rem; }
+  .ps-state { font-size: 0.78rem; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-color); color: var(--text-secondary); }
+  .ps-state.holding { color: var(--accent-green); border-color: rgba(88,214,141,0.4); }
+  .ps-section { margin-top: 0.9rem; }
+  .ps-section h3 { margin: 0 0 0.4rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); }
+  .ps-rules { margin: 0; padding-left: 1.1rem; line-height: 1.55; }
+  .ps-rules li { margin: 0.15rem 0; }
+  .ps-now { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .ps-now span { font-size: 0.82rem; padding: 0.25rem 0.6rem; border-radius: 8px; background: rgba(83,155,245,0.1);
+    border: 1px solid rgba(83,155,245,0.25); }
+  .ps-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  .ps-table td { padding: 0.5rem 0.4rem; border-top: 1px solid var(--border-color); vertical-align: top; }
+  .ps-table td.ps-in { width: 11rem; text-align: right; white-space: nowrap; }
+  .ps-label { font-weight: 600; }
+  .ps-help { color: var(--text-secondary); font-size: 0.78rem; line-height: 1.4; margin-top: 0.15rem; }
+  .ps-also { display: inline-block; margin-left: 0.4rem; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.4rem;
+    border-radius: 6px; color: #ffc107; border: 1px solid rgba(255,193,7,0.4); vertical-align: 1px; }
+  .ps-table input[type=number] { width: 6.2rem; padding: 0.35rem 0.5rem; border-radius: 8px; text-align: right;
+    border: 1px solid rgba(255,255,255,0.14); background: var(--bg-primary); color: var(--text-primary); font-size: 0.88rem; }
+  .ps-table input.changed { border-color: #ffc107; box-shadow: 0 0 0 2px rgba(255,193,7,0.2); }
+  .ps-table input.bad { border-color: var(--accent-red); }
+  .ps-unit { display: inline-block; min-width: 3.4rem; text-align: left; margin-left: 0.35rem; color: var(--text-secondary); font-size: 0.8rem; }
+  .ps-switch { display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer; }
+  .ps-switch input { width: 1.05rem; height: 1.05rem; accent-color: #ffc107; }
+  .ps-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.8rem; }
+  .ps-btn { padding: 0.5rem 1rem; border-radius: 9px; border: 1px solid rgba(255,255,255,0.14); background: var(--bg-tertiary);
+    color: var(--text-primary); font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+  .ps-btn.primary { background: rgba(255,193,7,0.15); border-color: rgba(255,193,7,0.55); color: #ffd54f; }
+  .ps-btn:disabled { opacity: 0.45; cursor: default; }
+  .ps-msg { font-size: 0.85rem; }
+  .ps-msg.ok { color: var(--accent-green); } .ps-msg.err { color: var(--accent-red); }
+  .ps-note { color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; }
+  details.ps-unused { margin-top: 1.25rem; border: 1px solid var(--border-color); border-radius: 14px; padding: 0.9rem 1.2rem; background: var(--bg-secondary); }
+  details.ps-unused summary { cursor: pointer; font-weight: 600; }
+  details.ps-unused ul { line-height: 1.6; color: var(--text-secondary); }
+  dialog.ps-confirm { max-width: 34rem; width: calc(100% - 32px); border-radius: 14px; border: 1px solid rgba(255,193,7,0.45);
+    background: var(--bg-secondary); color: var(--text-primary); padding: 1.2rem 1.3rem; }
+  .ps-confirm a, .ps-note a, details.ps-unused a { color: var(--accent-blue); }
+  dialog.ps-confirm::backdrop { background: rgba(0,0,0,0.6); }
+  dialog.ps-confirm h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
+  .ps-diff { width: 100%; border-collapse: collapse; margin: 0.4rem 0 0.8rem; font-size: 0.88rem; }
+  .ps-diff td { padding: 0.35rem 0.3rem; border-top: 1px solid var(--border-color); }
+  .ps-diff .from { color: var(--text-secondary); text-decoration: line-through; }
+  .ps-diff .to { color: #ffd54f; font-weight: 700; }
+  .ps-warn { margin: 0 0 0.9rem; padding-left: 1.1rem; line-height: 1.5; font-size: 0.85rem; }
+  @media (max-width: 640px) {
+    .ps-table td.ps-in { width: auto; }
+    .ps-table tr { display: grid; grid-template-columns: 1fr; }
+    .ps-table td.ps-in { text-align: left; border-top: none; padding-top: 0; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ps-head">
+  <div>
+    <h1>Pot strategies</h1>
+    <p>Each pot runs one strategy with its own money. This is how each one decides, what it sees right now,
+      and the settings it trades with. Nothing else changes what the pots do.</p>
+  </div>
+  <span class="ps-live">● Real money: changes apply at the next hourly check</span>
+</div>
+
+<div class="ps-grid" id="ps-grid"><p class="ps-note">Loading…</p></div>
+
+<details class="ps-unused" id="ps-unused">
+  <summary>Not used while pots are on</summary>
+  <p class="ps-note">These came from the old setup, where several strategies voted on one account. With pots they don't change anything:</p>
+  <ul id="ps-unused-list"></ul>
+  <p class="ps-note">Strategies no pot runs: <span id="ps-unused-strats">–</span>.
+    To try a different strategy or settings, <a href="/backtest">run a backtest</a> first. The old page with everything is still at
+    <a href="/strategies/all">Strategies → all settings</a>.</p>
+</details>
+
+<dialog class="ps-confirm" id="ps-confirm" aria-labelledby="ps-confirm-title">
+  <h2 id="ps-confirm-title">Change settings?</h2>
+  <div id="ps-confirm-body"></div>
+  <div class="ps-actions" style="justify-content:flex-end">
+    <button type="button" class="ps-btn" id="ps-cancel">Cancel</button>
+    <button type="button" class="ps-btn primary" id="ps-apply">Apply to real money</button>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  const esc = UI.esc;
+  let data = null;
+  let pending = null;  // {pot, changes, plan}
+
+  const fmt = (v, f) => {
+    if (v === null || v === undefined) return '–';
+    if (f.kind === 'bool') return v ? 'On' : 'Off';
+    return `${Number(v).toLocaleString('en-US', { maximumFractionDigits: 4 })}${f.unit === '%' ? '%' : f.unit ? ' ' + f.unit : ''}`;
+  };
+
+  function input(pot, f) {
+    const id = `f-${pot.name}-${f.key}`;
+    if (f.kind === 'bool') {
+      return `<label class="ps-switch"><input type="checkbox" id="${id}" data-pot="${pot.name}" data-key="${f.key}"
+        ${f.value ? 'checked' : ''}> <span>${f.value ? 'On' : 'Off'}</span></label>`;
+    }
+    return `<input type="number" id="${id}" data-pot="${pot.name}" data-key="${f.key}" value="${f.value ?? ''}"
+      min="${f.min}" max="${f.max}" step="${f.step || 'any'}" inputmode="decimal" aria-label="${esc(f.label)}"><span class="ps-unit">${esc(f.unit || '')}</span>`;
+  }
+
+  function card(p) {
+    const state = p.paused ? 'paused (no new buys)' : p.holding ? 'holding BTC' : 'in cash';
+    const potWord = `${p.name.charAt(0).toUpperCase()}${p.name.slice(1)} pot`;
+    const strat = p.strategy ? UI.strategyName(p.strategy) : null;
+    const who = !strat ? `${potWord} · you decide`
+      : strat === p.label ? `${potWord} · runs this strategy` : `${potWord} · runs ${strat}`;
+    const rows = p.settings.map(f => `<tr>
+        <td><div class="ps-label">${esc(f.label)}${f.also.length ? `<span class="ps-also" title="This setting is shared">also changes ${esc(f.also.join(', '))}</span>` : ''}</div>
+          <div class="ps-help">${esc(f.help)}</div></td>
+        <td class="ps-in">${input(p, f)}</td></tr>`).join('');
+    return `<section class="ps-card" style="--c:${p.color || '#8b949e'}" id="pot-${p.name}">
+      <div class="ps-card-head">
+        <div class="ps-title"><span class="ps-letter">${esc(p.letter || p.label[0])}</span>
+          <div><h2>${esc(p.label)}</h2><div class="ps-strat">${esc(who)}</div></div></div>
+        <span class="ps-state ${p.holding ? 'holding' : ''}">${esc(state)}</span>
+      </div>
+      <div class="ps-section"><h3>How it decides</h3>
+        <ul class="ps-rules">${p.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>
+      ${p.now && p.now.length ? `<div class="ps-section"><h3>Right now</h3><div class="ps-now">${p.now.map(n => `<span>${esc(n)}</span>`).join('')}</div></div>` : ''}
+      ${rows ? `<div class="ps-section"><h3>Settings it trades with</h3>
+        <table class="ps-table"><tbody>${rows}</tbody></table>
+        <div class="ps-actions">
+          <button type="button" class="ps-btn primary" data-save="${p.name}" disabled>Review changes…</button>
+          <button type="button" class="ps-btn" data-reset="${p.name}" disabled>Undo</button>
+          <span class="ps-msg" id="msg-${p.name}" aria-live="polite"></span>
+        </div>
+        <p class="ps-note">${p.holding
+          ? 'It holds BTC now: that purchase keeps the stop and target it got when it bought. New settings apply from the next check (a changed sell rule can sell at that check).'
+          : 'New settings apply from the next hourly check.'}</p></div>` : ''}
+    </section>`;
+  }
+
+  function changesOf(potName) {
+    const pot = data.pots.find(p => p.name === potName);
+    const changes = {};
+    let bad = false;
+    pot.settings.forEach(f => {
+      const el = document.getElementById(`f-${pot.name}-${f.key}`);
+      if (!el) return;
+      let v;
+      if (f.kind === 'bool') {
+        v = el.checked;
+        el.nextElementSibling.textContent = v ? 'On' : 'Off';
+      } else {
+        v = el.value === '' ? NaN : Number(el.value);
+        const ok = Number.isFinite(v) && v >= f.min && v <= f.max && (f.kind !== 'int' || Number.isInteger(v));
+        el.classList.toggle('bad', !ok);
+        if (!ok) { bad = true; return; }
+      }
+      const changed = v !== f.value;
+      if (f.kind !== 'bool') el.classList.toggle('changed', changed);
+      else el.closest('.ps-switch').style.color = changed ? '#ffd54f' : '';
+      if (changed) changes[f.key] = v;
+    });
+    return { changes, bad };
+  }
+
+  function refreshButtons(potName) {
+    const { changes, bad } = changesOf(potName);
+    const n = Object.keys(changes).length;
+    const save = document.querySelector(`[data-save="${potName}"]`);
+    const reset = document.querySelector(`[data-reset="${potName}"]`);
+    save.disabled = bad || n === 0;
+    save.textContent = n ? `Review ${n} change${n > 1 ? 's' : ''}…` : 'Review changes…';
+    reset.disabled = n === 0;
+    const msg = document.getElementById(`msg-${potName}`);
+    msg.className = 'ps-msg' + (bad ? ' err' : '');
+    msg.textContent = bad ? 'A value is outside its allowed range.' : '';
+  }
+
+  function render() {
+    const grid = document.getElementById('ps-grid');
+    grid.innerHTML = data.pots.map(card).join('');
+    document.getElementById('ps-unused-list').innerHTML = data.unused_controls.map(t => `<li>${esc(t)}</li>`).join('');
+    document.getElementById('ps-unused-strats').textContent = data.unused_strategies.join(', ') || 'none';
+    grid.querySelectorAll('input[data-key]').forEach(el => {
+      el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', () => refreshButtons(el.dataset.pot));
+    });
+    grid.querySelectorAll('[data-reset]').forEach(b => b.addEventListener('click', () => {
+      const pot = data.pots.find(p => p.name === b.dataset.reset);
+      pot.settings.forEach(f => {
+        const el = document.getElementById(`f-${pot.name}-${f.key}`);
+        if (f.kind === 'bool') el.checked = !!f.value; else el.value = f.value;
+      });
+      refreshButtons(pot.name);
+    }));
+    grid.querySelectorAll('[data-save]').forEach(b => b.addEventListener('click', () => review(b.dataset.save)));
+  }
+
+  async function post(body) {
+    const r = await fetch('/api/pot-strategies/update', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
+    return j;
+  }
+
+  async function review(potName) {
+    const { changes } = changesOf(potName);
+    const msg = document.getElementById(`msg-${potName}`);
+    try {
+      const j = await post({ pot: potName, changes });  // check only, nothing saved
+      const pot = data.pots.find(p => p.name === potName);
+      pending = { pot: potName, changes };
+      const shared = [...new Set(j.changes.flatMap(c => c.also))];
+      const unitOf = (c) => ({ unit: c.unit, kind: typeof c.after === 'boolean' ? 'bool' : 'num' });
+      document.getElementById('ps-confirm-title').textContent = `Change settings for ${pot.label}?`;
+      document.getElementById('ps-confirm-body').innerHTML = `
+        <table class="ps-diff"><tbody>${j.changes.map(c => `<tr><td>${esc(c.label)}</td>
+          <td class="from">${esc(fmt(c.before, unitOf(c)))}</td><td>→</td><td class="to">${esc(fmt(c.after, unitOf(c)))}</td></tr>`).join('')}</tbody></table>
+        <ul class="ps-warn">
+          <li><b>Real money.</b> ${esc(pot.label)} trades with these from the next hourly check.</li>
+          ${shared.length ? `<li><b>Shared:</b> this also changes the ${esc(shared.join(' and '))} pot.</li>` : ''}
+          ${pot.holding ? `<li>It holds BTC now. That purchase keeps its current stop and target; a changed sell rule can sell it at the next check.</li>` : ''}
+          <li>Not tested on past prices. To check first, cancel and <a href="/backtest">run a backtest</a> with these values.</li>
+        </ul>`;
+      document.getElementById('ps-confirm').showModal();
+    } catch (e) {
+      msg.className = 'ps-msg err';
+      msg.textContent = e.message;
+    }
+  }
+
+  document.getElementById('ps-cancel').addEventListener('click', () => {
+    pending = null;
+    document.getElementById('ps-confirm').close();
+  });
+
+  document.getElementById('ps-apply').addEventListener('click', async () => {
+    if (!pending) return;
+    const btn = document.getElementById('ps-apply');
+    const { pot, changes } = pending;
+    btn.disabled = true;
+    const msg = document.getElementById(`msg-${pot}`);
+    try {
+      const j = await post({ pot, changes, confirm: true });
+      document.getElementById('ps-confirm').close();
+      await load();
+      const m = document.getElementById(`msg-${pot}`);
+      m.className = 'ps-msg ok';
+      m.textContent = `Saved and applied: ${j.changes.map(c => c.label).join(', ')}.`;
+    } catch (e) {
+      document.getElementById('ps-confirm').close();
+      msg.className = 'ps-msg err';
+      msg.textContent = 'Not applied: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      pending = null;
+    }
+  });
+
+  async function load() {
+    try {
+      const r = await fetch('/api/pot-strategies', { credentials: 'include' });
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error || `HTTP ${r.status}`);
+      if (!j.pots_enabled) { location.href = '/strategies/all'; return; }
+      data = j;
+      render();
+    } catch (e) {
+      document.getElementById('ps-grid').innerHTML = `<p class="ps-msg err">Could not load the pots: ${esc(e.message)}</p>`;
+    }
+  }
+  load();
+})();
+</script>
+{% endblock %}

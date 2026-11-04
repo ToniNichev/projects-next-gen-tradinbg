@@ -1154,6 +1154,14 @@
 {% endblock %}
 
 {% block content %}
+{% if pots_enabled %}
+<div role="alert" style="margin:0 0 1rem;padding:0.9rem 1.1rem;border-radius:12px;border:1px solid rgba(255,193,7,0.55);background:rgba(255,193,7,0.08);line-height:1.5">
+  <b>Money pots are on: most of this page does nothing.</b>
+  Each pot runs its own strategy whatever the switches, weights and filters here say.
+  Settings a pot trades with can't be changed here (they're skipped when you save), and Presets are off.
+  <a href="/strategies" style="font-weight:600">Change a pot's settings on the Strategies page →</a>
+</div>
+{% endif %}
 <div class="sc-head">
   <div>
     <h1>Strategy Center <button type="button" class="help-btn" data-help-open="help-dialog" title="How this page works" aria-label="How this page works" aria-haspopup="dialog">?</button></h1>

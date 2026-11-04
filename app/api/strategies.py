@@ -19,7 +19,10 @@ GET  /api/presets                             List saved config presets
 GET  /api/presets/<name>                      Get a specific preset
 POST /api/presets                             Save / update a preset
 DEL  /api/presets/<name>                      Delete a custom preset
-POST /api/presets/<name>/apply                Apply preset to DB + runtime
+POST /api/presets/<name>/apply                Apply preset to DB + runtime (off while pots are on)
+
+GET  /api/pot-strategies                      Each pot: its rule and the settings it uses
+POST /api/pot-strategies/update               Change one pot's settings (confirm: true)
 """
 
 import logging
@@ -78,6 +81,8 @@ CONFIG_MAPPING = {
     "strategy_rsi_bb_bb_std_dev":       {"type": "float", "category": "rsi_bb"},
     "strategy_rsi_bb_stop_loss_pct":    {"type": "float", "category": "rsi_bb"},
     "strategy_rsi_bb_take_profit_pct":  {"type": "float", "category": "rsi_bb"},
+    "strategy_rsi_bb_require_both_signals": {"type": "bool", "category": "rsi_bb"},
+    "strategy_rsi_bb_use_volume_filter":    {"type": "bool", "category": "rsi_bb"},
     "strategy_macd_enabled":            {"type": "bool",  "category": "macd"},
     "strategy_macd_weight":             {"type": "float", "category": "macd"},
     "strategy_macd_fast_period":        {"type": "int",   "category": "macd"},
@@ -430,9 +435,17 @@ def update_strategy_config():
             if key in data and not str(data[key] or "").strip():
                 return jsonify({"error": f"{key} can't be empty"}), 400
         db = get_database()
+        skipped = []
+        if _pot_manager() is not None:
+            # With pots on, settings a pot trades with change only on the
+            # pot cards (with a before/after confirmation), never from here
+            from app.api.pot_settings import LIVE_KEYS
+            skipped = sorted(k for k in data if k in LIVE_KEYS)
+            data = {k: v for k, v in data.items() if k not in LIVE_KEYS}
         configs_to_save, count = _batch_save_config(data, db)
-        return jsonify({"success": True, "message": f"Updated {count} parameters",
-                        "updated_keys": list(configs_to_save.keys())})
+        return jsonify({"success": True, "message": f"Updated {count} parameters"
+                        + (f" ({len(skipped)} pot settings skipped: change those on the pot cards)" if skipped else ""),
+                        "updated_keys": list(configs_to_save.keys()), "skipped_pot_keys": skipped})
     except Exception as exc:
         logger.error("update_strategy_config failed: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
@@ -536,6 +549,9 @@ def delete_preset(preset_name):
 def apply_preset(preset_name):
     if not DATABASE_AVAILABLE:
         return jsonify({"error": "Database not available"}), 503
+    if _pot_manager() is not None:
+        return jsonify({"error": "Presets are off while money pots are on: one click could change "
+                                 "the settings a pot trades real money with. Change them on the pot cards."}), 409
     try:
         db = get_database()
         preset = db.get_preset(preset_name)
@@ -697,3 +713,79 @@ def get_strategy_signals():
     except Exception as exc:
         logger.error("get_strategy_signals failed: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Money pots: each pot's rule and the settings it really uses
+# ---------------------------------------------------------------------------
+
+def _current_price():
+    try:
+        p = get_app_state().get_trading_state().current_price
+        return float(p) if p else None
+    except Exception:
+        return None
+
+
+@strategies_bp.route("/api/pot-strategies")
+@limiter.limit("60 per minute")
+@require_auth
+def get_pot_strategies():
+    from app.api.pot_settings import describe
+    from config import BotConfig
+    manager = _pot_manager()
+    if manager is None:
+        return jsonify({"success": True, "pots_enabled": False, "pots": []})
+    try:
+        data = describe(manager, BotConfig.load(), _current_price())
+        return jsonify({"success": True, "pots_enabled": True, **data})
+    except Exception as exc:
+        logger.error("get_pot_strategies failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@strategies_bp.route("/api/pot-strategies/update", methods=["POST"])
+@limiter.limit("10 per minute")
+@require_auth
+def update_pot_strategy():
+    """Save one pot's changed settings and apply them to the running bot.
+
+    Body: {"pot": "intraday", "changes": {key: value in display units}, "confirm": true}.
+    Without confirm it only checks and returns the before/after list.
+    """
+    from app.api.pot_settings import plan_changes, describe
+    from config import BotConfig
+    manager = _pot_manager()
+    if manager is None:
+        return jsonify({"success": False, "error": "Money pots are off"}), 400
+    if not DATABASE_AVAILABLE:
+        return jsonify({"success": False, "error": "Database not available"}), 503
+    body = request.get_json(silent=True) or {}
+    try:
+        plan = plan_changes(manager, BotConfig.load(), body.get("pot"), body.get("changes"))
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    public = [{k: v for k, v in c.items() if k != "stored"} for c in plan]
+    if body.get("confirm") is not True:
+        return jsonify({"success": True, "applied": False, "changes": public})
+    try:
+        db = get_database()
+        _batch_save_config({c["key"]: c["stored"] for c in plan}, db)
+        sm = _get_strategy_manager()
+        if sm is not None:
+            sm.reload_config(BotConfig.load())
+        pot = manager.pots[body["pot"]]
+        logger.warning("Pot settings changed (%s): %s", pot.label,
+                       ", ".join(f"{c['key']} {c['before']} -> {c['after']}" for c in plan))
+        fresh = describe(manager, BotConfig.load(), _current_price())
+        now = next((p for p in fresh["pots"] if p["name"] == pot.name), None)
+        # Read back what the running bot uses now
+        live = {f["key"]: f["value"] for f in (now or {}).get("settings", [])}
+        not_applied = [c["key"] for c in plan if live.get(c["key"]) != c["after"]]
+        return jsonify({"success": not not_applied, "applied": True, "changes": public,
+                        "not_applied": not_applied, "pot": now,
+                        "error": ("Saved, but the running bot didn't pick up: " + ", ".join(not_applied)
+                                  + ". Restart the bot to load them.") if not_applied else None})
+    except Exception as exc:
+        logger.error("update_pot_strategy failed: %s", exc, exc_info=True)
+        return jsonify({"success": False, "error": str(exc)}), 500
