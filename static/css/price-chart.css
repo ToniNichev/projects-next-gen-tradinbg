@@ -376,3 +376,6 @@
 .chart-status .candle-help .info-tooltip { text-align: left; font-size: 0.8rem; }
 .chart-status .candle-help:focus .info-tooltip,
 .chart-status .candle-help:focus-within .info-tooltip { visibility: visible; opacity: 1; }
+.candle-live-title { font-weight: 650; margin-top: 0.4rem; }
+.candle-live-text { font-size: 0.78rem; line-height: 1.45; color: var(--text-secondary, #8b949e); }
+.candle-live .candle-svg { max-width: 300px; margin: 0.4rem 0; }

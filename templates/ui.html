@@ -1940,6 +1940,7 @@
             <text x="242" y="134" class="cl">Low</text>
             <text x="220" y="148" class="ct" text-anchor="middle">Went down</text>
           </svg>
+          <div id="candle-live" class="candle-live"></div>
           • <b>One candle = one hour</b> of BTC price (or the timeframe picked above: 5m, 4h, 1d…).<br>
           • <b>Green</b>: the price ended the hour <b>higher</b> than it started. <b>Red</b>: <b>lower</b>.<br>
           • The <b>thick body</b> runs from the start price to the end price. A tall body = a big move.<br>
@@ -3727,6 +3728,74 @@
         }
       }
       
+      // "?" bubble: draw the latest finished candle to scale, with its real prices
+      const TF_WORDS = { '5m': ['5 minutes', 300e3], '15m': ['15 minutes', 900e3], '30m': ['30 minutes', 1800e3],
+                         '1h': ['hour', 3600e3], '4h': ['4 hours', 14400e3], '1d': ['day', 86400e3] };
+      function renderLiveCandle() {
+        const box = document.getElementById('candle-live');
+        if (!box || typeof chart === 'undefined' || !chart) return;
+        const data = chart.data.datasets[0].data || [];
+        const [word, ms] = TF_WORDS[currentTimeframe] || ['period', 3600e3];
+        let k = data.length - 1;
+        while (k >= 0 && data[k].x + ms > Date.now()) k--;      // skip the one still forming
+        const c = data[k];
+        if (!c || !(c.h > 0)) { box.innerHTML = ''; return; }
+        const up = c.c >= c.o, col = up ? '#58D68D' : '#ff5e57';
+        const usd = v => '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const W = 300, top = 16, H = 150, cx = 70;
+        const span = Math.max(c.h - c.l, 1e-9);
+        const y = v => top + (c.h - v) / span * H;
+        const bodyTop = y(Math.max(c.o, c.c)), bodyBot = y(Math.min(c.o, c.c));
+        const bodyH = Math.max(2, bodyBot - bodyTop);
+        // Labels on the right, spread so they never overlap
+        const labels = [
+          { v: c.h, t: `High ${usd(c.h)}`, sub: 'upper wick: the most it reached' },
+          { v: up ? c.c : c.o, t: `${up ? 'Close' : 'Open'} ${usd(up ? c.c : c.o)}`, sub: up ? 'end of the ' + word : 'start of the ' + word },
+          { v: up ? c.o : c.c, t: `${up ? 'Open' : 'Close'} ${usd(up ? c.o : c.c)}`, sub: up ? 'start of the ' + word : 'end of the ' + word },
+          { v: c.l, t: `Low ${usd(c.l)}`, sub: 'lower wick: the least it reached' },
+        ].map(l => ({ ...l, y: y(l.v) }));
+        const GAP = 30;
+        for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + GAP);
+        const over = labels[labels.length - 1].y - (top + H);
+        if (over > 0) labels.forEach(l => { l.y -= over; });
+        for (let i = labels.length - 2; i >= 0; i--) labels[i].y = Math.min(labels[i].y, labels[i + 1].y - GAP);
+        const minY = Math.min(...labels.map(l => l.y));
+        const shift = minY < 10 ? 10 - minY : 0;
+        const svgH = Math.max(top + H, labels[labels.length - 1].y + shift + 14) + 6;
+        const lab = labels.map(l => {
+          const ly = l.y + shift;
+          return `<line x1="${cx + 18}" y1="${y(l.v)}" x2="${cx + 40}" y2="${ly}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+                  <text x="${cx + 46}" y="${ly + 3}" class="ct">${l.t}</text>
+                  <text x="${cx + 46}" y="${ly + 15}" class="cl">${l.sub}</text>`;
+        }).join('');
+        const diff = c.c - c.o, pct = c.o ? diff / c.o * 100 : 0;
+        const from = new Date(c.x), to = new Date(c.x + ms);
+        const fmt = d => d.toLocaleString([], ms >= 86400e3 ? { month: 'short', day: 'numeric' }
+                                               : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        box.innerHTML = `
+          <div class="candle-live-title">The last finished ${word}: ${fmt(from)} – ${fmt(to)}</div>
+          <svg class="candle-svg" viewBox="0 0 ${W} ${svgH}" role="img" aria-label="The latest candle with its prices">
+            <line x1="${cx}" y1="${y(c.h)}" x2="${cx}" y2="${y(c.l)}" stroke="${col}" stroke-width="2"/>
+            <rect x="${cx - 14}" y="${bodyTop}" width="28" height="${bodyH}" rx="2" fill="${col}"/>
+            <text x="${cx - 22}" y="${(y(c.h) + bodyTop) / 2 + 3}" class="cl" text-anchor="end">upper wick</text>
+            <text x="${cx - 22}" y="${bodyTop + bodyH / 2 + 3}" class="cl" text-anchor="end">body</text>
+            <text x="${cx - 22}" y="${Math.max((bodyBot + y(c.l)) / 2, bodyBot + 12) + 3}" class="cl" text-anchor="end">lower wick</text>
+            ${lab}
+          </svg>
+          <div class="candle-live-text">BTC went ${up ? '<b style="color:#58D68D">up</b>' : '<b style="color:#ff5e57">down</b>'}
+            from ${usd(c.o)} to ${usd(c.c)} (${diff >= 0 ? '+' : '−'}${usd(Math.abs(diff))}, ${diff >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(2)}%),
+            so the candle is ${up ? 'green' : 'red'}. Along the way it reached ${usd(c.h)} at most and ${usd(c.l)} at least —
+            that's what the wicks show.</div>
+          <hr>`;
+      }
+      (function hookCandleHelp() {
+        const hook = () => {
+          const help = document.querySelector('.candle-help');
+          if (help) ['mouseenter', 'focus'].forEach(ev => help.addEventListener(ev, renderLiveCandle));
+        };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hook); else hook();
+      })();
+
       // Update chart info display
       function updateChartInfo() {
         const candleData = chart.data.datasets[0].data;
