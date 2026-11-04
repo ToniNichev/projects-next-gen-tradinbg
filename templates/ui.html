@@ -853,6 +853,22 @@
   .digest-facts { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.76rem;
     line-height: 1.45; color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+  /* If each pot sold now */
+  .pots-sellnow { margin-bottom: 1rem; }
+  .sellnow-wrap { overflow-x: auto; }
+  .sellnow { width: 100%; border-collapse: collapse; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+  .sellnow th { text-align: right; font-weight: 600; color: var(--text-secondary); font-size: 0.74rem;
+    padding: 0.35rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); white-space: nowrap; }
+  .sellnow td { text-align: right; padding: 0.45rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+  .sellnow th:first-child, .sellnow td:first-child { text-align: left; white-space: nowrap; }
+  .sellnow tr.idle td { color: var(--text-secondary); }
+  .sellnow tr.idle td:last-child { text-align: left; }
+  .sellnow tfoot td { font-weight: 700; border-bottom: 0; border-top: 1px solid rgba(255,255,255,0.12); }
+  .sellnow .pos { color: var(--accent-green); font-weight: 700; }
+  .sellnow .neg { color: var(--accent-red); font-weight: 700; }
+  .sellnow .mt-sub-val { display: block; font-size: 0.7rem; color: var(--text-secondary); font-weight: 400; }
+  .pots-note { margin-top: 0.4rem; font-size: 0.74rem; color: var(--text-secondary); line-height: 1.45; }
+
   /* Where the money is: one bar, a part per pot, solid = BTC, faded = cash */
   .pots-alloc { margin-bottom: 1rem; }
   .pots-alloc-bar {
@@ -1029,6 +1045,7 @@
     <div class="digest-out" id="digest-out" hidden></div>
   </div>
   <div class="pots-alloc" id="pots-alloc"></div>
+  <div class="pots-sellnow" id="pots-sellnow"></div>
   <div class="pots-perf" id="pots-perf">
     <div class="pots-section-title">Results over time</div>
     <div class="pots-vs" id="pots-vs"></div>
@@ -1128,6 +1145,51 @@
         <div class="pots-section-title">Where the money is</div>
         <div class="pots-alloc-bar">${segs}</div>
         ${moneyTable(data)}`;
+    }
+
+    // "If each pot sold now": what it bought, what it holds, and what selling
+    // everything at today's price would bring back and gain or lose, after the fee
+    function renderSellNow(data) {
+      const el = document.getElementById('pots-sellnow');
+      const price = data.price || 0;
+      const terms = data.sell_terms || {};
+      const f = terms.fee_rate || 0, step = terms.amount_step || 0.00001;
+      if (!price) { el.innerHTML = ''; return; }
+      const small = v => money(Math.abs(v), Math.abs(v) < 1 ? 4 : 2);
+      const signed = v => `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '−'}${small(v)}</span>`;
+      let tPaid = 0, tGet = 0, tRes = 0;
+      const rows = data.pots.map(p => {
+        const name = `<span style="--c:${potColor(p.name)}"><span class="pot-dot"></span>${esc(p.label)}</span>`;
+        if (!p.holding || !(p.btc > 0) || !p.entry_price) {
+          const dust = p.btc > 0 ? `<span class="mt-sub-val">+ ${Number(p.btc).toFixed(8)} BTC leftover (${small(p.btc * price)})</span>` : '';
+          return `<tr class="idle"><td>${name}</td><td colspan="5">In cash (${small(p.cash)}) — nothing to sell${dust}</td></tr>`;
+        }
+        const sellable = Math.floor(p.btc / step + 1e-9) * step;
+        const left = Math.max(0, p.btc - sellable);
+        const paid = p.entry_price * p.btc;
+        const fee = sellable * price * f;
+        const get = sellable * price - fee;
+        const res = get + left * price - paid;
+        tPaid += paid; tGet += get; tRes += res;
+        return `<tr>
+          <td>${name}</td>
+          <td>${Number(p.btc).toFixed(8)} BTC<span class="mt-sub-val">bought at ${money(p.entry_price, 0)}</span></td>
+          <td>${small(paid)}</td>
+          <td>${small(p.btc * price)}</td>
+          <td>${small(get)}<span class="mt-sub-val">after ${small(fee)} fee${left > 0 ? `; ${left.toFixed(8)} BTC too small to sell stays` : ''}</span></td>
+          <td>${signed(res)}<span class="mt-sub-val">${paid ? `${res >= 0 ? '+' : '−'}${Math.abs(res / paid * 100).toFixed(2)}%` : ''}</span></td>
+        </tr>`;
+      }).join('');
+      el.innerHTML = `
+        <div class="pots-section-title">If each pot sold now</div>
+        <div class="sellnow-wrap"><table class="sellnow">
+          <thead><tr><th>Pot</th><th>Holds</th><th>Paid</th><th>Worth now</th><th>You'd get back</th><th>Gain / loss</th></tr></thead>
+          <tbody>${rows}</tbody>
+          ${tPaid ? `<tfoot><tr><td>All pots</td><td></td><td>${small(tPaid)}</td><td></td><td>${small(tGet)}</td><td>${signed(tRes)}</td></tr></tfoot>` : ''}
+        </table></div>
+        <div class="pots-note">At BTC ${money(price, 0)}, with a ${(f * 100).toFixed(3)}% sell fee (estimate; the bot's
+          setting, your real fee has been lower). "Paid" is the BTC held times its buy price. Nothing is sold — this
+          is only what would happen.</div>`;
     }
 
     // One row per pot, plus money in the account that no pot owns, and a check
@@ -1240,7 +1302,7 @@
             const mine = trades.filter(t => t.pot === pot && (side === 'buy') === (t.side === 'buy'));
             if (!mine.length) return;
             datasets.push({
-              label: `${d.label} ${side}s`, $trade: true, $key: pot, type: 'scatter', data: mine.map(onLine),
+              label: `${d.label} ${side}s`, $trade: true, $key: pot, $side: side, type: 'scatter', data: mine.map(onLine),
               pointStyle: tradeMarkerImage(side, potColor(pot)), pointRadius: 10, pointHoverRadius: 10,
               showLine: false, clip: false, order: -1,
             });
@@ -1308,6 +1370,8 @@
           options: {
             responsive: true, maintainAspectRatio: false, animation: false,
             interaction: { mode: 'x', intersect: false },
+            // Remember where the mouse is, so a badge's tooltip shows only its own trade
+            onHover: (evt) => { if (perfChart) perfChart.$hoverEvt = evt; },
             scales: {
               x: { type: 'time', time: timeOpts,
                    ticks: { color: '#8b949e', autoSkip: true, maxRotation: 0, font: { size: 11 } },
@@ -1343,10 +1407,30 @@
                     if (!it) return '';
                     const x = it.parsed.x;
                     const all = (perfChart && perfChart.$trades) || [];
-                    const here = all.filter(t => {
+                    let here = all.filter(t => {
                       const tx = new Date(t.timestamp).getTime();
                       return tx > x - 3600e3 + GRACE && tx <= x + GRACE;
                     });
+                    // Pointing at a badge: only that badge's trade (one hour can
+                    // hold a buy in one pot and a sell in another)
+                    // The badge is drawn 16px below a buy's point and above a
+                    // sell's (see tradeMarkerImage), so test where it's drawn
+                    let over = [];
+                    try {
+                      const ev = perfChart.$hoverEvt;
+                      if (ev) {
+                        perfChart.data.datasets.forEach((d, di) => {
+                          if (!d.$trade || !perfChart.isDatasetVisible(di)) return;
+                          perfChart.getDatasetMeta(di).data.forEach(el => {
+                            const cy = el.y + (d.$side === 'buy' ? 16 : -16);
+                            if (Math.hypot(ev.x - el.x, ev.y - cy) <= 13 && !over.includes(d)) over.push(d);
+                          });
+                        });
+                      }
+                    } catch (e) { over = []; }
+                    if (over.length) {
+                      here = here.filter(t => over.some(d => d.$key === t.pot && d.$side === (t.side === 'buy' ? 'buy' : 'sell')));
+                    }
                     if (!here.length) return '';
                     const nowPrice = perfChart.$nowPrice;
                     const lines = [];
@@ -1698,6 +1782,7 @@
         renderAddForm(data);
         renderMoveForm(data);
         renderAlloc(data);
+        renderSellNow(data);
         renderStopBanner(data);
         if (!window.__potsEnabled) {
           window.__potsEnabled = true;
@@ -1834,9 +1919,44 @@
     <div class="chart-status">
       <span class="status-pill" id="infinite-scroll-status" data-state="live">Live</span>
       <span class="status-pill" id="candle-count">0 candles</span>
+      <span class="info-icon candle-help" tabindex="0" aria-label="How to read the candles">?
+        <span class="info-tooltip">
+          <strong>How to read a candle</strong>
+          <svg class="candle-svg" viewBox="0 0 300 150" role="img" aria-label="A green candle and a red candle with their parts labelled">
+            <!-- green: price went up -->
+            <line x1="60" y1="14" x2="60" y2="132" stroke="#58D68D" stroke-width="2"/>
+            <rect x="46" y="38" width="28" height="64" rx="2" fill="#58D68D"/>
+            <text x="82" y="18" class="cl">High</text>
+            <text x="82" y="42" class="cl">Close (end)</text>
+            <text x="82" y="104" class="cl">Open (start)</text>
+            <text x="82" y="134" class="cl">Low</text>
+            <text x="60" y="148" class="ct" text-anchor="middle">Went up</text>
+            <!-- red: price went down -->
+            <line x1="220" y1="14" x2="220" y2="132" stroke="#ff5e57" stroke-width="2"/>
+            <rect x="206" y="38" width="28" height="64" rx="2" fill="#ff5e57"/>
+            <text x="242" y="18" class="cl">High</text>
+            <text x="242" y="42" class="cl">Open</text>
+            <text x="242" y="104" class="cl">Close</text>
+            <text x="242" y="134" class="cl">Low</text>
+            <text x="220" y="148" class="ct" text-anchor="middle">Went down</text>
+          </svg>
+          • <b>One candle = one hour</b> of BTC price (or the timeframe picked above: 5m, 4h, 1d…).<br>
+          • <b>Green</b>: the price ended the hour <b>higher</b> than it started. <b>Red</b>: <b>lower</b>.<br>
+          • The <b>thick body</b> runs from the start price to the end price. A tall body = a big move.<br>
+          • The <b>thin lines (wicks)</b> show the highest and lowest price reached in that hour, even if it came back.<br>
+          • Hover a candle to see its exact prices.
+          <hr>
+          <strong>Marks on the chart</strong><br>
+          • <b>Round badges</b> with a letter are real trades by a pot (<b>T</b> Trend Hold, <b>I</b> Intraday, <b>M</b> Manual):
+            <span style="color:#58D68D">green below the candle = bought</span>,
+            <span style="color:#ff5e57">red above = sold</span>. Hover one for the details.<br>
+          • <b>Small triangles</b> mark where a strategy changed its mind (▲ turned to buy, ▼ turned to sell). It is not a trade.<br>
+          • The bot decides only when an hour's candle closes (at :00).
+        </span>
+      </span>
       <span class="info-icon">i
         <span class="info-tooltip">
-          Real-time candlestick chart with trading signals. Green/red candles show price movement. Triangle markers indicate signals and trades.
+          Live BTC price, one candle per period, with the pots' trades and the strategies' signal changes. See <b>?</b> for how to read a candle.
           <hr>
           <strong>Timeframes:</strong><br>
           • Signals are only shown on the bot's trading timeframe (1h)<br>

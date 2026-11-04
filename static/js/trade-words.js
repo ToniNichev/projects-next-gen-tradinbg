@@ -80,12 +80,14 @@
   function describe(t, opts = {}) {
     const price = money(t.price ?? t.y, 0);
     const lines = [];
+    // Say whose trade it is first: one hour can hold trades from several pots
+    const who = t.pot && potName(t.pot) ? `${potName(t.pot)}: ` : '';
 
     if (t.side === 'buy') {
-      lines.push(`🟢 Bought BTC at ${price}`);
+      lines.push(`🟢 ${who}BUY — bought BTC at ${price}`);
       if (t.notional) {
         const fee = t.fee || 0;
-        lines.push(`Spent ${money(t.notional + fee)}${fee > 0 ? ` (including a ${money(fee)} fee)` : ''}`);
+        lines.push(`Spent ${money(t.notional + fee)}${fee >= 0.005 ? ` (including a ${money(fee)} fee)` : fee > 0 ? ' (fee under $0.01)' : ''}`);
       }
       // Still holding: what it's worth now
       if (t.$sold === null && opts.nowPrice && t.amount && t.notional) {
@@ -94,31 +96,32 @@
         lines.push(`Still holding: worth ${money(worth)} now (${signedPct((worth / cost - 1) * 100)})`);
       }
       lines.push(...whyLines(t, opts.trendOnly));
-      if (t.pot && potName(t.pot)) lines.push(`Money from: ${potName(t.pot)}`);
       return lines;
     }
 
     const ended = (t.exit_reason || t.reason) === 'backtest_end';
-    lines.push(ended ? `🏁 End of test — BTC at ${price}` : `🔴 Sold BTC at ${price}`);
+    lines.push(ended ? `🏁 End of test — BTC at ${price}` : `🔴 ${who}SELL — sold BTC at ${price}`);
     const received = t.notional ? t.notional - (t.fee || 0) : null;
     if (received != null) lines.push(`${ended ? 'Worth' : 'Got back'} ${money(received)} after fees`);
 
     // Result of the whole trade, after the buying and selling fees
     const b = t.$buy;
     if (b && b.notional && received != null) {
-      const cost = b.notional + (b.fee || 0);
+      // Only the part of the buy that this sale sold: a sliver too small for
+      // the exchange to sell stays in the pot (it was counting as a loss)
+      const share = b.amount && t.amount ? Math.min(1, t.amount / b.amount) : 1;
+      const cost = (b.notional + (b.fee || 0)) * share;
       const net = received - cost;
       lines.push(`${net >= 0 ? '✅ Made' : '❌ Lost'} ${money(Math.abs(net))} (${signedPct((net / cost) * 100)}) on this trade`);
       const days = (timeOf(t) - timeOf(b)) / DAY_MS;
       const held = days < 1
         ? `${Math.max(1, Math.round(days * 24))} hour${Math.round(days * 24) === 1 ? '' : 's'}`
         : `${Math.round(days)} day${Math.round(days) === 1 ? '' : 's'}`;
-      lines.push(`Held ${held}, bought ${shortDate(timeOf(b))} at ${money(b.price, 0)}`);
+      lines.push(`Held ${held} (its buy: ${shortDate(timeOf(b))} at ${money(b.price, 0)})`);
     } else if (t.pnl != null) {
       lines.push(`${t.pnl >= 0 ? '✅ Made' : '❌ Lost'} ${money(Math.abs(t.pnl))} on this trade`);
     }
     lines.push(...whyLines(t, opts.trendOnly));
-    if (t.pot && potName(t.pot)) lines.push(`Money from: ${potName(t.pot)}`);
     return lines;
   }
 

@@ -366,3 +366,13 @@
 .legend-tri.up { border-bottom: 8px solid var(--accent-green); }
 .legend-tri.down { border-top: 8px solid var(--accent-red); margin-left: -0.25rem; }
 .legend-shape.sell { color: var(--accent-red); }
+
+/* "?" next to "i": how to read the candles */
+.chart-status .candle-help { margin-right: 0.35rem; }
+.chart-status .candle-help .info-tooltip { width: min(360px, calc(100vw - 40px)); }
+.candle-svg { display: block; width: 100%; max-width: 300px; height: auto; margin: 0.5rem auto 0.6rem; }
+.candle-svg .cl { fill: var(--text-secondary, #8b949e); font-size: 11px; }
+.candle-svg .ct { fill: var(--text-primary, #e6edf3); font-size: 11px; font-weight: 600; }
+.chart-status .candle-help .info-tooltip { text-align: left; font-size: 0.8rem; }
+.chart-status .candle-help:focus .info-tooltip,
+.chart-status .candle-help:focus-within .info-tooltip { visibility: visible; opacity: 1; }

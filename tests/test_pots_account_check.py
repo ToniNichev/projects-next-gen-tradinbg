@@ -57,5 +57,7 @@ def test_api_pots_includes_the_account():
         data = app.test_client().get("/api/pots").get_json()
         assert data["account"]["matches"] is True
         assert abs(data["account"]["usd"] - 96.0) < 1e-9
+        # For "If each pot sold now"
+        assert data["sell_terms"]["fee_rate"] >= 0 and data["sell_terms"]["amount_step"] > 0
     finally:
         state.set_pot_manager(None)

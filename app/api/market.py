@@ -513,6 +513,19 @@ def _pot_name(tag):
     return tag[len("live-"):] if tag.startswith("live-") else tag
 
 
+def _sell_terms(pots) -> dict:
+    """Fee and the exchange's smallest BTC step, for "if each pot sold now"."""
+    from config import BotConfig
+    terms = {"fee_rate": float(getattr(BotConfig.load(), "fee_rate", 0.0) or 0.0), "amount_step": 0.00001}
+    try:
+        t = pots.traders()[0]
+        if hasattr(t, "get_amount_precision"):
+            terms["amount_step"] = 10 ** -int(t.get_amount_precision())
+    except Exception:
+        pass
+    return terms
+
+
 @market_bp.route("/api/pots")
 @limiter.limit("30 per minute")
 @require_auth
@@ -538,6 +551,7 @@ def get_pots():
                 logger.warning("Could not read unassigned cash: %s", exc)
                 data["unassigned"] = None
             data["account"] = pots.account_check()
+            data["sell_terms"] = _sell_terms(pots)
         return jsonify({"success": True, "enabled": True, **data})
     except Exception as exc:
         logger.error("get_pots failed: %s", exc, exc_info=True)
