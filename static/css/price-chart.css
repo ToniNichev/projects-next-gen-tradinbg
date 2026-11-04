@@ -379,3 +379,15 @@
 .candle-live-title { font-weight: 650; margin-top: 0.4rem; }
 .candle-live-text { font-size: 0.78rem; line-height: 1.45; color: var(--text-secondary, #8b949e); }
 .candle-live .candle-svg { max-width: 300px; margin: 0.4rem 0; }
+
+/* "Next check" strip under the price chart */
+.chart-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem;
+  margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-primary, #e6edf3);
+}
+.chart-status:empty { display: none; }
+.chart-status .muted { color: var(--text-secondary); }
+.chart-status .cs-sep { color: var(--text-secondary); opacity: 0.6; }
+.chart-status .cs-late { color: var(--accent-red, #ff5e57); font-weight: 600; }
+.chart-status .cs-pot { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.6rem; color: var(--text-secondary); }
+.chart-status .cs-pot::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }

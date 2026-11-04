@@ -849,6 +849,13 @@
   .digest-out { margin-top: 0.5rem; padding: 0.75rem 0.9rem; border-radius: 10px;
     background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
   .digest-out.attention { border-color: rgba(255,193,7,0.55); }
+  .digest-thinking { display: flex; align-items: center; gap: 0.6rem; color: var(--text-secondary); font-size: 0.88rem; }
+  .digest-spinner { width: 18px; height: 18px; flex: none; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.15); border-top-color: var(--accent-green, #3fb950);
+    animation: spin 0.8s linear infinite; }
+  .digest-dots::after { content: ''; animation: digest-dots 1.2s steps(4, end) infinite; }
+  @keyframes digest-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  @media (prefers-reduced-motion: reduce) { .digest-spinner { animation-duration: 2.4s; } .digest-dots::after { animation: none; content: '…'; } }
   .digest-summary { margin: 0 0 0.6rem; line-height: 1.5; font-size: 0.9rem; }
   .digest-facts { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.76rem;
     line-height: 1.45; color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -1102,7 +1109,20 @@
       const out = document.getElementById('digest-out');
       btns.forEach(b => { b.disabled = true; });
       msg.className = 'pots-move-msg';
-      msg.textContent = ai ? 'Writing a summary… (about 10–20 seconds)' : 'Collecting the facts…';
+      msg.textContent = '';
+      // Spinner + seconds counter while the server works (the AI takes ~10–20 s)
+      const started = Date.now();
+      out.hidden = false;
+      out.classList.remove('attention');
+      out.innerHTML = `<div class="digest-thinking" role="status" aria-live="polite">
+          <span class="digest-spinner" aria-hidden="true"></span>
+          <span><span class="digest-dots">${ai ? 'AI is reading the logs and writing a summary' : 'Collecting the facts'}</span>
+          <span class="digest-secs"></span></span></div>`;
+      const secs = out.querySelector('.digest-secs');
+      const tick = setInterval(() => {
+        const n = Math.round((Date.now() - started) / 1000);
+        if (secs && n >= 1) secs.textContent = ` (${n}s${ai ? ', usually 10–20s' : ''})`;
+      }, 500);
       try {
         const r = await fetch('/api/digest', {
           method: 'POST', credentials: 'include',
@@ -1122,7 +1142,10 @@
       } catch (e) {
         msg.className = 'pots-move-msg err';
         msg.textContent = 'Could not make the summary: ' + e.message;
+        out.hidden = true;
+        out.innerHTML = '';
       } finally {
+        clearInterval(tick);
         btns.forEach(b => { b.disabled = false; });
       }
     }
@@ -1772,6 +1795,8 @@
         document.getElementById('pots-sub').textContent =
           `Each pot trades only its own money · ${data.real_money ? 'real money' : data.live ? 'practice (dry run)' : 'practice money'}`;
         lastData = data;
+        window.__potsData = data;
+        document.dispatchEvent(new Event('pots:updated'));  // price lines + check strip
         window.__potsRealMoney = !!data.real_money;
         window.__potMeta = {};
         data.pots.forEach(p => {
@@ -1945,7 +1970,8 @@
           • <b>Green</b>: the price ended the hour <b>higher</b> than it started. <b>Red</b>: <b>lower</b>.<br>
           • The <b>thick body</b> runs from the start price to the end price. A tall body = a big move.<br>
           • The <b>thin lines (wicks)</b> show the highest and lowest price reached in that hour, even if it came back.<br>
-          • Hover a candle to see its exact prices.
+          • Hover a candle to see its exact prices.<br>
+          • Prefer something simpler? <b>Line</b> (top left of the chart) draws just the closing price of each period.
           <hr>
           <strong>Marks on the chart</strong><br>
           • <b>Round badges</b> with a letter are real trades by a pot (<b>T</b> Trend Hold, <b>I</b> Intraday, <b>M</b> Manual):
@@ -1976,6 +2002,10 @@
   </div>
 
   <div class="chart-toolbar">
+    <div class="seg chart-style-group" role="group" aria-label="Chart style">
+      <button type="button" id="style-line" onclick="setChartStyle('line')" title="A simple line through each period's closing price">Line</button>
+      <button type="button" id="style-candles" onclick="setChartStyle('candles')" title="Candles: open, high, low and close of each period (see ?)">Candles</button>
+    </div>
     <div class="seg timeframe-group" role="group" aria-label="Chart timeframe">
       <span class="seg-label">TF</span>
       <button onclick="changeTimeframe('5m')" id="tf-5m">5m</button>
@@ -1995,6 +2025,9 @@
         <button onclick="resetZoom()" title="Reset view (0)" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
         <button onclick="zoomIn()" title="Zoom in (+)" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
       </div>
+      <button onclick="togglePotLevels()" id="toggle-levels-btn" class="glass-btn toggle-trades-btn active" aria-pressed="true" title="Show/hide each pot's price lines: what it paid, its stop (sells automatically) and its profit target">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18" stroke-dasharray="3 3"/><path d="M3 12h18"/><path d="M3 18h18" stroke-dasharray="3 3"/></svg><span class="btn-label">Levels</span>
+      </button>
       <button onclick="toggleTradeMarkers()" id="toggle-trades-btn" class="glass-btn toggle-trades-btn active" aria-pressed="true" title="Show/hide executed trades on the chart">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3l4 6H3z"/><path d="M17 21l-4-6h8z"/><path d="M7 9v12M17 3v12"/></svg><span class="btn-label">Trades</span>
       </button>
@@ -2013,6 +2046,7 @@
   <div class="chart-canvas-wrap">
     <canvas id="priceChart"></canvas>
   </div>
+  <div class="chart-status" id="chart-status" aria-live="polite"></div>
   <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
 </div>
 
@@ -2488,6 +2522,143 @@
         return UI.strategyName(strategyName);
       }
       
+      // Hover: a trade badge or signal marker under the pointer wins; otherwise
+      // the candle in whichever column the pointer is in (anywhere top to
+      // bottom), so the box doesn't need the pointer exactly on a thin candle.
+      Chart.Interaction.modes.priceOrMarker = function (ch, e, options, useFinal) {
+        const marker = Chart.Interaction.modes.nearest(ch, e, { intersect: true, axis: 'xy' }, useFinal)
+          .filter(it => it.datasetIndex !== 0);
+        if (marker.length) return marker.slice(0, 1);
+        const pos = Chart.helpers.getRelativePosition(e, ch);
+        const a = ch.chartArea;
+        if (!a || pos.x < a.left || pos.x > a.right || pos.y < a.top || pos.y > a.bottom) return [];
+        const meta = ch.getDatasetMeta(0);
+        const els = meta && !meta.hidden ? meta.data : [];
+        if (!els.length) return [];
+        let lo = 0, hi = els.length - 1;           // candles are in time order
+        while (hi - lo > 1) {
+          const mid = (lo + hi) >> 1;
+          if (els[mid].x < pos.x) lo = mid; else hi = mid;
+        }
+        const index = Math.abs(els[lo].x - pos.x) <= Math.abs(els[hi].x - pos.x) ? lo : hi;
+        return [{ element: els[index], datasetIndex: 0, index }];
+      };
+
+      // Price lines for each pot holding BTC: what it paid, its stop (sells
+      // automatically if the price falls there) and its profit target.
+      // A line off the visible range is shown as an arrow at the edge.
+      let showPotLevels = true;
+      try { showPotLevels = localStorage.getItem('potLevels') !== 'off'; } catch (e) {}
+      function potLevels() {
+        const d = window.__potsData;
+        if (!d || !d.pots) return [];
+        const price = Number(d.price) || null;
+        // stop/target: how far the price must move from now to reach them
+        const pct = (v) => price ? ` (${v >= price ? '+' : '−'}${Math.abs((v / price - 1) * 100).toFixed(1)}% away)` : '';
+        const usd = (v) => '$' + Math.round(v).toLocaleString('en-US');
+        const out = [];
+        d.pots.forEach(p => {
+          if (!p.holding || hiddenPots.has(p.name)) return;
+          const L = p.letter || (p.label || p.name)[0].toUpperCase();
+          const c = p.color || '#8b949e';
+          if (p.entry_price) out.push({ v: p.entry_price, color: c, dash: [], text: `${L} paid ${usd(p.entry_price)}` + (price ? ` · now ${price >= p.entry_price ? '+' : '−'}${Math.abs((price / p.entry_price - 1) * 100).toFixed(1)}%` : ''),
+            tip: `${p.label} paid ${usd(p.entry_price)}. Above this line it is ahead (before the sell fee).` });
+          if (p.stop_loss) out.push({ v: p.stop_loss, color: '#ff5e57', dash: [6, 4], text: `${L} stop ${usd(p.stop_loss)}${pct(p.stop_loss)}`,
+            tip: `${p.label} sells automatically if BTC falls to ${usd(p.stop_loss)} (order waits on Binance.US).` });
+          if (p.take_profit) out.push({ v: p.take_profit, color: '#58D68D', dash: [6, 4], text: `${L} target ${usd(p.take_profit)}${pct(p.take_profit)}`,
+            tip: `${p.label} sells to take its profit if BTC reaches ${usd(p.take_profit)} at an hourly check.` });
+        });
+        return out;
+      }
+      const POT_LEVELS_PLUGIN = {
+        id: 'potLevels',
+        afterDatasetsDraw(ch) {
+          if (!showPotLevels) return;
+          const levels = potLevels();
+          if (!levels.length) return;
+          const { ctx: g, chartArea: a, scales: { y } } = ch;
+          g.save();
+          g.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+          g.textBaseline = 'middle';
+          // place labels (inside the right edge), nudged apart so they don't overlap
+          const items = levels.map(l => {
+            const py = y.getPixelForValue(l.v);
+            const off = py < a.top ? 'up' : py > a.bottom ? 'down' : null;
+            return { ...l, py, off, ly: Math.min(Math.max(py, a.top + 9), a.bottom - 9) };
+          }).sort((m, n) => m.ly - n.ly);
+          for (let i = 1; i < items.length; i++) {
+            if (items[i].ly - items[i - 1].ly < 17) items[i].ly = items[i - 1].ly + 17;
+          }
+          const over = items.length ? items[items.length - 1].ly - (a.bottom - 9) : 0;
+          if (over > 0) items.forEach(it => { it.ly -= over; });
+          items.forEach(it => {
+            if (!it.off) {
+              g.strokeStyle = it.color; g.globalAlpha = 0.75; g.lineWidth = 1.2;
+              g.setLineDash(it.dash);
+              g.beginPath(); g.moveTo(a.left, it.py); g.lineTo(a.right, it.py); g.stroke();
+              g.setLineDash([]);
+            }
+            const text = (it.off === 'up' ? '▲ ' : it.off === 'down' ? '▼ ' : '') + it.text;
+            const w = g.measureText(text).width + 12;
+            const x = a.right - w - 4;
+            g.globalAlpha = 0.92; g.fillStyle = 'rgba(13,17,23,0.88)';
+            g.beginPath(); g.roundRect ? g.roundRect(x, it.ly - 8.5, w, 17, 5) : g.rect(x, it.ly - 8.5, w, 17); g.fill();
+            g.globalAlpha = 1; g.strokeStyle = it.color; g.lineWidth = 1; g.stroke();
+            g.fillStyle = it.color; g.textAlign = 'left';
+            g.fillText(text, x + 6, it.ly + 0.5);
+            it.box = { x, y: it.ly - 8.5, w, h: 17 };
+          });
+          ch.$levelBoxes = items;
+          g.restore();
+        },
+      };
+      window.togglePotLevels = function () {
+        showPotLevels = !showPotLevels;
+        try { localStorage.setItem('potLevels', showPotLevels ? 'on' : 'off'); } catch (e) {}
+        const b = document.getElementById('toggle-levels-btn');
+        if (b) { b.classList.toggle('active', showPotLevels); b.setAttribute('aria-pressed', String(showPotLevels)); }
+        if (chart) chart.draw();
+      };
+      document.addEventListener('pots:updated', () => { if (chart) chart.draw(); renderChartStatus(); });
+
+      // "Next check" strip under the chart: the bot decides once an hour, at :00
+      let lastCheckInfo = null;
+      function renderChartStatus() {
+        const el = document.getElementById('chart-status');
+        if (!el) return;
+        const now = new Date();
+        const next = new Date(now); next.setMinutes(0, 0, 0); next.setHours(next.getHours() + 1);
+        const mins = Math.max(0, Math.ceil((next - now) / 60000));
+        const hhmm = (t) => t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const parts = [`<b>Next check ${hhmm(next)}</b> <span class="muted">(in ${mins} min)</span>`];
+        lastCheckInfo = lastCheckInfo || window.__lastCheck || null;
+        const d = window.__potsData;
+        // Right after a restart the bot hasn't checked yet: use the newest pot signal
+        let lastAt = lastCheckInfo && lastCheckInfo.last_check_at;
+        if (!lastAt && d && d.pots) {
+          const times = d.pots.map(p => p.last_signal && p.last_signal.time).filter(Boolean).sort();
+          lastAt = times[times.length - 1] || null;
+        }
+        if (lastAt) {
+          const late = lastCheckInfo && Number(lastCheckInfo.minutes_since_check) > 75;
+          parts.push(`<span class="${late ? 'cs-late' : ''}">Last check ${hhmm(new Date(lastAt))}${late ? ' — late!' : ''}</span>`);
+        }
+        if (d && d.pots) {
+          const words = { bullish: 'wants to buy', bearish: 'wants to sell', neutral: 'waiting' };
+          const pots = d.pots.filter(p => p.last_signal && p.last_signal.direction).map(p => {
+            const dir = p.last_signal.direction;
+            const did = p.holding ? 'holding' : 'in cash';
+            return `<span class="cs-pot" style="--c:${p.color || '#8b949e'}">${escHtml(p.label)}: ${words[dir] || escHtml(dir)} · ${did}</span>`;
+          });
+          if (pots.length) parts.push(pots.join(''));
+        }
+        el.innerHTML = parts.join('<span class="cs-sep">·</span>');
+        el.title = 'The bot looks at the market once an hour, just after each hour\'s candle closes, and buys or sells only then. Stops wait on Binance.US and can sell at any time.';
+      }
+      window.__setLastCheck = (c) => { lastCheckInfo = c; renderChartStatus(); };
+      setInterval(renderChartStatus, 30 * 1000);
+      renderChartStatus();
+
       chart = new Chart(ctx, {
         type: "candlestick",
         data: {
@@ -2530,6 +2701,7 @@
           },
           responsive: true,
           maintainAspectRatio: false,
+          interaction: { mode: 'priceOrMarker', intersect: false },
           scales: {
             x: {
               type: "time",
@@ -2580,8 +2752,8 @@
             },
             tooltip: {
               enabled: true,
-              mode: 'nearest',
-              intersect: true,
+              mode: 'priceOrMarker',
+              intersect: false,
               backgroundColor: 'rgba(13, 17, 23, 0.92)',
               titleColor: '#ffffff',
               bodyColor: '#e1e8ff',
@@ -2618,6 +2790,11 @@
                   // Format OHLC data for candlestick dataset
                   if (context.raw && typeof context.raw.o !== 'undefined') {
                     const data = context.raw;
+                    if (chartStyle === 'line') {
+                      const ch = data.c - data.o;
+                      return [`Price: $${data.c.toFixed(2)} (at the close)`,
+                              `${ch >= 0 ? '▲ up' : '▼ down'} $${Math.abs(ch).toFixed(2)} in this period`];
+                    }
                     return [
                       `Open:  $${data.o.toFixed(2)}`,
                       `High:  $${data.h.toFixed(2)}`,
@@ -2724,7 +2901,45 @@
             },
           },
         },
+        plugins: [POT_LEVELS_PLUGIN],
       });
+      if (!showPotLevels) {
+        const b = document.getElementById('toggle-levels-btn');
+        if (b) { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); }
+      }
+
+      // Line (default) or Candles. The data stays the same candles; the line
+      // view draws each period's closing price. Remembered in this browser.
+      let chartStyle = 'line';
+      try { chartStyle = localStorage.getItem('chartStyle') === 'candles' ? 'candles' : 'line'; } catch (e) {}
+      const CANDLE_LOOK = { color: chart.data.datasets[0].color, borderColor: chart.data.datasets[0].borderColor,
+                            borderWidth: chart.data.datasets[0].borderWidth };
+      function applyChartStyle() {
+        const ds = chart.data.datasets[0];
+        if (chartStyle === 'line') {
+          Object.assign(ds, {
+            type: 'line', parsing: { xAxisKey: 'x', yAxisKey: 'c' },
+            borderColor: '#539bf5', backgroundColor: 'rgba(83,155,245,0.10)', fill: 'start',
+            borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, pointHitRadius: 6, tension: 0.15,
+          });
+        } else {
+          ['type', 'parsing', 'fill', 'pointRadius', 'pointHoverRadius', 'pointHitRadius', 'tension', 'backgroundColor']
+            .forEach(k => { delete ds[k]; });
+          Object.assign(ds, CANDLE_LOOK);
+        }
+        document.getElementById('style-line').classList.toggle('active', chartStyle === 'line');
+        document.getElementById('style-candles').classList.toggle('active', chartStyle === 'candles');
+        document.getElementById('style-line').setAttribute('aria-pressed', String(chartStyle === 'line'));
+        document.getElementById('style-candles').setAttribute('aria-pressed', String(chartStyle === 'candles'));
+      }
+      function setChartStyle(style) {
+        chartStyle = style === 'candles' ? 'candles' : 'line';
+        try { localStorage.setItem('chartStyle', chartStyle); } catch (e) {}
+        applyChartStyle();
+        chart.update('none');
+      }
+      window.setChartStyle = setChartStyle;
+      applyChartStyle();
 
       // Fetch executed trades from database
       async function fetchTrades(limit = 200) {
@@ -3402,6 +3617,8 @@
       function renderCheckFreshness(check) {
         const priced = document.getElementById('priced-at');
         const banner = document.getElementById('bot-late-banner');
+        window.__lastCheck = check;
+        if (window.__setLastCheck) window.__setLastCheck(check);
         if (!check) { priced.textContent = ''; banner.style.display = 'none'; return; }
         const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
         priced.textContent = check.priced_at ? `· prices from the ${hhmm(check.priced_at)} close` : '';
