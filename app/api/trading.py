@@ -34,6 +34,51 @@ logger = logging.getLogger(__name__)
 
 trading_bp = Blueprint("trading", __name__)
 
+# ---------------------------------------------------------------------------
+# Double-click / retry guard for manual buys and sells
+# ---------------------------------------------------------------------------
+# Each confirmation on the dashboard carries a request_id. If the answer gets
+# lost (network blip) and the same confirmation is sent again, the first
+# result is returned instead of trading twice. A second buy (or sell) within
+# MANUAL_COOLDOWN seconds is refused too, whatever its id (another tab).
+MANUAL_COOLDOWN = 10.0
+_REPEAT_MEMORY = 600.0
+_manual_done: dict = {}            # request_id -> (time, response body)
+_manual_last = {"buy": 0.0, "sell": 0.0}
+
+
+def _manual_guard(side: str, request_id):
+    """Call with the trader lock held. Returns a (body, status) to send
+    instead of trading, or None to go ahead."""
+    import time as _t
+    now = _t.time()
+    for rid, (at, _) in list(_manual_done.items()):
+        if now - at > _REPEAT_MEMORY:
+            _manual_done.pop(rid, None)
+    if request_id and request_id in _manual_done:
+        body = dict(_manual_done[request_id][1])
+        body.update(duplicate=True,
+                    message=f"Already done: this {side} went through the first time (not repeated)")
+        return body, 200
+    wait = MANUAL_COOLDOWN - (now - _manual_last[side])
+    if wait > 0:
+        return {"error": f"A manual {side} went through {MANUAL_COOLDOWN - wait:.0f}s ago. "
+                         f"Check the balance, then try again in {wait:.0f}s if you meant a second one."}, 429
+    return None
+
+
+def _manual_done_now(side: str, request_id, body: dict) -> None:
+    import time as _t
+    now = _t.time()
+    _manual_last[side] = now
+    if request_id:
+        _manual_done[str(request_id)] = (now, body)
+
+
+def _request_id(params):
+    rid = params.get("request_id")
+    return str(rid)[:64] if rid else None
+
 
 def _get_trader_and_lock():
     """Return (trader, lock) from ApplicationState, or (None, None)."""
@@ -264,7 +309,11 @@ def manual_buy():
                 "error": f"Position size too large (max: {config.max_position_size * 100}%)"
             }), 400
 
+        rid = _request_id(params)
         with lock:
+            blocked = _manual_guard("buy", rid)
+            if blocked:
+                return jsonify(blocked[0]), blocked[1]
             available = _available_usdt(trader)
             if available <= 0:
                 return jsonify({"error": "Insufficient USDT balance"}), 400
@@ -291,13 +340,15 @@ def manual_buy():
             # `with lock:` exits could report a balance inconsistent with
             # the trade just executed.
             balances = trader.get_balances()
+            body = {
+                "success": True,
+                "trade": trade.to_dict(),
+                "message": "Buy order executed successfully",
+                "balances": balances,
+            }
+            _manual_done_now("buy", rid, body)
 
-        return jsonify({
-            "success": True,
-            "trade": trade.to_dict(),
-            "message": "Buy order executed successfully",
-            "balances": balances,
-        })
+        return jsonify(body)
 
     except Exception as exc:
         logger.error("manual_buy failed: %s", exc, exc_info=True)
@@ -322,8 +373,12 @@ def manual_sell():
         from config import BotConfig
         config = BotConfig.load()
         exchange = get_app_state().get_exchange()
+        rid = _request_id(request.get_json(silent=True) or {})
 
         with lock:
+            blocked = _manual_guard("sell", rid)
+            if blocked:
+                return jsonify(blocked[0]), blocked[1]
             position = trader.open_position
             if not position or getattr(position, "side", None) != "long":
                 return jsonify({
@@ -352,13 +407,15 @@ def manual_sell():
             _sync_state_after_trade(trader, trade)
             # See manual_buy for why: capture while still holding the lock.
             balances = trader.get_balances()
+            body = {
+                "success": True,
+                "trade": trade.to_dict(),
+                "message": "Position closed successfully",
+                "balances": balances,
+            }
+            _manual_done_now("sell", rid, body)
 
-        return jsonify({
-            "success": True,
-            "trade": trade.to_dict(),
-            "message": "Position closed successfully",
-            "balances": balances,
-        })
+        return jsonify(body)
 
     except Exception as exc:
         logger.error("manual_sell failed: %s", exc, exc_info=True)

@@ -4690,7 +4690,9 @@
         // Show confirmation modal
         pendingTradeAction = {
           type: 'buy',
-          positionSize: positionSize
+          positionSize: positionSize,
+          // Same id for every retry of this confirmation: the server trades once
+          requestId: newRequestId(),
         };
         
         const orderValue = manualTradingStatus.balances.USDT * positionSize;
@@ -4766,7 +4768,9 @@
         // Show confirmation modal
         pendingTradeAction = {
           type: 'sell',
-          positionSize: positionSize
+          positionSize: positionSize,
+          // Same id for every retry of this confirmation: the server trades once
+          requestId: newRequestId(),
         };
         
         let modalBody = '';
@@ -4823,6 +4827,11 @@
         });
       }
 
+      function newRequestId() {
+        try { if (crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+        return Date.now().toString(36) + Math.random().toString(36).slice(2);
+      }
+
       // Confirm trade
       async function confirmTrade() {
         if (!pendingTradeAction) return;
@@ -4853,7 +4862,8 @@
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              position_size: pendingTradeAction.positionSize
+              position_size: pendingTradeAction.positionSize,
+              request_id: pendingTradeAction.requestId,
             })
           });
           
@@ -4872,7 +4882,9 @@
             confirmBtn.disabled = false;
           }
         } catch (error) {
-          showNotification(`❌ Error: ${error.message}`, 'error');
+          // The order may have gone through even though the answer was lost.
+          // Confirming again resends the same id, so it can't trade twice.
+          showNotification(`❌ No answer from the bot (${error.message}). The order may have gone through: check the balance. Confirming again won't trade twice.`, 'error');
           confirmBtn.textContent = originalText;
           confirmBtn.disabled = false;
         }

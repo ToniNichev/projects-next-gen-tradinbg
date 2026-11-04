@@ -58,3 +58,16 @@ def no_real_notifications(monkeypatch):
     ):
         monkeypatch.delenv(key, raising=False)
     return sent
+
+
+@pytest.fixture(autouse=True)
+def _reset_manual_trade_guard():
+    """Each test starts without a recent manual buy/sell (10 s cooldown)."""
+    try:
+        from app.api import trading
+    except Exception:
+        yield
+        return
+    trading._manual_done.clear()
+    trading._manual_last.update(buy=0.0, sell=0.0)
+    yield
