@@ -1073,19 +1073,8 @@
     <div class="pots-move-msg" id="pots-move-msg" role="status"></div>
     <ul class="pots-moves-list" id="pots-moves-list"></ul>
   </details>
-  <details class="pots-move" id="pots-add">
-    <summary><h3>Add a pot</h3><span class="hint">to run another strategy</span></summary>
-    <p class="pots-move-info">A new pot runs one strategy with its own money. It starts with $0: fund it with Move money above.
-      You can remove it later once it holds no cash and no BTC.</p>
-    <div class="pots-move-row">
-      <label style="flex: 1 1 120px;">Name <input type="text" id="pots-add-name" maxlength="12" placeholder="macd" autocomplete="off"></label>
-      <label>Strategy <select id="pots-add-strategy"></select></label>
-      <label style="flex: 0 1 110px;" title="0 = no limit">Buys per day <input type="number" id="pots-add-buys" min="0" max="24" step="1" value="3"></label>
-      <label style="flex: 0 1 120px;">Spend per buy (%) <input type="number" id="pots-add-pct" min="10" max="100" step="1" value="95"></label>
-      <button type="button" id="pots-add-btn">Add pot</button>
-    </div>
-    <div class="pots-move-msg" id="pots-add-msg" role="status"></div>
-  </details>
+  <p class="pots-move-info" id="pots-add-link" style="margin:0.6rem 0 0">Want to run another strategy?
+    <a href="/strategies#ps-add">Add a pot on the Strategies page →</a></p>
   <p class="pots-foot">
     A pot never sells another pot's BTC. Pots with a buy limit count buys from midnight UTC (<span class="utc-midnight-local">7 pm</span> your time);
     sells are never blocked. Your trades in Manual Trading use the Manual pot only.
@@ -1740,47 +1729,8 @@
     document.getElementById('pots-move-btn').addEventListener('click', onMove);
 
     // ---- Add a pot
-    function renderAddForm(data) {
-      const sel = document.getElementById('pots-add-strategy');
-      const keep = sel.value;
-      sel.innerHTML = (data.strategy_choices || []).map(c =>
-        `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('');
-      if (keep) sel.value = keep;
-    }
-
-    async function onAddPot() {
-      const btn = document.getElementById('pots-add-btn');
-      const msg = document.getElementById('pots-add-msg');
-      const nameInput = document.getElementById('pots-add-name');
-      const body = {
-        name: nameInput.value.trim().toLowerCase(),
-        strategy: document.getElementById('pots-add-strategy').value,
-        max_buys_per_day: parseInt(document.getElementById('pots-add-buys').value || '0', 10),
-        order_pct: (parseFloat(document.getElementById('pots-add-pct').value) || 0) / 100,
-      };
-      if (!/^[a-z][a-z0-9_]{0,11}$/.test(body.name)) {
-        msg.className = 'pots-move-msg err';
-        msg.textContent = 'Name: start with a letter, then letters, digits or _ (up to 12).';
-        return;
-      }
-      btn.disabled = true;
-      try {
-        const r = await fetch('/api/pots/add', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        }).then(res => res.json());
-        msg.className = 'pots-move-msg ' + (r.success ? 'ok' : 'err');
-        msg.textContent = r.success ? r.message + '.' : (r.error || 'Could not add the pot.');
-        if (r.success) nameInput.value = '';
-      } catch (e) {
-        msg.className = 'pots-move-msg err';
-        msg.textContent = 'Could not add the pot (network error).';
-      } finally {
-        btn.disabled = false;
-        loadPots();
-      }
-    }
-    document.getElementById('pots-add-btn').addEventListener('click', onAddPot);
+    // "Add a pot" lives on the Strategies page now
+    function renderAddForm() {}
 
     async function loadPots() {
       try {
@@ -5381,7 +5331,7 @@
           if (inactive.length) {
             off.innerHTML = potsOn
               ? '<span class="sig-off-label">No pot</span>' + inactive.map(s =>
-                  `<a href="#pots-add" onclick="document.getElementById('pots-add').open = true" title="Add a pot that trades this strategy">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
+                  `<a href="/strategies#ps-add" title="Add a pot that trades this strategy (Strategies page)">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`
                 ).join('')
               : '<span class="sig-off-label">Off</span>' + inactive.map(s =>
                   `<a href="/strategy-config" title="Enable in Strategies">${escapeHtml(STRATEGY_DISPLAY[s.name] || s.display_name || s.name)}</a>`

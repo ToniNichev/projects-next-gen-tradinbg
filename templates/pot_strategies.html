@@ -49,6 +49,15 @@
   .ps-msg { font-size: 0.85rem; }
   .ps-msg.ok { color: var(--accent-green); } .ps-msg.err { color: var(--accent-red); }
   .ps-note { color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; }
+  .ps-add { margin-top: 1.25rem; border: 1px dashed rgba(255,255,255,0.18); border-radius: 14px; padding: 1.1rem 1.25rem; background: var(--bg-secondary); }
+  .ps-add h2 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+  .ps-add-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; margin-top: 0.8rem; }
+  .ps-add-row label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: var(--text-secondary); }
+  .ps-add-row input, .ps-add-row select { padding: 0.45rem 0.6rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14);
+    background: var(--bg-primary); color: var(--text-primary); font-size: 0.9rem; }
+  .ps-add-row input[type=number] { width: 6.5rem; }
+  .ps-choice { margin-top: 0.6rem; font-size: 0.85rem; line-height: 1.5; }
+  .ps-choice .warn { color: #ffd54f; }
   details.ps-unused { margin-top: 1.25rem; border: 1px solid var(--border-color); border-radius: 14px; padding: 0.9rem 1.2rem; background: var(--bg-secondary); }
   details.ps-unused summary { cursor: pointer; font-weight: 600; }
   details.ps-unused ul { line-height: 1.6; color: var(--text-secondary); }
@@ -81,6 +90,21 @@
 </div>
 
 <div class="ps-grid" id="ps-grid"><p class="ps-note">Loading…</p></div>
+
+<section class="ps-add" id="ps-add">
+  <h2>Add a pot</h2>
+  <p class="ps-note">A new pot runs one strategy with its own money. It starts with $0: fund it with <b>Move money</b> on the
+    dashboard. Each buy has to be at least $1 on Binance.US, so give it about $5 or more. Backtest the strategy first.</p>
+  <div class="ps-add-row">
+    <label>Name <input type="text" id="add-name" maxlength="12" placeholder="macd" autocomplete="off"></label>
+    <label>Strategy <select id="add-strategy"></select></label>
+    <label title="0 = no limit">Buys per day <input type="number" id="add-buys" min="0" max="24" step="1" value="3"></label>
+    <label>Spend per buy (%) <input type="number" id="add-pct" min="10" max="100" step="1" value="95"></label>
+    <button type="button" class="ps-btn primary" id="add-btn">Add pot</button>
+  </div>
+  <div class="ps-choice" id="add-choice"></div>
+  <div class="ps-msg" id="add-msg" role="status"></div>
+</section>
 
 <details class="ps-unused" id="ps-unused">
   <summary>Not used while pots are on</summary>
@@ -146,6 +170,7 @@
         <div class="ps-actions">
           <button type="button" class="ps-btn primary" data-save="${p.name}" disabled>Review changes…</button>
           <button type="button" class="ps-btn" data-reset="${p.name}" disabled>Undo</button>
+          ${p.backtest ? `<button type="button" class="ps-btn" data-backtest="${p.name}" title="Run this strategy alone on past prices with the values above (including changes you haven't applied)">Backtest these settings</button>` : ''}
           <span class="ps-msg" id="msg-${p.name}" aria-live="polite"></span>
         </div>
         <p class="ps-note">${p.holding
@@ -209,6 +234,80 @@
       refreshButtons(pot.name);
     }));
     grid.querySelectorAll('[data-save]').forEach(b => b.addEventListener('click', () => review(b.dataset.save)));
+    grid.querySelectorAll('[data-backtest]').forEach(b => b.addEventListener('click', () => backtest(b.dataset.backtest)));
+    const sel = document.getElementById('add-strategy');
+    const keep = sel.value;
+    sel.innerHTML = (data.strategy_choices || []).map(c => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('');
+    if (keep) sel.value = keep;
+    showChoice();
+  }
+
+  function showChoice() {
+    const c = (data.strategy_choices || []).find(x => x.key === document.getElementById('add-strategy').value);
+    const el = document.getElementById('add-choice');
+    if (!c) { el.innerHTML = ''; return; }
+    el.innerHTML = esc(c.blurb) + (c.running_in.length
+      ? ` <span class="warn">Already running in ${esc(c.running_in.join(', '))}: both pots would share one set of settings.</span>` : '');
+  }
+  document.getElementById('add-strategy').addEventListener('change', showChoice);
+
+  document.getElementById('add-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('add-btn');
+    const msg = document.getElementById('add-msg');
+    const body = {
+      name: document.getElementById('add-name').value.trim().toLowerCase(),
+      strategy: document.getElementById('add-strategy').value,
+      max_buys_per_day: parseInt(document.getElementById('add-buys').value || '0', 10),
+      order_pct: (parseFloat(document.getElementById('add-pct').value) || 0) / 100,
+    };
+    if (!/^[a-z][a-z0-9_]{0,11}$/.test(body.name)) {
+      msg.className = 'ps-msg err';
+      msg.textContent = 'Name: start with a letter, then letters, digits or _ (up to 12).';
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/pots/add', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(res => res.json());
+      msg.className = 'ps-msg ' + (r.success ? 'ok' : 'err');
+      msg.innerHTML = r.success
+        ? `${esc(r.message || 'Pot added')}. It has $0: <a href="/ui#pots-move">move money into it on the dashboard</a>.`
+        : esc(r.error || 'Could not add the pot.');
+      if (r.success) { document.getElementById('add-name').value = ''; await load(); }
+    } catch (e) {
+      msg.className = 'ps-msg err';
+      msg.textContent = 'Could not add the pot (network error).';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Hand the card's values (applied or not) to the Backtest page
+  function backtest(potName) {
+    const pot = data.pots.find(p => p.name === potName);
+    const overrides = { ...pot.backtest, strategy_llm_enabled: false };
+    const changed = [];
+    for (const f of pot.settings) {
+      const el = document.getElementById(`f-${pot.name}-${f.key}`);
+      if (!el) continue;
+      let v = f.kind === 'bool' ? el.checked : Number(el.value);
+      if (f.kind !== 'bool' && !Number.isFinite(v)) {
+        const msg = document.getElementById(`msg-${potName}`);
+        msg.className = 'ps-msg err';
+        msg.textContent = `Fix "${f.label}" first.`;
+        return;
+      }
+      if (v !== f.value) changed.push(`${f.label}: ${fmt(f.value, f)} → ${fmt(v, f)}`);
+      overrides[f.key] = f.pct ? v / 100 : v;
+    }
+    try {
+      sessionStorage.setItem('potBacktest', JSON.stringify({
+        pot: pot.name, label: pot.label, strategy: UI.strategyName(pot.strategy), overrides, changed,
+      }));
+    } catch (e) { /* the page then runs the normal backtest */ }
+    location.href = `/backtest?pot=${encodeURIComponent(pot.name)}`;
   }
 
   async function post(body) {
@@ -283,6 +382,10 @@
       if (!j.pots_enabled) { location.href = '/strategies/all'; return; }
       data = j;
       render();
+      if (!window.__psScrolled && location.hash) {
+        window.__psScrolled = true;
+        try { document.querySelector(location.hash)?.scrollIntoView({ block: 'start' }); } catch (e) {}
+      }
     } catch (e) {
       document.getElementById('ps-grid').innerHTML = `<p class="ps-msg err">Could not load the pots: ${esc(e.message)}</p>`;
     }

@@ -45,11 +45,70 @@ FIELDS: Dict[str, dict] = {
         min=0, max=10, step=0.1, help="Buys when the daily close is this far above the average; sells when this far below. Wider = fewer, later trades."),
     "strategy_trend_emergency_stop_pct": dict(attr="emergency_stop_pct", label="Emergency stop", kind="float", pct=True,
         min=0, max=50, step=0.5, help="0 = none (the tested rule has none). Otherwise sells if the price falls this far below the buy price."),
-    # Manual pot (BotConfig fields, read when you buy)
-    "stop_loss_pct": dict(attr=None, label="Stop when ATR is off", kind="float", pct=True,
+    # Shared by the Manual pot (read when you buy) and EMA Crossover
+    "stop_loss_pct": dict(attr="stop_loss_pct", label="Stop when ATR is off", kind="float", pct=True,
         min=0.5, max=15, step=0.1, help="Used only when 'Stop from recent price swings' is off."),
-    "take_profit_pct": dict(attr=None, label="Profit target", kind="float", pct=True,
-        min=0.5, max=30, step=0.1, help="Your buy gets a sell order at this much above the buy price."),
+    "take_profit_pct": dict(attr="take_profit_pct", label="Profit target", kind="float", pct=True,
+        min=0.5, max=30, step=0.1, help="Sells when the price gets this much above the buy price."),
+    # EMA Crossover
+    "short_window": dict(attr="short_window", label="Fast average", kind="int", unit="candles",
+        min=2, max=100, step=1, help="Length of the quick-moving average (hourly candles)."),
+    "long_window": dict(attr="long_window", label="Slow average", kind="int", unit="candles",
+        min=5, max=300, step=1, help="Length of the slow average. A buy is the fast one crossing above it. Must be longer than the fast one."),
+    "rsi_oversold": dict(attr="rsi_oversold", label="Skip a cross when RSI is below", kind="float",
+        min=5, max=50, step=1, help="A cross while RSI is this low (a crash) is ignored."),
+    "rsi_overbought": dict(attr="rsi_overbought", label="Skip a cross when RSI is above", kind="float",
+        min=50, max=95, step=1, help="A cross while RSI is this high (already stretched) is ignored."),
+    "require_volume_confirmation": dict(attr="require_volume_confirmation", label="Need above-average volume", kind="bool",
+        help="On: a cross on quiet trading is ignored (EMA) or counts for less (MACD)."),
+    "require_macd_confirmation": dict(attr="require_macd_confirmation", label="Need MACD to agree", kind="bool",
+        help="On: buys only when MACD also points up."),
+    # MACD + Volume
+    "strategy_macd_fast_period": dict(attr="macd_fast_period", label="MACD fast length", kind="int", unit="candles",
+        min=2, max=50, step=1, help="The usual is 12. Must be shorter than the slow length."),
+    "strategy_macd_slow_period": dict(attr="macd_slow_period", label="MACD slow length", kind="int", unit="candles",
+        min=5, max=100, step=1, help="The usual is 26."),
+    "strategy_macd_signal_period": dict(attr="macd_signal_period", label="Signal line length", kind="int", unit="candles",
+        min=2, max=30, step=1, help="The usual is 9. A buy is MACD crossing above this line."),
+    "strategy_macd_volume_multiplier": dict(attr="volume_multiplier", label="Strong volume means", kind="float", unit="× average",
+        min=0.5, max=5, step=0.1, help="Volume at least this many times the 20-hour average strengthens a signal."),
+    "strategy_macd_require_zero_cross": dict(attr="require_zero_cross", label="Buy only above the zero line", kind="bool",
+        help="On: MACD must also be above zero (an uptrend already under way)."),
+    "strategy_macd_use_momentum_filter": dict(attr="use_momentum_filter", label="Use the momentum check", kind="bool",
+        help="On: a signal without price momentum counts for less."),
+    "strategy_macd_take_profit_pct": dict(attr="take_profit_pct", label="Profit target", kind="float", pct=True,
+        min=0.5, max=30, step=0.1, help="Sells when the price gets this much above the buy price."),
+    "strategy_macd_stop_loss_pct": dict(attr="stop_loss_pct", label="Stop when ATR is off", kind="float", pct=True,
+        min=0.5, max=15, step=0.1, help="Used only when 'Stop from recent price swings' is off."),
+}
+
+# Where a strategy keeps a shared setting under another name
+ATTR_OVERRIDES = {
+    (StrategyNames.MACD_VOLUME_MOMENTUM, "require_volume_confirmation"): "use_volume_filter",
+}
+
+# Pairs that must stay in order (smaller, larger)
+ORDERED_PAIRS = [
+    ("short_window", "long_window"),
+    ("strategy_macd_fast_period", "strategy_macd_slow_period"),
+    ("rsi_oversold", "rsi_overbought"),
+    ("strategy_rsi_bb_rsi_oversold", "strategy_rsi_bb_rsi_overbought"),
+]
+
+# Backtest switches: run only this strategy (the backtest otherwise combines them)
+ENABLE_KEYS = {
+    StrategyNames.TREND_HOLD: "strategy_trend_enabled",
+    StrategyNames.RSI_BB_MEAN_REVERSION: "strategy_rsi_bb_enabled",
+    StrategyNames.EMA_CROSSOVER: "strategy_ema_enabled",
+    StrategyNames.MACD_VOLUME_MOMENTUM: "strategy_macd_enabled",
+}
+
+# One line per strategy for the "Add a pot" form
+CHOICE_BLURBS = {
+    "trend_hold": "Holds BTC while it's above its 100-day average, cash below. A few trades a year.",
+    "rsi_bb": "Buys sharp hourly drops (low RSI at the lower band), sells the bounce. Can trade several times a week.",
+    "ema_crossover": "Buys when a fast hourly average crosses above a slow one; sells on the cross back down.",
+    "macd_volume": "Buys when MACD crosses up with momentum and volume behind it; sells when it turns down.",
 }
 
 # Which settings each pot uses, in the order the page shows them
@@ -62,6 +121,17 @@ POT_FIELDS = {
     ],
     StrategyNames.TREND_HOLD: [
         "strategy_trend_ma_days", "strategy_trend_band", "strategy_trend_emergency_stop_pct",
+    ],
+    StrategyNames.EMA_CROSSOVER: [
+        "short_window", "long_window", "rsi_oversold", "rsi_overbought", "rsi_period",
+        "take_profit_pct", "use_atr_stops", "atr_stop_multiplier", "stop_loss_pct",
+        "require_volume_confirmation", "require_macd_confirmation",
+    ],
+    StrategyNames.MACD_VOLUME_MOMENTUM: [
+        "strategy_macd_fast_period", "strategy_macd_slow_period", "strategy_macd_signal_period",
+        "strategy_macd_volume_multiplier", "require_volume_confirmation",
+        "strategy_macd_require_zero_cross", "strategy_macd_use_momentum_filter",
+        "strategy_macd_take_profit_pct", "use_atr_stops", "atr_stop_multiplier", "strategy_macd_stop_loss_pct",
     ],
     "manual": ["take_profit_pct", "use_atr_stops", "atr_stop_multiplier", "stop_loss_pct"],
 }
@@ -92,12 +162,12 @@ def _users(manager) -> Dict[str, List[str]]:
 
 
 def _live_value(key, pot, config):
-    spec = FIELDS[key]
-    raw = None
-    if spec["attr"] and pot.strategy is not None and hasattr(pot.strategy, spec["attr"]):
-        raw = getattr(pot.strategy, spec["attr"])
-    elif spec["attr"] and hasattr(config, key):
-        raw = getattr(config, key)  # shared setting, e.g. ATR for the Manual pot
+    """What the running pot uses: its strategy's attribute, or (Manual pot)
+    the saved setting it reads when you buy."""
+    s = pot.strategy
+    attr = ATTR_OVERRIDES.get((s.name, key), FIELDS[key]["attr"]) if s is not None else None
+    if attr and hasattr(s, attr):
+        raw = getattr(s, attr)
     else:
         raw = getattr(config, key, None)
     return to_display(key, raw)
@@ -189,7 +259,48 @@ def _rule(pot, config, price) -> dict:
             now.append(f"lower band {_money(float(ind['bb_lower']))} · middle {_money(float(ind.get('bb_middle') or 0))}"
                        + (f" · price {_money(price)}" if price else ""))
         return {"rules": rules, "now": now}
-    return {"rules": [f"Runs {s.name}."], "now": now}
+    stop = (f"{s.atr_stop_multiplier:g} × ATR (the average hourly swing) below the buy price"
+            if getattr(s, "use_atr_stops", False) else f"{getattr(s, 'stop_loss_pct', 0) * 100:g}% below the buy price")
+    size = ((f"Buys with {pot.order_pct * 100:g}% of its cash" if pot.order_pct
+             else "Buys (the size depends on how strong the signal is)")
+            + (f", at most {pot.max_buys_per_day} buys a day." if pot.max_buys_per_day else "."))
+    if s.name == StrategyNames.EMA_CROSSOVER:
+        rules = [
+            f"Every hour, checks whether the {s.short_window}-hour average just crossed above the "
+            f"{s.long_window}-hour average (a turn up).",
+            f"Ignores the cross when RSI is below {s.rsi_oversold:g} or above {s.rsi_overbought:g}"
+            + (", on below-average volume" if s.require_volume_confirmation else "")
+            + (", or when MACD disagrees" if s.require_macd_confirmation else "") + ".",
+            size,
+            f"Sells at +{s.take_profit_pct * 100:g}%, at its stop ({stop}), or when the fast average crosses back below.",
+        ]
+        if ind.get("short_ema") and ind.get("long_ema"):
+            gap = float(ind["short_ema"]) / float(ind["long_ema"]) - 1
+            now.append(f"fast average {_money(float(ind['short_ema']))} is {abs(gap) * 100:.2f}% "
+                       f"{'above' if gap >= 0 else 'below'} the slow one {_money(float(ind['long_ema']))}")
+        if ind.get("rsi") is not None:
+            now.append(f"RSI {float(ind['rsi']):.1f}")
+        return {"rules": rules, "now": now}
+    if s.name == StrategyNames.MACD_VOLUME_MOMENTUM:
+        rules = [
+            f"Every hour, checks whether MACD ({s.macd_fast_period}/{s.macd_slow_period}) just crossed above "
+            f"its {s.macd_signal_period}-hour signal line with the gap widening"
+            + (" and MACD above zero" if s.require_zero_cross else "") + ".",
+            "Stronger with volume at least "
+            f"{s.volume_multiplier:g}× the average" + (" and price momentum" if s.use_momentum_filter else "")
+            + "; weak signals are skipped.",
+            size,
+            f"Sells at +{s.take_profit_pct * 100:g}%, at its stop ({stop}), or when MACD crosses back down.",
+        ]
+        macd = ind.get("macd_line", ind.get("macd"))
+        sigl = ind.get("signal_line", ind.get("macd_signal"))
+        if macd is not None and sigl is not None:
+            now.append(f"MACD {float(macd):,.1f} is {'above' if float(macd) >= float(sigl) else 'below'} "
+                       f"its signal line {float(sigl):,.1f}")
+        if ind.get("volume_ratio") is not None:
+            now.append(f"volume {float(ind['volume_ratio']):.1f}× average")
+        return {"rules": rules, "now": now}
+    return {"rules": [f"Runs {StrategyNames.get_display_name(s.name)}."], "now": now}
 
 
 def describe(manager, config, price=None) -> dict:
@@ -217,10 +328,21 @@ def describe(manager, config, price=None) -> dict:
             "paused": bool(getattr(pot, "paused", False)),
             "editable": key is not None,
             "settings": fields,
+            "backtest": ({k: (k == ENABLE_KEYS.get(pot.strategy.name)) for k in ENABLE_KEYS.values()}
+                         if pot.strategy is not None and pot.strategy.name in ENABLE_KEYS else None),
+            "buy_size": pot.order_pct, "max_buys_per_day": pot.max_buys_per_day,
             **_rule(pot, config, price),
         })
     used = {p.strategy.name for p in manager.pots.values() if p.strategy}
-    return {"pots": pots, "unused_controls": UNUSED_CONTROLS,
+    choices = []
+    if hasattr(manager, "strategy_choices"):
+        from pots import POT_STRATEGIES
+        for c in manager.strategy_choices():
+            sname = POT_STRATEGIES.get(c["key"])
+            choices.append({**c, "blurb": CHOICE_BLURBS.get(c["key"], ""),
+                            "running_in": [p.label for p in manager.pots.values()
+                                           if p.strategy is not None and p.strategy.name == sname]})
+    return {"pots": pots, "unused_controls": UNUSED_CONTROLS, "strategy_choices": choices,
             "unused_strategies": [StrategyNames.get_display_name(n) for n in StrategyNames.all_names()
                                   if n not in used]}
 
@@ -248,7 +370,18 @@ def plan_changes(manager, config, pot_name, changes) -> List[dict]:
                     "also": [u for u in users.get(k, []) if u != pot.label]})
     if not out:
         raise ValueError("no setting changed")
+    after = {k: _live_value(k, pot, config) for k in allowed}
+    after.update({c["key"]: c["after"] for c in out})
+    for lo, hi in ORDERED_PAIRS:
+        if lo in after and hi in after and after[lo] is not None and after[hi] is not None \
+                and after[lo] >= after[hi]:
+            raise ValueError(f"{FIELDS[lo]['label']} must be less than {FIELDS[hi]['label'].lower()}")
     return out
 
 
 LIVE_KEYS = set(FIELDS)
+
+
+def live_keys(manager) -> set:
+    """Settings the running pots trade with right now."""
+    return set(_users(manager))

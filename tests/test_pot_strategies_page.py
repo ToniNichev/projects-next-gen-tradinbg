@@ -17,6 +17,8 @@ from strategies.constants import StrategyNames
 from strategies.rsi_bb_strategy import RSIBollingerBandsStrategy
 from strategies.strategy_manager import StrategyManager
 from strategies.trend_hold_strategy import TrendHoldStrategy
+from strategies.ema_crossover_strategy import EMACrossoverStrategy
+from strategies.macd_volume_strategy import MACDVolumeStrategy
 from app.api import pot_settings
 from tests.test_pots import make_config
 
@@ -27,7 +29,8 @@ def real_setup():
     cfgs = BotConfig.load().get_strategy_configs()
     rsi = RSIBollingerBandsStrategy(cfgs["rsi_bb"])
     trend = TrendHoldStrategy(cfgs["trend_hold"])
-    sm = StrategyManager([trend, rsi])
+    sm = StrategyManager([trend, rsi, EMACrossoverStrategy(cfgs["ema_crossover"]),
+                          MACDVolumeStrategy(cfgs["macd_volume"])])
     pots = build_pots(config, exchange=None, db_manager=db, strategy_manager=sm, trading_mode="paper")
     return db, config, pots, sm, rsi, trend
 
@@ -127,3 +130,66 @@ def test_display_conversions():
     with pytest.raises(ValueError):
         pot_settings.from_display("strategy_trend_ma_days", 5)
     assert set(pot_settings.POT_FIELDS[StrategyNames.TREND_HOLD]) <= set(pot_settings.FIELDS)
+
+
+def add(pots, name, strategy):
+    pots.add_pot(name, strategy, source="test")
+    return pots.get(name)
+
+
+def test_ema_and_macd_pots_get_cards(client):
+    c, db, pots, rsi, _ = client
+    add(pots, "ema", "ema_crossover")
+    macd = add(pots, "macd", "macd_volume")
+    data = c.get("/api/pot-strategies").get_json()
+    by = {p["name"]: p for p in data["pots"]}
+    ema_keys = {f["key"]: f for f in by["ema"]["settings"]}
+    assert "short_window" in ema_keys
+    intraday_label = pots.get("intraday").label
+    assert intraday_label in ema_keys["rsi_period"]["also"]  # RSI length is shared
+    assert any("crossed above" in r for r in by["ema"]["rules"])
+    m = {f["key"]: f for f in by["macd"]["settings"]}
+    # MACD keeps the shared volume switch under another name
+    assert m["require_volume_confirmation"]["value"] == bool(macd.strategy.use_volume_filter)
+    assert any("MACD" in r for r in by["macd"]["rules"])
+    # Backtest runs only this pot's strategy
+    assert by["macd"]["backtest"]["strategy_macd_enabled"] is True
+    assert not any(v for k, v in by["macd"]["backtest"].items() if k != "strategy_macd_enabled")
+    assert by["manual"]["backtest"] is None
+    # Add-a-pot choices say where a strategy already runs
+    ch = {x["key"]: x for x in data["strategy_choices"]}
+    assert ch["rsi_bb"]["blurb"] and ch["rsi_bb"]["running_in"] == [intraday_label]
+    assert ch["trend_hold"]["running_in"] == [pots.get("trend").label]
+
+
+def test_fast_average_must_stay_shorter(client):
+    c, db, pots, *_ = client
+    ema = add(pots, "ema", "ema_crossover")
+    r = c.post("/api/pot-strategies/update", json={"pot": "ema", "confirm": True,
+               "changes": {"short_window": ema.strategy.long_window}})
+    assert r.status_code == 400 and "less than" in r.get_json()["error"]
+
+
+def test_macd_change_reaches_the_strategy(client):
+    c, db, pots, *_ = client
+    macd = add(pots, "macd", "macd_volume")
+    r = c.post("/api/pot-strategies/update", json={"pot": "macd", "confirm": True,
+               "changes": {"strategy_macd_take_profit_pct": 6, "require_volume_confirmation": False}})
+    j = r.get_json()
+    assert j["success"], j
+    assert macd.strategy.take_profit_pct == pytest.approx(0.06) and macd.strategy.use_volume_filter is False
+
+
+def test_pages_link_to_the_add_form(client):
+    c, *_ = client
+    assert b'id="ps-add"' in c.get("/strategies").data
+
+
+def test_old_form_protects_a_setting_once_a_pot_uses_it(client):
+    c, db, pots, *_ = client
+    r = c.post("/api/strategy-config/update", json={"short_window": 9})
+    assert r.get_json()["skipped_pot_keys"] == []
+    add(pots, "ema", "ema_crossover")
+    r = c.post("/api/strategy-config/update", json={"short_window": 7})
+    assert r.get_json()["skipped_pot_keys"] == ["short_window"]
+    assert db.get_all_strategy_configs()["short_window"] == 9

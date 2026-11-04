@@ -44,7 +44,12 @@
     </div>
   </div>
 
-  <div class="bt-field">
+  <div id="pot-test" class="bt-note" style="display:none;border-color:rgba(255,193,7,0.5);background:rgba(255,193,7,0.07)" role="status">
+    <span id="pot-test-text"></span>
+    <button type="button" class="bt-btn ghost" id="pot-test-clear" style="margin-left:auto">Back to normal</button>
+  </div>
+
+  <div class="bt-field" id="strategies-field">
     <div class="bt-label-row">
       <span class="bt-label">Strategies</span>
       <label class="bt-toggle">
@@ -339,6 +344,28 @@
     });
 
     setInterval(Results.loadResults, 5000);
+
+    // Opened from a pot card on the Strategies page: test that pot's values
+    let potTest = null;
+    if (new URLSearchParams(location.search).has('pot')) {
+      try { potTest = JSON.parse(sessionStorage.getItem('potBacktest') || 'null'); } catch (e) { potTest = null; }
+    }
+    if (potTest && potTest.overrides) {
+      window.__potBacktest = potTest;
+      const esc = UI.esc;
+      document.getElementById('pot-test-text').innerHTML =
+        `<b>Testing the ${esc(potTest.label)} pot's settings</b>: ${esc(potTest.strategy)} on its own` +
+        (potTest.changed.length ? `, with your unapplied changes: ${potTest.changed.map(esc).join('; ')}.`
+                                : ', with the settings it uses now.') +
+        ' Nothing is changed in the running bot. (The backtest uses the strategy\'s own buy size, not the pot\'s.)';
+      document.getElementById('pot-test').style.display = 'flex';
+      document.getElementById('strategies-field').style.display = 'none';
+      document.getElementById('pot-test-clear').addEventListener('click', () => {
+        window.__potBacktest = null;
+        try { sessionStorage.removeItem('potBacktest'); } catch (e) {}
+        location.href = '/backtest';
+      });
+    }
   });
 </script>
 {% endblock %}

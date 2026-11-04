@@ -92,6 +92,7 @@ CONFIG_MAPPING = {
     "strategy_macd_require_zero_cross": {"type": "bool",  "category": "macd"},
     "strategy_macd_stop_loss_pct":      {"type": "float", "category": "macd"},
     "strategy_macd_take_profit_pct":    {"type": "float", "category": "macd"},
+    "strategy_macd_use_momentum_filter": {"type": "bool", "category": "macd"},
     "strategy_trend_enabled":           {"type": "bool",  "category": "trend"},
     "strategy_trend_weight":            {"type": "float", "category": "trend"},
     "strategy_trend_ma_days":           {"type": "int",   "category": "trend"},
@@ -439,9 +440,10 @@ def update_strategy_config():
         if _pot_manager() is not None:
             # With pots on, settings a pot trades with change only on the
             # pot cards (with a before/after confirmation), never from here
-            from app.api.pot_settings import LIVE_KEYS
-            skipped = sorted(k for k in data if k in LIVE_KEYS)
-            data = {k: v for k, v in data.items() if k not in LIVE_KEYS}
+            from app.api.pot_settings import live_keys
+            live = live_keys(_pot_manager())
+            skipped = sorted(k for k in data if k in live)
+            data = {k: v for k, v in data.items() if k not in live}
         configs_to_save, count = _batch_save_config(data, db)
         return jsonify({"success": True, "message": f"Updated {count} parameters"
                         + (f" ({len(skipped)} pot settings skipped: change those on the pot cards)" if skipped else ""),

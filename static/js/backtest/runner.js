@@ -96,6 +96,11 @@ export async function runQuickBacktest() {
     };
   }
 
+  // A pot card on the Strategies page sent its values: run that strategy alone with them
+  if (window.__potBacktest && window.__potBacktest.overrides) {
+    configOverrides = { ...window.__potBacktest.overrides };
+  }
+
   const estimatedDuration = getEstimatedDuration(daysBack);
   const startTime = Date.now();
 
