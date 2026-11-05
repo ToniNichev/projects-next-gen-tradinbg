@@ -270,6 +270,8 @@
   .position-info-value,
   .preview-value { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
   .position-info-value.positive { color: var(--accent-green); }
+  .preview-value.positive { color: var(--accent-green); }
+  .preview-value.negative { color: var(--accent-red, #f85149); }
   .position-info-value.negative { color: var(--accent-red); }
   .position-info-value.muted { color: var(--text-secondary); font-weight: 500; }
   .preview-item.total { border-top-color: rgba(255, 255, 255, 0.12); }
@@ -1159,6 +1161,42 @@
         ${moneyTable(data)}`;
     }
 
+    // Selling all of a pot's BTC at `price`: what comes back and the gain or loss
+    // after the fee. A sliver below the exchange's smallest step stays in the pot.
+    function sellMath(p, price, terms) {
+      const f = (terms && terms.fee_rate) || 0, step = (terms && terms.amount_step) || 0.00001;
+      const sellable = Math.floor(p.btc / step + 1e-9) * step;
+      const left = Math.max(0, p.btc - sellable);
+      const paid = (p.entry_price || 0) * p.btc;
+      const fee = sellable * price * f;
+      const get = sellable * price - fee;
+      return { sellable, left, paid, fee, get, res: get + left * price - paid };
+    }
+
+    // Estimated tax rate on a gain, set by the viewer in the sell box (a rough
+    // estimate only; kept in this browser)
+    const TAX_KEY = 'potSellTaxRate', TAX_DEFAULT = 24;
+    function taxRate() {
+      try { const v = parseFloat(localStorage.getItem(TAX_KEY)); if (v >= 0 && v <= 60) return v; } catch (e) {}
+      return TAX_DEFAULT;
+    }
+    function taxRows(res, rate) {
+      const small = v => money(Math.abs(v), Math.abs(v) < 1 ? 4 : 2);
+      const row = (k, v, c = '') => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value ${c}">${v}</span></div>`;
+      if (res <= 0) return row('Estimated tax', 'None — this sale is a loss');
+      const tax = res * rate / 100;
+      return row(`Estimated tax (${rate}%)`, `−${small(tax)}`) +
+             row('Gain after tax', `+${small(res - tax)}`, 'positive');
+    }
+    // Typing a new rate redraws the tax lines in the open box
+    window.__potTaxInput = function (input) {
+      const rate = parseFloat(input.value);
+      const box = document.getElementById('pot-tax-lines');
+      if (!box || !(rate >= 0 && rate <= 60)) return;
+      try { localStorage.setItem(TAX_KEY, String(rate)); } catch (e) {}
+      box.innerHTML = taxRows(parseFloat(box.dataset.res), rate);
+    };
+
     // "If each pot sold now": what it bought, what it holds, and what selling
     // everything at today's price would bring back and gain or lose, after the fee
     function renderSellNow(data) {
@@ -1176,12 +1214,7 @@
           const dust = p.btc > 0 ? `<span class="mt-sub-val">+ ${Number(p.btc).toFixed(8)} BTC leftover (${small(p.btc * price)})</span>` : '';
           return `<tr class="idle"><td>${name}</td><td colspan="5">In cash (${small(p.cash)}) — nothing to sell${dust}</td></tr>`;
         }
-        const sellable = Math.floor(p.btc / step + 1e-9) * step;
-        const left = Math.max(0, p.btc - sellable);
-        const paid = p.entry_price * p.btc;
-        const fee = sellable * price * f;
-        const get = sellable * price - fee;
-        const res = get + left * price - paid;
+        const { left, paid, fee, get, res } = sellMath(p, price, terms);
         tPaid += paid; tGet += get; tRes += res;
         return `<tr>
           <td>${name}</td>
@@ -1564,18 +1597,33 @@
                  its new best value, so it stops again only if it falls another ${Math.round(ll.limit_pct)}% from here.</div>` };
       }
       const worth = p.btc * (window.__potsPrice || 0);
-      const row = (k, v) => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value">${v}</span></div>`;
+      const row = (k, v, c = "") => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value ${c}">${v}</span></div>`;
       if (action === 'remove') {
         return { title: `Remove the ${p.label} pot?`, confirmText: 'Remove pot',
           html: row('Pot', esc(p.label)) + row('Cash', money(p.cash)) +
                 '<div class="modal-note">It must hold no cash and no BTC. Its trade history is kept, and its name can\'t be used again.</div>' };
       }
       const pause = action === 'sellpause';
+      const price = window.__potsPrice || 0;
+      let result = '';
+      if (p.entry_price && p.btc > 0 && price) {
+        const m = sellMath(p, price, lastData && lastData.sell_terms);
+        const small = v => money(Math.abs(v), Math.abs(v) < 1 ? 4 : 2);
+        const rate = taxRate();
+        result = row('Paid', small(m.paid)) +
+          row('You get back', `${small(m.get)} <small class="muted">after ${small(m.fee)} fee</small>`) +
+          row('Result of this sale', `${m.res >= 0 ? '+' : '−'}${small(m.res)} (${m.paid ? `${m.res >= 0 ? '+' : '−'}${Math.abs(m.res / m.paid * 100).toFixed(2)}%` : ''})`,
+              m.res >= 0 ? 'positive' : 'negative') +
+          `<div id="pot-tax-lines" data-res="${m.res}">${taxRows(m.res, rate)}</div>
+           <div class="modal-note">Tax rate <input type="number" min="0" max="60" step="1" value="${rate}"
+             oninput="__potTaxInput(this)" style="width:4rem" aria-label="Tax rate in percent">% — a rough estimate
+             only. The bot doesn't know your bracket or your other gains and losses; nothing is withheld.</div>`;
+      }
       return { title: pause ? `Sell and pause the ${p.label} pot?` : `Sell the ${p.label} pot's BTC?`,
         confirmText: pause ? 'Sell & pause' : 'Sell now',
         html: row('Pot', esc(p.label)) + row('Sells', `${p.btc.toFixed(6)} BTC`) +
               row('Worth about', money(worth)) +
-              (p.entry_price ? row('Bought at', money(p.entry_price, 0)) : '') +
+              (p.entry_price ? row('Bought at', money(p.entry_price, 0)) : '') + result +
               `<div class="modal-note">Sells at the market price, right away.${pause ? ' The pot then stops buying until you resume it.' : ''} A sliver too small to sell may stay behind.</div>` };
     }
 
