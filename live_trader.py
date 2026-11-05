@@ -1079,6 +1079,32 @@ class LiveTrader:
 
         return self._book_stop_fill(order, oid, rearm=rearm)
 
+    @staticmethod
+    def _fill_time(order: Dict, after: Optional[str] = None) -> str:
+        """When the exchange filled the order (ISO, UTC). The bot may only
+        notice a stop fill at its next hourly check, so "now" would put the
+        sale up to an hour late on the chart. Falls back to now. after: the
+        position's entry time; a fill can't come before the buy."""
+        now = datetime.now(timezone.utc)
+        earliest = now - timedelta(days=7)
+        try:
+            entry = datetime.fromisoformat(str(after).replace("Z", "+00:00"))
+            if entry.tzinfo is None:
+                entry = entry.replace(tzinfo=timezone.utc)
+            earliest = max(earliest, entry)
+        except (TypeError, ValueError):
+            pass
+        info = order.get("info") or {}
+        for ms in (order.get("lastTradeTimestamp"), info.get("updateTime")):
+            try:
+                t = datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc)
+            except (TypeError, ValueError, OverflowError, OSError):
+                continue
+            # Ignore anything odd: in the future, before the buy, or over a week old
+            if earliest <= t <= now + timedelta(minutes=1):
+                return t.isoformat()
+        return now.isoformat()
+
     def _book_stop_fill(self, order: Dict, oid: str, rearm: bool = True) -> TradeRecord:
         """Book coins the exchange stop sold. rearm: place a new stop for
         whatever is left (not when the caller is about to sell it)."""
@@ -1119,7 +1145,7 @@ class LiveTrader:
             slippage=max(0.0, float(pos.stop_loss) - fill_price),
             usdt_balance=self.usdt_balance,
             base_balance=self.base_balance,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=self._fill_time(order, after=pos.entry_time),
             signal={},
             exit_reason="stop_loss",
             pnl=pnl,

@@ -108,3 +108,50 @@ def test_single_account_trader_notices_too():
     sale = trader.update_position(PRICE)
     assert sale is not None and sale.exit_reason == "stop_loss"
     assert trader.open_position is None
+
+
+def test_sale_is_timed_when_the_exchange_filled_it():
+    """2026-11-05: the stop sold at 10:01 but the bot noticed at 11:00; the
+    chart put the $77,970 sale at 11:00, floating above an $75,900 line."""
+    from datetime import datetime, timedelta, timezone
+    db = initialize_database("sqlite:///:memory:")
+    pots, intraday, sm, exchange, pot = buy_intraday(db)
+    stop_fills(exchange)
+    # Bought an hour ago; the exchange sold 59 minutes before the bot looked
+    bought_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    pot.trader.open_position.entry_time = bought_at.isoformat()
+    filled_at = (bought_at + timedelta(seconds=30)).replace(microsecond=0)
+    stop = exchange.fetch_order("stop-1", "BTC/USD")
+    stop["lastTradeTimestamp"] = int(filled_at.timestamp() * 1000)
+    sale = candle(pots, sm, price=PRICE)[POT_INTRADAY]["exit"]
+    assert datetime.fromisoformat(sale.timestamp) == filled_at
+    row = next(r for r in db.get_trades(limit=5, pot="live-intraday") if r.side == "sell")
+    assert row.timestamp.replace(tzinfo=timezone.utc) == filled_at
+
+
+def test_fill_time_before_the_buy_is_ignored():
+    from datetime import datetime, timedelta, timezone
+    from live_trader import LiveTrader
+    now = datetime.now(timezone.utc)
+    got = LiveTrader._fill_time({"lastTradeTimestamp": int((now - timedelta(hours=2)).timestamp() * 1000)},
+                                after=(now - timedelta(hours=1)).replace(tzinfo=None).isoformat())
+    assert abs((datetime.fromisoformat(got) - now).total_seconds()) < 5
+
+
+@pytest.mark.parametrize("order", [
+    {}, {"lastTradeTimestamp": None}, {"lastTradeTimestamp": "junk"},
+    {"lastTradeTimestamp": 1}, {"info": {"updateTime": 9_999_999_999_999}},
+])
+def test_odd_fill_times_fall_back_to_now(order):
+    from datetime import datetime, timezone
+    from live_trader import LiveTrader
+    t = datetime.fromisoformat(LiveTrader._fill_time(order))
+    assert abs((datetime.now(timezone.utc) - t).total_seconds()) < 5
+
+
+def test_update_time_is_used_when_last_trade_is_missing():
+    from datetime import datetime, timedelta, timezone
+    from live_trader import LiveTrader
+    at = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=30)
+    got = LiveTrader._fill_time({"info": {"updateTime": str(int(at.timestamp() * 1000))}})
+    assert datetime.fromisoformat(got) == at
