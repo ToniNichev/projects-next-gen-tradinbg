@@ -261,6 +261,30 @@ def needs_attention(f):
         or f["disk"]["free_gb"] < 10)
 
 
+def gains_table(f):
+    """Gains and losses per pot, worked out exactly from the bot's numbers (the
+    AI never writes this). Empty when the pots can't be read."""
+    p = f.get("pots") or {}
+    if "error" in p or not p.get("pots"):
+        return []
+    rows, tot = [], {"put_in": 0.0, "value": 0.0, "pnl": 0.0, "period": 0.0, "trades": 0}
+    for pot in p["pots"]:
+        mine = [t for t in f.get("trades", []) if t.get("pot") == pot["name"]]
+        period = sum((t.get("pnl") or 0.0 for t in mine if t["side"] == "sell"), 0.0)
+        put_in = pot["value"] - pot["pnl"]
+        rows.append({"pot": pot["label"], "put_in": put_in, "value": pot["value"],
+                     "pnl": pot["pnl"], "pnl_pct": pot["pnl"] / put_in * 100 if put_in else 0.0,
+                     "period_pnl": period, "trades": len(mine),
+                     "status": "holding BTC" if pot.get("holding") else "in cash"})
+        for k, v in (("put_in", put_in), ("value", pot["value"]), ("pnl", pot["pnl"]),
+                     ("period", period), ("trades", len(mine))):
+            tot[k] += v
+    rows.append({"pot": "All pots", "put_in": tot["put_in"], "value": tot["value"], "pnl": tot["pnl"],
+                 "pnl_pct": tot["pnl"] / tot["put_in"] * 100 if tot["put_in"] else 0.0,
+                 "period_pnl": tot["period"], "trades": tot["trades"], "status": "", "total": True})
+    return rows
+
+
 def build(hours=24, use_ai=True, model=None, label="daily") -> dict:
     """Everything one digest needs: {title, summary, sheet, attention, text}.
     use_ai=False: the exact facts only (instant)."""
@@ -282,7 +306,8 @@ def build(hours=24, use_ai=True, model=None, label="daily") -> dict:
     title = f"⚠️ Trading bot {label}: needs a look" if attention else f"📊 Trading bot {label}"
     text = f"{summary}\n\n— Facts —\n{sheet}" if summary else sheet
     return {"title": title, "summary": summary, "sheet": sheet, "attention": attention,
-            "text": text, "made_at": datetime.now(timezone.utc).isoformat()}
+            "text": text, "table": gains_table(facts), "hours": hours,
+            "made_at": datetime.now(timezone.utc).isoformat()}
 
 
 def save(d) -> None:

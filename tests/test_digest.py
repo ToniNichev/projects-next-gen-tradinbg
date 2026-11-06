@@ -3,6 +3,7 @@
 from datetime import datetime
 
 import digest
+import pytest
 
 LOG = """\
 2026-11-03 09:00:01,207 INFO root Pot trend: signal=neutral conf=0.00
@@ -67,3 +68,19 @@ def test_dashboard_summary_endpoint(monkeypatch):
         assert c.post("/api/digest", json={}).status_code == 409
     finally:
         routes._digest_running.release()
+
+
+def test_gains_table_is_exact():
+    import digest
+    facts = {"pots": {"pots": [
+        {"name": "trend", "label": "Trend Hold", "value": 73.33, "pnl": -1.67, "holding": False},
+        {"name": "manual", "label": "Manual", "value": 6.2, "pnl": 0.2, "holding": True}]},
+        "trades": [{"pot": "trend", "side": "buy", "pnl": None},
+                   {"pot": "trend", "side": "sell", "pnl": -1.64}]}
+    rows = digest.gains_table(facts)
+    trend, manual, total = rows
+    assert trend["put_in"] == pytest.approx(75.0) and trend["pnl_pct"] == pytest.approx(-1.67 / 75 * 100)
+    assert trend["period_pnl"] == pytest.approx(-1.64) and trend["trades"] == 2 and trend["status"] == "in cash"
+    assert manual["period_pnl"] == 0.0 and manual["trades"] == 0
+    assert total["total"] and total["put_in"] == pytest.approx(81.0) and total["pnl"] == pytest.approx(-1.47)
+    assert digest.gains_table({"pots": {"error": "down"}, "trades": []}) == []

@@ -858,6 +858,7 @@
   .digest-dots::after { content: ''; animation: digest-dots 1.2s steps(4, end) infinite; }
   @keyframes digest-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
   @media (prefers-reduced-motion: reduce) { .digest-spinner { animation-duration: 2.4s; } .digest-dots::after { animation: none; content: '…'; } }
+  .digest-table { margin: 0 0 0.4rem; }
   .digest-summary { margin: 0 0 0.6rem; line-height: 1.5; font-size: 0.9rem; }
   .digest-facts { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.76rem;
     line-height: 1.45; color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -1093,6 +1094,29 @@
     const HOLD_COLOR = '#539bf5';
     const potColor = (name) => POT_COLORS[name] || '#8b949e';
 
+    // Gains and losses per pot: exact numbers from the bot, not written by the AI
+    function gainsTable(rows, hours) {
+      if (!rows || !rows.length) return '';
+      const small = v => money(Math.abs(v), Math.abs(v) < 1 ? 4 : 2);
+      const signed = v => `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '−'}${small(v)}</span>`;
+      const body = rows.filter(r => !r.total).map(r => `<tr>
+          <td>${esc(r.pot)}<span class="mt-sub-val">${esc(r.status)}</span></td>
+          <td>${small(r.put_in)}</td><td>${small(r.value)}</td>
+          <td>${signed(r.pnl)}<span class="mt-sub-val">${r.pnl >= 0 ? '+' : '−'}${Math.abs(r.pnl_pct).toFixed(2)}%</span></td>
+          <td>${r.trades ? signed(r.period_pnl) : '<span class="muted">—</span>'}</td>
+          <td>${r.trades}</td></tr>`).join('');
+      const t = rows.find(r => r.total);
+      const foot = t ? `<tfoot><tr><td>${esc(t.pot)}</td><td>${small(t.put_in)}</td><td>${small(t.value)}</td>
+          <td>${signed(t.pnl)}<span class="mt-sub-val">${t.pnl >= 0 ? '+' : '−'}${Math.abs(t.pnl_pct).toFixed(2)}%</span></td>
+          <td>${t.trades ? signed(t.period_pnl) : '—'}</td><td>${t.trades}</td></tr></tfoot>` : '';
+      return `<div class="sellnow-wrap digest-table"><table class="sellnow">
+          <thead><tr><th>Pot</th><th>Put in</th><th>Worth now</th><th>Gain / loss since start</th>
+            <th>Sales, last ${hours}h</th><th>Trades, last ${hours}h</th></tr></thead>
+          <tbody>${body}</tbody>${foot}</table></div>
+        <div class="pots-note">Exact numbers from the bot, not written by the AI. "Since start" includes BTC still
+          held at today's price; "Sales" is the result of what was sold in the period, after fees.</div>`;
+    }
+
     // "How is the bot doing?": runs digest.py on the server (read-only)
     async function runDigest(ai) {
       const btns = [document.getElementById('digest-ai'), document.getElementById('digest-facts')];
@@ -1126,6 +1150,7 @@
         out.hidden = false;
         out.classList.toggle('attention', !!d.attention);
         out.innerHTML = (d.summary ? `<p class="digest-summary">${esc(d.summary)}</p>` : '')
+          + gainsTable(d.table, d.hours || 24)
           + `<pre class="digest-facts">${esc(d.sheet)}</pre>`;
         const at = new Date(d.made_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         msg.className = 'pots-move-msg ' + (d.attention ? 'err' : 'ok');
