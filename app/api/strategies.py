@@ -25,6 +25,7 @@ GET  /api/pot-strategies                      Each pot: its rule and the setting
 POST /api/pot-strategies/update               Change one pot's settings (confirm: true)
 """
 
+import math
 import logging
 from flask import Blueprint, jsonify, request
 
@@ -146,13 +147,59 @@ def _pots_by_strategy() -> dict:
     return out
 
 
+def _clean_value(value, kind):
+    """The value as the stored type, or raise ValueError.
+
+    2026-11-09: a cleared number box on the old settings page arrived as null
+    (NaN in the browser) and was stored as the text "None". That one row then
+    failed to load, so every saved setting was dropped for the .env defaults.
+    """
+    if kind == "bool":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)) and value in (0, 1):
+            return bool(value)
+        if isinstance(value, str) and value.strip().lower() in ("true", "false", "1", "0", "yes", "no"):
+            return value.strip().lower() in ("true", "1", "yes")
+        raise ValueError("must be true or false")
+    if kind in ("int", "float"):
+        if value is None or isinstance(value, bool):
+            raise ValueError("must be a number")
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ValueError("must be a number")
+        if not math.isfinite(number):
+            raise ValueError("must be a number")
+        if kind == "int":
+            if number != int(number):
+                raise ValueError("must be a whole number")
+            return int(number)
+        return number
+    if value is None or isinstance(value, (dict, list)):
+        raise ValueError("must be text")
+    return str(value)
+
+
 def _batch_save_config(data: dict, db) -> tuple:
-    """Save recognised keys to DB. Returns (configs_to_save, saved_count)."""
+    """Save recognised keys to DB. Returns (configs_to_save, saved_count).
+
+    Raises ValueError naming every bad value; nothing is saved then."""
+    cleaned, bad = {}, []
+    for k, v in data.items():
+        if k not in CONFIG_MAPPING:
+            continue
+        try:
+            cleaned[k] = _clean_value(v, CONFIG_MAPPING[k]["type"])
+        except ValueError as exc:
+            bad.append(f"{k} {exc}")
+    if bad:
+        raise ValueError("Nothing was saved. Fix these first: " + "; ".join(bad))
     configs_to_save = {
         k: {"value": v, "type": CONFIG_MAPPING[k]["type"],
             "category": CONFIG_MAPPING[k]["category"],
             "description": f"Strategy parameter: {k}"}
-        for k, v in data.items() if k in CONFIG_MAPPING
+        for k, v in cleaned.items()
     }
     count = db.set_multiple_strategy_configs(configs_to_save)
     return configs_to_save, count
@@ -448,6 +495,8 @@ def update_strategy_config():
         return jsonify({"success": True, "message": f"Updated {count} parameters"
                         + (f" ({len(skipped)} pot settings skipped: change those on the pot cards)" if skipped else ""),
                         "updated_keys": list(configs_to_save.keys()), "skipped_pot_keys": skipped})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         logger.error("update_strategy_config failed: %s", exc, exc_info=True)
         return jsonify({"error": str(exc)}), 500

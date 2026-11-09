@@ -842,7 +842,14 @@ class DatabaseManager:
             configs = session.query(StrategyConfig).all()
             result = {}
             for config in configs:
-                result[config.key] = config.get_typed_value()
+                # One unreadable row must not drop every other saved setting
+                # (the caller would fall back to .env defaults for all of them)
+                try:
+                    result[config.key] = config.get_typed_value()
+                except (TypeError, ValueError, AttributeError):
+                    logging.getLogger(__name__).error(
+                        "Ignoring unreadable saved setting %s=%r (%s)",
+                        config.key, config.value, config.value_type)
             return result
     
     def set_strategy_config(self, key: str, value: any, value_type: str, category: str = "general", description: str = "") -> StrategyConfig:

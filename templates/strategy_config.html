@@ -2923,6 +2923,12 @@
         llm_require_patterns: document.getElementById('llmRequirePatterns').checked,
       };
       
+      // An empty or invalid number box gives NaN. Don't send it: it would be
+      // stored as "None" and break loading every saved setting. Leave it as it was.
+      const leftUnchanged = Object.keys(config).filter(k =>
+        typeof config[k] === 'number' && !Number.isFinite(config[k]));
+      leftUnchanged.forEach(k => delete config[k]);
+
       // Step 1: Save configuration to database
       const updateResponse = await fetch('/api/strategy-config/update', {
         method: 'POST',
@@ -2933,7 +2939,8 @@
       });
       
       if (!updateResponse.ok) {
-        throw new Error('Failed to save configuration');
+        const err = await updateResponse.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to save configuration');
       }
       
       const updateResult = await updateResponse.json();
@@ -2959,7 +2966,9 @@
       applyBtn.classList.add('btn-success-flash');
       applyBtn.innerHTML = '✅ Configuration Applied Successfully!';
       
-      showAlert('✅ Configuration applied successfully! Changes are now active. All strategies have been reloaded with new parameters.', 'success');
+      showAlert('✅ Configuration applied successfully! Changes are now active. All strategies have been reloaded with new parameters.'
+        + (leftUnchanged.length ? ' Empty boxes were left unchanged: ' + leftUnchanged.join(', ') + '.' : ''),
+        leftUnchanged.length ? 'info' : 'success');
       
       // Refresh the Strategy Overview to reflect changes in active strategies count
       await loadStrategyOverview();
