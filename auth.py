@@ -4,6 +4,8 @@ Authentication module for the trading bot dashboard.
 Supports both Basic HTTP Authentication and API Key authentication.
 """
 
+import hashlib
+import hmac
 import logging
 import os
 import threading
@@ -76,10 +78,19 @@ def get_auth_config() -> AuthConfig:
 
 
 # Brute-force lockout: too many failed logins from one IP blocks it for a while.
+# Each DIFFERENT wrong password counts once: the dashboard sends ~10 requests
+# at a time, so one typo used to count as 10 failures and lock the owner out
+# (2026-11-06). Guessing still locks out after 5 different tries.
 LOCKOUT_MAX_FAILURES = 5
 LOCKOUT_WINDOW_SECONDS = 15 * 60
-_failed_logins: Dict[str, List[float]] = {}
+_failed_logins: Dict[str, List[tuple]] = {}   # ip -> [(time, attempt digest)]
 _failed_lock = threading.Lock()
+_ATTEMPT_KEY = os.urandom(32)  # attempts are kept only as keyed hashes, in memory
+
+
+def _attempt_digest(username: str, password: str) -> str:
+    msg = f"{username}\0{password}".encode("utf-8", "surrogatepass")
+    return hmac.new(_ATTEMPT_KEY, msg, hashlib.sha256).hexdigest()
 
 
 def _client_ip() -> str:
@@ -90,9 +101,9 @@ def _client_ip() -> str:
         return request.remote_addr or "unknown"
 
 
-def _recent_failures(ip: str, now: float) -> List[float]:
-    """Failures from this IP inside the window (caller holds the lock)."""
-    recent = [t for t in _failed_logins.get(ip, []) if now - t < LOCKOUT_WINDOW_SECONDS]
+def _recent_failures(ip: str, now: float) -> List[tuple]:
+    """Distinct failed attempts from this IP inside the window (caller holds the lock)."""
+    recent = [f for f in _failed_logins.get(ip, []) if now - f[0] < LOCKOUT_WINDOW_SECONDS]
     if recent:
         _failed_logins[ip] = recent
     else:
@@ -105,17 +116,22 @@ def _is_locked_out(ip: str) -> bool:
         return len(_recent_failures(ip, time.time())) >= LOCKOUT_MAX_FAILURES
 
 
-def _record_failure(ip: str) -> None:
+def _record_failure(ip: str, digest: str = "") -> bool:
+    """Count a failed attempt. The same wrong credentials again within the
+    window don't count again. Returns True if it was a new attempt."""
     with _failed_lock:
         now = time.time()
         recent = _recent_failures(ip, now)
-        recent.append(now)
+        if digest and any(d == digest for _, d in recent):
+            return False
+        recent.append((now, digest))
         _failed_logins[ip] = recent
         if len(recent) == LOCKOUT_MAX_FAILURES:
             logger.warning(
                 "Locking out %s for %d min after %d failed logins",
                 ip, LOCKOUT_WINDOW_SECONDS // 60, LOCKOUT_MAX_FAILURES,
             )
+        return True
 
 
 @http_auth.verify_password
@@ -139,8 +155,8 @@ def verify_password(username: str, password: str) -> bool:
 
     # Check username matches
     if username != config.username:
-        logger.warning(f"Authentication failed: invalid username '{username}' from {ip}")
-        _record_failure(ip)
+        if _record_failure(ip, _attempt_digest(username, password)):
+            logger.warning(f"Authentication failed: invalid username '{username}' from {ip}")
         return False
 
     # Check if stored password is hashed (starts with $2b$ for bcrypt)
@@ -152,8 +168,8 @@ def verify_password(username: str, password: str) -> bool:
         is_valid = password == config.password
     
     if not is_valid:
-        logger.warning(f"Authentication failed: invalid password for user '{username}' from {ip}")
-        _record_failure(ip)
+        if _record_failure(ip, _attempt_digest(username, password)):
+            logger.warning(f"Authentication failed: invalid password for user '{username}' from {ip}")
 
     return is_valid
 

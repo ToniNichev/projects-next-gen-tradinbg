@@ -1400,6 +1400,15 @@ class LiveTrader:
         Returns:
             TradeRecord if successful, None otherwise
         """
+        # LIVE: one position at a time. Buying on top of an open one would leave
+        # its stop order on the exchange next to a new one for the pot's whole
+        # BTC, and together they could sell other pots' coins.
+        if self.mode == TradingMode.LIVE and self.open_position is not None:
+            msg = "already holds a position; sell it before buying again"
+            self.logger.warning("Refused BUY: %s", msg)
+            self.last_refusal = msg
+            return None
+
         symbol = self.config.symbol
         
         # Get current price for validation

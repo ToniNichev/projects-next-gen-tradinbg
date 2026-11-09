@@ -61,8 +61,8 @@ def test_lockout_after_repeated_failures(monkeypatch):
 
     app = Flask(__name__)
     with app.test_request_context(environ_base={"REMOTE_ADDR": "203.0.113.9"}):
-        for _ in range(auth.LOCKOUT_MAX_FAILURES):
-            assert auth.verify_password("admin", "wrong") is False
+        for i in range(auth.LOCKOUT_MAX_FAILURES):
+            assert auth.verify_password("admin", f"wrong{i}") is False
         # Locked out now, even with the right password
         assert auth.verify_password("admin", "right") is False
 

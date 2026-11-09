@@ -85,6 +85,13 @@ def create_response(
 # Health
 # ---------------------------------------------------------------------------
 
+def _pots_failing(pots) -> list:
+    try:
+        return pots.failing() if pots is not None else []
+    except Exception:
+        return []
+
+
 @api_bp.route("/health")
 def health_check():
     """Lightweight health probe — no auth required."""
@@ -101,6 +108,8 @@ def health_check():
             **check,
             "checks_late": check["minutes_since_check"] > 75,
             "pots_mismatch": bool(getattr(state.get_pot_manager(), "mismatch", None)),
+            # Pots whose hourly check keeps failing (the watchdog reads this too)
+            "pots_failing": _pots_failing(state.get_pot_manager()),
             "services": {
                 "config_service": _config_service is not None,
                 "backtest_manager": _backtest_manager is not None,

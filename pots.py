@@ -245,6 +245,8 @@ class Pot:
     start_time: Optional[datetime] = None  # when the pot began (UTC, naive)
     paused: bool = False                   # True = no new buys until resumed
     source: str = "builtin"                # builtin | env (BOT_POTS_EXTRA) | dashboard
+    failed_checks: int = 0                 # hourly checks in a row that failed
+    last_failure: Optional[str] = None     # why the last one failed
     _buys: Dict[str, int] = field(default_factory=dict)  # no-DB fallback
 
     @property
@@ -396,12 +398,57 @@ class PotManager:
                 logger.exception("Pot %s failed on this candle: %s", pot.name, exc)
                 reason = str(exc).strip().splitlines()[0][:120] if str(exc).strip() else type(exc).__name__
                 r["note"] = f"couldn't trade on the last check: {reason} (details in the bot log)"
+                self._check_failed(pot, reason)
+            else:
+                self._check_ok(pot)
             pot.last_note = r["note"]
             for trade in (r["exit"], r["trade"]):
                 if trade:
                     self.record_trade(pot, trade)
             results[pot.name] = r
         return results
+
+    # Alert after this many failed hourly checks in a row (one can be a blip)
+    FAILED_CHECKS_ALERT = 2
+
+    def _check_failed(self, pot: Pot, reason: str) -> None:
+        """A pot's hourly check failed. Before this, nobody was told: the bot
+        still reported a healthy hourly check, and a holding Trend Hold pot
+        (no stop on the exchange) could miss its sell signal for hours."""
+        pot.failed_checks += 1
+        pot.last_failure = reason
+        if pot.failed_checks != self.FAILED_CHECKS_ALERT or not self.notify:
+            return
+        if pot.holding:
+            pos = pot.trader.open_position
+            stop = getattr(pos, "stop_loss", None) or 0
+            entry = getattr(pos, "entry_price", None) or 0
+            guard = (f" Its stop-loss order on Binance.US (${stop:,.0f}) still protects it."
+                     if getattr(pos, "exchange_stop_order_id", None) and stop > entry * 0.2 else
+                     " It holds BTC with no stop order on the exchange, so it can't sell on its own"
+                     " until this is fixed.")
+        else:
+            guard = " It's in cash, so it may miss a buy, but nothing is at risk."
+        try:
+            self.notify(f"⚠️ {pot.label} pot: hourly check failing",
+                        f"The last {pot.failed_checks} hourly checks failed: {reason}.{guard}"
+                        " Details are in the bot log.", severity="critical")
+        except Exception as exc:
+            logger.warning("Failed-check alert failed: %s", exc)
+
+    def _check_ok(self, pot: Pot) -> None:
+        if pot.failed_checks >= self.FAILED_CHECKS_ALERT and self.notify:
+            try:
+                self.notify(f"✅ {pot.label} pot: hourly check working again",
+                            f"It ran normally after {pot.failed_checks} failed checks.", severity="info")
+            except Exception as exc:
+                logger.warning("Recovered alert failed: %s", exc)
+        pot.failed_checks = 0
+        pot.last_failure = None
+
+    def failing(self) -> List[str]:
+        """Pots whose hourly check has failed enough times in a row to alert."""
+        return [p.name for p in self.pots.values() if p.failed_checks >= self.FAILED_CHECKS_ALERT]
 
     def record_trade(self, pot: Pot, trade) -> None:
         """Count a trade toward the daily cap and send the Telegram note."""

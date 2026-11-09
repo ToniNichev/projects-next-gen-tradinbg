@@ -35,10 +35,21 @@ class DoubleClickTests(base.ManualTradeAPITests):
         self.assertIn("ago", r.get_json()["error"])
         self.assertEqual(self.trader.usdt_balance, usdt)
 
-    def test_a_later_buy_is_allowed(self):
+    def test_a_later_buy_is_allowed_after_selling(self):
         self.assertEqual(self._buy(request_id="one").status_code, 200)
+        with self._patched_config():
+            self.assertEqual(self.client.post("/api/manual/sell", json={"request_id": "s1"}).status_code, 200)
         trading._manual_last["buy"] = time.time() - trading.MANUAL_COOLDOWN - 1
         self.assertEqual(self._buy(request_id="two").status_code, 200)
+
+    def test_no_second_buy_while_holding(self):
+        """2026-11-05 review: a second buy left the first stop order on the
+        exchange next to a new one for all the pot's BTC."""
+        self.assertEqual(self._buy(request_id="one").status_code, 200)
+        trading._manual_last["buy"] = time.time() - trading.MANUAL_COOLDOWN - 1
+        r = self._buy(request_id="two")
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("Sell it first", r.get_json()["error"])
 
     def test_selling_right_after_buying_is_allowed(self):
         self.assertEqual(self._buy(request_id="b").status_code, 200)

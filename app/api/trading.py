@@ -314,6 +314,17 @@ def manual_buy():
             blocked = _manual_guard("buy", rid)
             if blocked:
                 return jsonify(blocked[0]), blocked[1]
+            # One position per pot: a second buy would leave the first stop
+            # order on the exchange next to a new one sized for all the
+            # pot's BTC, and together they could sell other pots' coins
+            pos = getattr(trader, "open_position", None)
+            if pos is not None:
+                return jsonify({
+                    "error": "The Manual pot already holds BTC "
+                             f"({float(pos.amount):.8f} BTC bought at ${float(pos.entry_price):,.2f}). "
+                             "Sell it first, then buy again.",
+                    "holding": True,
+                }), 409
             available = _available_usdt(trader)
             if available <= 0:
                 return jsonify({"error": "Insufficient USDT balance"}), 400

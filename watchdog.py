@@ -50,6 +50,10 @@ def check(port: int, timeout: float = 10.0):
         last = data.get("last_check_at") or "since it started"
         return False, (f"the bot hasn't done its hourly check for {round(float(minutes))} minutes "
                        f"(last: {last}). It's running but stuck, or can't get prices.")
+    failing = data.get("pots_failing") or []
+    if failing:
+        return False, (f"the hourly check keeps failing for: {', '.join(failing)}. "
+                       "Those pots can't trade until it works again (see the bot log).")
     return True, ""
 
 
