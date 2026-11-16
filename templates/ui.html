@@ -944,6 +944,10 @@
   .pots-vs-tile .e.ahead { color: var(--accent-green); }
   .pots-vs-tile .e.behind { color: var(--accent-red); }
   .pots-vs-tile.hold { border-left-style: dashed; }
+  .pots-perf-range { display: flex; gap: 0.3rem; margin: 0 0 0.5rem; flex-wrap: wrap; }
+  .pots-perf-range button { font-size: 0.74rem; padding: 0.22rem 0.65rem; border-radius: 999px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.14); background: transparent; color: var(--text-secondary); }
+  .pots-perf-range button.on { background: rgba(83,155,245,0.16); border-color: rgba(83,155,245,0.55); color: var(--text-primary); font-weight: 600; }
   .pots-perf-note { margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-secondary); }
   .pots-section-title { margin: 0 0 0.45rem; font-size: 0.9rem; font-weight: 700; }
   @media (max-width: 720px) { .pots-perf-wrap { height: 200px; } }
@@ -1062,8 +1066,14 @@
     <div class="pots-section-title">Results over time</div>
     <div class="pots-vs" id="pots-vs"></div>
     <div class="pots-perf-legend" id="pots-perf-legend"></div>
+    <div class="pots-perf-range" id="pots-perf-range" role="group" aria-label="Time shown">
+      <button type="button" data-range="day" aria-pressed="false">1 day</button>
+      <button type="button" data-range="week" aria-pressed="false">1 week</button>
+      <button type="button" data-range="month" aria-pressed="false">1 month</button>
+      <button type="button" data-range="all" aria-pressed="false">All</button>
+    </div>
     <div class="pots-perf-wrap"><canvas id="potsPerfChart"></canvas></div>
-    <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss. Badges mark each pot's buys and sells; hover one for details. Click a name above the chart to hide or show its line.</p>
+    <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss. Badges mark each pot's buys and sells; hover one for details. Click a name above the chart to hide or show its line. The 1 day / 1 week / 1 month buttons only narrow the view: values stay counted from when each pot began.</p>
   </div>
   <div class="pots-grid" id="pots-grid"><div class="signals-empty">Loading…</div></div>
   <details class="pots-move" id="pots-move">
@@ -1328,6 +1338,38 @@
     }
 
     let perfChart = null;
+    // How much of the chart to show; the view narrows, the values don't change
+    const PERF_RANGES = { day: 864e5, week: 7 * 864e5, month: 30 * 864e5, all: 0 };
+    let perfRange = 'all';
+    try { const r = localStorage.getItem('potsPerfRange'); if (r in PERF_RANGES) perfRange = r; } catch (e) { /* storage off */ }
+    function applyPerfRange() {
+      document.querySelectorAll('#pots-perf-range [data-range]').forEach(b => {
+        const on = b.dataset.range === perfRange;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      if (!perfChart || !perfChart.$xs || !perfChart.$xs.length) return;
+      const xs = perfChart.$xs, first = xs[0], last = xs[xs.length - 1];
+      const span = PERF_RANGES[perfRange];
+      const min = span ? Math.max(first, last - span) : first;
+      const x = perfChart.options.scales.x;
+      x.min = min;
+      x.max = last;
+      x.time = (last - min) / 864e5 > 3
+        ? { unit: 'day', displayFormats: { day: 'MMM dd' } }
+        : { displayFormats: { hour: 'MMM dd HH:mm', day: 'MMM dd' } };
+      // Badges are drawn unclipped, so drop the ones outside the view
+      perfChart.data.datasets.forEach(d => { if (d.$trade) d.data = d.$all.filter(q => q.x >= min && q.x <= last); });
+      perfChart.update('none');
+    }
+    document.getElementById('pots-perf-range').addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-range]');
+      if (!b) return;
+      perfRange = b.dataset.range;
+      try { localStorage.setItem('potsPerfRange', perfRange); } catch (e) { /* storage off */ }
+      applyPerfRange();
+    });
+    applyPerfRange();
     const perfHidden = new Set();  // lines hidden from the pots chart (kept across refreshes)
     document.getElementById('pots-perf-legend').addEventListener('click', (ev) => {
       const b = ev.target.closest('button[data-perf-key]');
@@ -1383,7 +1425,8 @@
             const mine = trades.filter(t => t.pot === pot && (side === 'buy') === (t.side === 'buy'));
             if (!mine.length) return;
             datasets.push({
-              label: `${d.label} ${side}s`, $trade: true, $key: pot, $side: side, type: 'scatter', data: mine.map(onLine),
+              label: `${d.label} ${side}s`, $trade: true, $key: pot, $side: side, type: 'scatter',
+              data: mine.map(onLine), $all: mine.map(onLine),
               pointStyle: tradeMarkerImage(side, potColor(pot)), pointRadius: 10, pointHoverRadius: 10,
               showLine: false, clip: false, order: -1,
             });
@@ -1441,7 +1484,8 @@
           perfChart.options.scales.x.time = timeOpts;
           perfChart.$trades = trades;
           perfChart.$nowPrice = lastHold.price;
-          perfChart.update('none');
+          perfChart.$xs = xs;
+          applyPerfRange();
           redrawWhenLoaded();
           return;
         }
@@ -1525,6 +1569,8 @@
         });
         perfChart.$trades = trades;
         perfChart.$nowPrice = lastHold.price;
+        perfChart.$xs = xs;
+        applyPerfRange();
         redrawWhenLoaded();
       } catch (e) {
         console.error('Pots results chart:', e);
