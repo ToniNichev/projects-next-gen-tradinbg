@@ -193,3 +193,15 @@ def test_old_form_protects_a_setting_once_a_pot_uses_it(client):
     r = c.post("/api/strategy-config/update", json={"short_window": 7})
     assert r.get_json()["skipped_pot_keys"] == ["short_window"]
     assert db.get_all_strategy_configs()["short_window"] == 9
+
+
+def test_every_setting_has_a_longer_explanation(client):
+    """2026-11-16: each setting gets a "More" box with detail and an example."""
+    assert all(pot_settings.more_of(k) for k in pot_settings.FIELDS)
+    c, *_ = client
+    data = c.get("/api/pot-strategies").get_json()
+    for pot in data["pots"]:
+        for f in pot["settings"]:
+            assert f["more"] and all(isinstance(t, str) and t for t in f["more"]), f["key"]
+    # Shared text (the RSI+BB stop uses the general stop's explanation)
+    assert pot_settings.more_of("strategy_rsi_bb_stop_loss_pct") == pot_settings.more_of("stop_loss_pct")

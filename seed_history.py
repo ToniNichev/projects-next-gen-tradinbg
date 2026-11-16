@@ -52,6 +52,16 @@ def seed_candle_history(exchange, db_manager, symbol: str, timeframe: str, days_
 
     logger.info("Fetched %d candles in %d batches, storing in DB...", len(all_candles), batch_count)
 
+    # Skip the candle still forming: saved now, it would sit on the chart as
+    # a snapshot from startup until it closes (2026-11-16: the line ended
+    # ~$800 under a manual buy made later that hour).
+    try:
+        frame_ms = int(exchange.parse_timeframe(timeframe)) * 1000
+    except Exception:
+        frame_ms = 3600 * 1000
+    now_ms = exchange.milliseconds()
+    all_candles = [c for c in all_candles if c[0] + frame_ms <= now_ms]
+
     stored = 0
     for c in all_candles:
         ts = datetime.fromtimestamp(c[0] / 1000, tz=timezone.utc).replace(tzinfo=None)

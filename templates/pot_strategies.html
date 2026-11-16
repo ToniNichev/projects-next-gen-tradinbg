@@ -32,6 +32,9 @@
   .ps-table td.ps-in { width: 11rem; text-align: right; white-space: nowrap; }
   .ps-label { font-weight: 600; }
   .ps-help { color: var(--text-secondary); font-size: 0.78rem; line-height: 1.4; margin-top: 0.15rem; }
+  .ps-more { margin-top: 0.2rem; font-size: 0.8rem; line-height: 1.5; color: var(--text-secondary); }
+  .ps-more summary { cursor: pointer; color: var(--accent-blue, #539bf5); font-size: 0.76rem; width: max-content; }
+  .ps-more p { margin: 0.35rem 0 0; max-width: 46rem; }
   .ps-also { display: inline-block; margin-left: 0.4rem; font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.4rem;
     border-radius: 6px; color: #ffc107; border: 1px solid rgba(255,193,7,0.4); vertical-align: 1px; }
   .ps-table input[type=number] { width: 6.2rem; padding: 0.35rem 0.5rem; border-radius: 8px; text-align: right;
@@ -154,7 +157,8 @@
       : strat === p.label ? `${potWord} · runs this strategy` : `${potWord} · runs ${strat}`;
     const rows = p.settings.map(f => `<tr>
         <td><div class="ps-label">${esc(f.label)}${f.also.length ? `<span class="ps-also" title="This setting is shared">also changes ${esc(f.also.join(', '))}</span>` : ''}</div>
-          <div class="ps-help">${esc(f.help)}</div></td>
+          <div class="ps-help">${esc(f.help)}</div>
+          ${f.more && f.more.length ? `<details class="ps-more"><summary>More</summary>${f.more.map(t => `<p>${esc(t)}</p>`).join('')}</details>` : ''}</td>
         <td class="ps-in">${input(p, f)}</td></tr>`).join('');
     return `<section class="ps-card" style="--c:${p.color || '#8b949e'}" id="pot-${p.name}">
       <div class="ps-card-head">

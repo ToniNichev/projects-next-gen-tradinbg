@@ -82,6 +82,193 @@ FIELDS: Dict[str, dict] = {
         min=0.5, max=15, step=0.1, help="Used only when 'Stop from recent price swings' is off."),
 }
 
+# Longer explanation for each setting, shown under "More" on the Strategies
+# page. Round example numbers (BTC near $65,000, ATR near $500) so they don't
+# go stale; each paragraph is one string.
+MORE: Dict[str, object] = {  # a str value = use that key's text
+    # RSI + Bollinger Bands
+    "strategy_rsi_bb_rsi_oversold": [
+        "RSI (Relative Strength Index) scores recent hourly moves from 0 to 100. Around 50 is normal. "
+        "It falls toward 0 when most recent candles closed lower, and fastest after a sharp sell-off.",
+        "Example: at 30 the pot can buy once RSI drops under 30 (and the price is at the lower band). "
+        "At 25 it waits for a harder drop: fewer buys, usually at lower prices, but it skips smaller dips. "
+        "At 35 it buys more often, including dips that keep on falling.",
+    ],
+    "strategy_rsi_bb_rsi_overbought": [
+        "The other end of RSI: above 70 the price has risen fast. While the pot holds BTC, RSI above this "
+        "level with the price at the upper band turns the signal to sell.",
+        "Usually the pot has already sold at the middle band or its profit target, so this matters on a sharp "
+        "spike. Example: at 70, a jump that lifts RSI to 75 at the upper band sells. At 80 it holds on for more.",
+    ],
+    "rsi_period": [
+        "RSI compares the size of the up-moves with the down-moves over this many hourly candles.",
+        "Example: 14 means the last 14 hours. A shorter length (7) reacts faster and reaches its extremes "
+        "more often: more signals, more false alarms. A longer one (28) is smoother and rarely gets to 30 or 70, "
+        "so it trades less.",
+    ],
+    "strategy_rsi_bb_bb_period": [
+        "The middle line is the average closing price of the last N hours. The bands sit above and below it, "
+        "and spread apart when the price is jumpy. The middle line is also the pot's usual sell target.",
+        "Example: with 20, if the last 20 hourly closes average $65,000, the middle line is $65,000. "
+        "A longer length (50) moves slowly, so the price has to stray further before it touches a band. "
+        "A shorter one (10) hugs the price, giving more touches and smaller bounces to sell into.",
+    ],
+    "strategy_rsi_bb_bb_std_dev": [
+        "How far each band is from the middle line, counted in standard deviations: a measure of how much "
+        "the hourly closes have varied over the band length.",
+        "Example: middle line $65,000 and the closes vary by about $300. At 2× the lower band is $64,400, "
+        "at 2.5× it is $64,250, and at 1.5× it is $64,550. Wider bands mean fewer buys, after deeper drops.",
+    ],
+    "strategy_rsi_bb_take_profit_pct": [
+        "When it buys, the pot sets a sell target: the middle band or this much above the buy price, whichever "
+        "is lower. The middle band is usually closer, so this mostly caps the target when the bands are very wide.",
+        "Example: it buys at $64,100 with the middle band at $64,750. +3% would be $66,023, so the target is "
+        "$64,750 (+1%). After a very sharp drop the middle band might be $67,000; then the target is $66,023.",
+    ],
+    "strategy_rsi_bb_require_both_signals": [
+        "On: a buy needs both, RSI under the buy level and the price at or under the lower band.",
+        "Off: low RSI alone can buy, but only when it is very low (about under 20 with normal volume), because a "
+        "signal still needs a minimum strength. Example: RSI 18 with the price above the band: on = no buy, "
+        "off = buy. RSI 25 above the band: no buy either way. The same goes for the sell side with high RSI.",
+    ],
+    "strategy_rsi_bb_use_volume_filter": [
+        "Compares this hour's trading volume with the average of the last 20 hours. On: a signal on quieter "
+        "than average volume counts for less, one on average or busier volume counts for more. Off: every "
+        "signal is treated as if volume were good.",
+        "A signal needs a minimum strength to trade, so this only decides borderline cases. With 'Need RSI and "
+        "the band together' on, every signal is strong enough to trade anyway, so this switch changes nothing "
+        "for the pot's buys. It matters when that switch is off: then RSI 18 above the band buys on busy "
+        "volume but not on quiet volume.",
+    ],
+    # Stops and targets (shared)
+    "use_atr_stops": [
+        "ATR (Average True Range) is the average size of one hourly candle's move over the last 14 hours, in "
+        "dollars. It grows when the market is jumpy and shrinks when it's calm.",
+        "On: the stop goes 'Stop distance' × ATR below the buy price, so it is wider in a jumpy market and "
+        "tighter in a calm one. Off: it is a fixed percent below the buy price.",
+        "Example: ATR about $500, buy at $65,000. On with 2.5×: stop at $63,750 (about 1.9% below). Off with 2%: "
+        "stop at $63,700. The stop is set once, when buying, and waits as an order on Binance.US.",
+    ],
+    "atr_stop_multiplier": [
+        "Used only when 'Stop from recent price swings (ATR)' is on: how many average hourly moves below the "
+        "buy price the stop goes.",
+        "Example: ATR $500, buy at $65,000. 1.5× = stop at $64,250, 2.5× = $63,750, 4× = $63,000. Too tight and "
+        "ordinary wiggles sell you out; too wide and a real fall costs more before it sells.",
+    ],
+    "strategy_rsi_bb_stop_loss_pct": "stop_loss_pct",
+    "strategy_macd_stop_loss_pct": "stop_loss_pct",
+    "stop_loss_pct": [
+        "Used only when 'Stop from recent price swings (ATR)' is off. The stop waits as an order on Binance.US "
+        "this percent below the buy price. If the price touches it, the exchange sells right away, even between "
+        "the bot's hourly checks.",
+        "Example: buy at $65,000. 2% = stop at $63,700, 4% = stop at $62,400. In a fast fall the sale can fill "
+        "a little lower (the order accepts up to 0.2% below the stop). A tight stop in a steady fall can sell, "
+        "buy back and sell again several times.",
+    ],
+    "take_profit_pct": [
+        "When it buys, the pot sets a sell target this far above the buy price, and sells when the price "
+        "reaches it.",
+        "Example: buy at $65,000. 3% = target $66,950, 8% = target $70,200. A low target takes small gains "
+        "often; a high one waits for bigger moves that may not come before the stop or the sell signal.",
+    ],
+    "strategy_macd_take_profit_pct": "take_profit_pct",
+    # Trend Hold
+    "strategy_trend_ma_days": [
+        "Once a day, after the daily candle closes (midnight UTC, 7 pm New York time in winter), the pot "
+        "compares that day's close with the average close of the last N days.",
+        "Example: a 100-day average of $78,000. A longer average (200) moves slowly: fewer trades, out later in "
+        "a fall and back in later in a rise. A shorter one (50) reacts sooner but flips more often on false starts.",
+    ],
+    "strategy_trend_band": [
+        "A no-trade zone around the average, so the pot doesn't flip in and out while the price hovers near it.",
+        "Example: average $78,000. With 1% it buys when a daily close is above $78,780 and sells when one is below "
+        "$77,220; in between it keeps what it has. With 0% every crossing trades. With 3% (buy above $80,340, "
+        "sell below $75,660) it trades less, but later.",
+    ],
+    "strategy_trend_emergency_stop_pct": [
+        "0 = no stop. The tested rule sells only on a daily close below the band, so a sharp fall in the middle "
+        "of a day isn't sold until that day closes.",
+        "Example: bought at $80,000 with 15%: if BTC touches $68,000 at any moment, it sells right then. With 0 "
+        "it waits for the daily close. A stop guards against a crash, but can sell at the bottom of a quick dip "
+        "the rule would have ridden out.",
+    ],
+    # EMA crossover
+    "short_window": [
+        "An EMA (exponential moving average) averages recent hourly closes, giving the newest more weight. "
+        "The fast one follows the price closely.",
+        "Example: fast 12, slow 26. When the 12-hour average rises above the 26-hour one, recent prices are "
+        "beating the longer trend: a buy. A smaller fast length (5) reacts sooner but crosses falsely more often.",
+    ],
+    "long_window": [
+        "The slow average shows the longer trend. A buy is the fast average crossing above it; a sell is the "
+        "cross back below.",
+        "Example: fast 12 with slow 26 crosses a few times a week. Slow 50 or more crosses less often and later, "
+        "missing the start of moves but catching fewer fake ones.",
+    ],
+    "rsi_oversold": [
+        "A cross that happens while RSI is this low is ignored: the price is crashing, and an upward cross "
+        "then is often a brief bounce.",
+        "Example: at 25, a buy cross with RSI 22 is skipped; with RSI 40 it counts. Sell crosses are skipped "
+        "at the same extremes.",
+    ],
+    "rsi_overbought": [
+        "A cross that happens while RSI is this high is ignored: the price has already run up and may be "
+        "about to pull back.",
+        "Example: at 75, a buy cross with RSI 80 is skipped; with RSI 60 it counts.",
+    ],
+    "require_volume_confirmation": [
+        "Compares this hour's volume with the average of the last 20 hours. Busy trading suggests a move "
+        "has real buyers behind it.",
+        "EMA crossover: on = a cross on volume under 1.1× the average is ignored. MACD: on = a signal on "
+        "volume under 'Strong volume means' counts for less, and may fall short of the minimum to trade.",
+    ],
+    "require_macd_confirmation": [
+        "MACD is the gap between a 12-hour and a 26-hour average, compared with its own 9-hour average. "
+        "When MACD is above that line, momentum points up.",
+        "On: a buy cross also needs MACD pointing up (a sell cross needs it pointing down). Fewer trades, "
+        "fewer false starts, slightly later entries.",
+    ],
+    # MACD + volume
+    "strategy_macd_fast_period": [
+        "MACD = the fast average minus the slow average of hourly closes. It is positive when recent prices "
+        "run above the longer trend, and it grows as the move speeds up.",
+        "Example: 12 means the fast average covers about the last 12 hours. Shorter (8) reacts sooner and "
+        "signals more often, including more false signals.",
+    ],
+    "strategy_macd_slow_period": [
+        "The longer of the two averages MACD compares. Must be longer than the fast one.",
+        "Example: 26 is about a day of hourly candles. Longer (40) makes MACD smoother and slower to cross.",
+    ],
+    "strategy_macd_signal_period": [
+        "The signal line is an average of MACD itself. A buy is MACD crossing above it: momentum turning up.",
+        "Example: 9 is the usual. Shorter (5) crosses sooner and more often; longer (15) crosses later and "
+        "less often.",
+    ],
+    "strategy_macd_volume_multiplier": [
+        "How busy trading must be, against the 20-hour average, to count as strong volume. Strong volume "
+        "makes a signal more convincing.",
+        "Example: 1.3 means 30% more than average. If the average hour trades 10 BTC, an hour of 13 BTC or "
+        "more counts as strong. Higher values make strong volume rarer.",
+    ],
+    "strategy_macd_require_zero_cross": [
+        "MACD above zero means the fast average is already above the slow one: an uptrend is under way.",
+        "On: buys only then, skipping crosses that happen while MACD is still below zero (early, riskier "
+        "turns in a downtrend). Off: those count too, so it gets in earlier but more often wrong.",
+    ],
+    "strategy_macd_use_momentum_filter": [
+        "Momentum here is the price change over the last 10 hours.",
+        "On: a signal while the price has moved less than 0.5% in 10 hours counts for less, and one with "
+        "the price up at least 0.5% counts for more. Example: a buy signal with BTC up 1% over 10 hours is "
+        "strengthened; with BTC flat it is weakened.",
+    ],
+}
+
+
+def more_of(key: str) -> List[str]:
+    """The long explanation for a setting (some share another's text)."""
+    text = MORE.get(key, [])
+    return MORE.get(text, []) if isinstance(text, str) else text
+
 # Where a strategy keeps a shared setting under another name
 ATTR_OVERRIDES = {
     (StrategyNames.MACD_VOLUME_MOMENTUM, "require_volume_confirmation"): "use_volume_filter",
@@ -317,7 +504,7 @@ def describe(manager, config, price=None) -> dict:
                 "key": k, "label": spec["label"], "kind": spec["kind"], "pct": bool(spec.get("pct")),
                 "unit": "%" if spec.get("pct") else spec.get("unit", ""),
                 "min": spec.get("min"), "max": spec.get("max"), "step": spec.get("step"),
-                "help": spec["help"], "value": _live_value(k, pot, config), "also": others,
+                "help": spec["help"], "more": more_of(k), "value": _live_value(k, pot, config), "also": others,
             })
         trader = pot.trader
         pots.append({
