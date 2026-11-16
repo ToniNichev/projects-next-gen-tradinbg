@@ -2954,7 +2954,9 @@
               callbacks: {
                 title: function(context) {
                   if (context[0]) {
-                    const date = new Date(context[0].parsed.x);
+                    // Trade markers sit on their candle; show the real trade time
+                    const raw = context[0].raw;
+                    const date = new Date(raw && raw.timestamp && raw.side ? raw.timestamp : context[0].parsed.x);
                     return '📅 ' + date.toLocaleString('en-US', {
                       month: 'short',
                       day: 'numeric',
@@ -3234,7 +3236,7 @@
           
           const tradeData = {
             ...trade,
-            x: new Date(trade.timestamp).getTime(),
+            x: candleStartMs(new Date(trade.timestamp).getTime()),
             y: trade.price,
             side: trade.side,
             amount: trade.amount,
@@ -3319,7 +3321,7 @@
           ['buy', 'sell'].forEach(side => {
             const data = visibleTrades
               .filter(t => potOfTrade(t) === name && (side === 'buy') === (t.side === 'buy'))
-              .map(t => ({ ...t, x: new Date(t.timestamp).getTime(), y: t.price }));
+              .map(t => ({ ...t, x: candleStartMs(new Date(t.timestamp).getTime()), y: t.price }));
             if (!data.length) return;
             chart.data.datasets.push({
               label: `${side === 'buy' ? '🟢' : '🔴'} ${p.label} pot ${side.toUpperCase()}`,
@@ -3968,6 +3970,15 @@
         zoomViewBy(Math.pow(1.25, navSpeed), null, BUTTON_EASE_MS);
       }
       
+      // Start of the candle a time falls in. Points are drawn at candle open
+      // time, so trade markers snap there too and sit on their candle instead
+      // of up to one candle to the right of it. Weeks open on Monday (UTC).
+      function candleStartMs(ms) {
+        const tf = getTimeframeMs(currentTimeframe);
+        const offset = currentTimeframe === '1w' ? 4 * 24 * 60 * 60 * 1000 : 0;
+        return Math.floor((ms - offset) / tf) * tf + offset;
+      }
+
       // Convert timeframe string to milliseconds
       function getTimeframeMs(timeframe) {
         const timeframeMap = {
