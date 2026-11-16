@@ -2075,6 +2075,7 @@
           • Mouse wheel to zoom<br>
           • Hold arrow keys to scroll<br>
           • +/- keys to zoom, 0 to reset<br>
+          • <b>Speed</b> (next to the zoom buttons) makes wheel, trackpad, buttons and keys move faster or slower<br>
           • F for fullscreen (ESC to exit)
         </span>
       </span>
@@ -2100,6 +2101,12 @@
         <button onclick="panLeft()" title="Pan left (← or Shift+Wheel)" aria-label="Pan left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         <button onclick="panRight()" title="Pan right (→ or Shift+Wheel)" aria-label="Pan right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
+      <label class="seg nav-speed" title="How fast the mouse wheel, trackpad, zoom/scroll buttons and arrow keys move the chart">
+        <span class="seg-label">Speed</span>
+        <select id="nav-speed" onchange="setNavSpeed(this.value)" aria-label="Zoom and scroll speed">
+          <option value="1">1×</option><option value="1.5" selected>1.5×</option><option value="2">2×</option><option value="3">3×</option>
+        </select>
+      </label>
       <div class="seg" role="group" aria-label="Zoom">
         <button onclick="zoomOut()" title="Zoom out (-)" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
         <button onclick="resetZoom()" title="Reset view (0)" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
@@ -2468,6 +2475,20 @@
       let isLoadingHistorical = false;  // Prevent duplicate historical data fetches
       let hasMoreHistoricalData = true;  // Track if more data is available
       let chartDataTimeframe = null;     // Timeframe of the candles now on the chart
+      // Zoom / scroll speed for the wheel, trackpad, buttons and arrow keys
+      // (dragging always follows the mouse 1:1). 1 = the original speed.
+      const NAV_SPEEDS = [1, 1.5, 2, 3];
+      let navSpeed = 1.5;
+      try { const v = Number(localStorage.getItem('chartNavSpeed')); if (NAV_SPEEDS.includes(v)) navSpeed = v; } catch (e) { /* storage off */ }
+      function setNavSpeed(v) {
+        v = Number(v);
+        if (!NAV_SPEEDS.includes(v)) return;
+        navSpeed = v;
+        try { localStorage.setItem('chartNavSpeed', String(v)); } catch (e) { /* storage off */ }
+        document.querySelectorAll('#nav-speed option').forEach(o => { o.selected = Number(o.value) === v; });
+      }
+      document.addEventListener('DOMContentLoaded', () => setNavSpeed(navSpeed));
+      setNavSpeed(navSpeed);
       let showTradeMarkers = true;  // Toggle for showing/hiding trade markers
       // Money pots: trades are grouped by pot, and each pot can be hidden
       const POT_CHART = {
@@ -3861,11 +3882,11 @@
       }
       
       function zoomIn() {
-        zoomViewBy(0.8, null, BUTTON_EASE_MS);
+        zoomViewBy(Math.pow(0.8, navSpeed), null, BUTTON_EASE_MS);
       }
       
       function zoomOut() {
-        zoomViewBy(1.25, null, BUTTON_EASE_MS);
+        zoomViewBy(Math.pow(1.25, navSpeed), null, BUTTON_EASE_MS);
       }
       
       // Convert timeframe string to milliseconds
@@ -4118,11 +4139,11 @@
       }
       
       function panLeft() {
-        panViewBy(-0.15, BUTTON_EASE_MS);
+        panViewBy(-0.15 * navSpeed, BUTTON_EASE_MS);
       }
       
       function panRight() {
-        panViewBy(0.15, BUTTON_EASE_MS);
+        panViewBy(0.15 * navSpeed, BUTTON_EASE_MS);
       }
       
       // Smooth keyboard navigation with repeat support
@@ -4150,11 +4171,11 @@
               break;
             case 'ArrowLeft':
               e.preventDefault();
-              panViewBy(-KEY_PAN_STEP);
+              panViewBy(-KEY_PAN_STEP * navSpeed);
               break;
             case 'ArrowRight':
               e.preventDefault();
-              panViewBy(KEY_PAN_STEP);
+              panViewBy(KEY_PAN_STEP * navSpeed);
               break;
             case '+':
             case '=':
@@ -4558,12 +4579,12 @@
 
         if (e.shiftKey || Math.abs(dx) > Math.abs(dy)) {
           const d = dx || (e.shiftKey ? dy : 0);
-          panViewBy(Math.max(-120, Math.min(120, d)) * WHEEL_PAN_SENS);
+          panViewBy(Math.max(-120, Math.min(120, d)) * WHEEL_PAN_SENS * navSpeed);
           return;
         }
 
         // Trackpad pinch arrives as ctrl+wheel with small deltas
-        const sens = e.ctrlKey ? WHEEL_ZOOM_SENS * 4 : WHEEL_ZOOM_SENS;
+        const sens = (e.ctrlKey ? WHEEL_ZOOM_SENS * 4 : WHEEL_ZOOM_SENS) * navSpeed;
         const step = Math.max(-120, Math.min(120, dy));
         const rect = canvas.getBoundingClientRect();
         const anchor = chart.scales.x.getValueForPixel(e.clientX - rect.left);
