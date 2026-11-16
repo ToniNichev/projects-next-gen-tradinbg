@@ -218,6 +218,18 @@ class ApplicationState:
                 if candle_close_ms else now
             )
 
+    def set_live_price(self, price: float) -> None:
+        """Latest price from the live stream (every few seconds). For display
+        only: the bot trades on closed hourly candles, never on this."""
+        if price and price > 0:
+            with self._lock:
+                self._live_price = (float(price), datetime.now(timezone.utc))
+
+    def get_live_price(self):
+        """(price, when) from the live stream, or (None, None)."""
+        with self._lock:
+            return getattr(self, "_live_price", (None, None))
+
     def get_last_check(self) -> Dict[str, Optional[str]]:
         """When the bot last checked, and the close time its prices are from (ISO, UTC)."""
         with self._lock:

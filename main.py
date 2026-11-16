@@ -871,6 +871,10 @@ def main():
 
         ws_activity["last_mono"] = time.monotonic()
         ws_activity["stale_alerted"] = False
+        try:
+            app_state.set_live_price(float(kline.get("c", 0.0)))  # chart's "now" marker
+        except Exception:
+            pass
         
         # Store closed candles in buffer
         if kline.get("x"):  # Candle is closed

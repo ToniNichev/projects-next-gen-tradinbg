@@ -407,3 +407,23 @@
 .chart-status .cs-late { color: var(--accent-red, #ff5e57); font-weight: 600; }
 .chart-status .cs-pot { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.6rem; color: var(--text-secondary); }
 .chart-status .cs-pot::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+
+/* Live price dot at the end of the 1h line (pulses; clicks pass through) */
+.chart-now-dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: #e6edf3;
+  box-shadow: 0 0 0 0 rgba(230, 237, 243, 0.55);
+  pointer-events: none;
+  z-index: 2;
+  animation: chart-now-pulse 1.8s ease-out infinite;
+}
+@keyframes chart-now-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(230, 237, 243, 0.55); }
+  70% { box-shadow: 0 0 0 9px rgba(230, 237, 243, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(230, 237, 243, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .chart-now-dot { animation: none; } }

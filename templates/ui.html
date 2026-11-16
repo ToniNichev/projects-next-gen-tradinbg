@@ -2645,6 +2645,83 @@
         return [{ element: els[index], datasetIndex: 0, index }];
       };
 
+      // "Now" marker: the line ends at the last finished hour, so on the 1h
+      // view a dashed segment and a pulsing dot show where the price is now,
+      // with a "now $..." tag at the right edge. Display only.
+      let livePrice = null;  // { price, t }
+      async function fetchLivePrice() {
+        if (currentTimeframe !== '1h' || document.hidden) return;
+        try {
+          const r = await fetch('/api/price/live', { credentials: 'include' });
+          const j = await r.json();
+          if (j.success && j.price > 0) {
+            const first = !livePrice;
+            livePrice = { price: Number(j.price), t: Date.now() };
+            // First price: lay the chart out again so the time axis reaches now
+            if (chart) { if (first) chart.update('none'); else chart.draw(); }
+          }
+        } catch (e) { /* keep the last one */ }
+      }
+      setInterval(fetchLivePrice, 15000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) fetchLivePrice(); });
+      const liveNow = () => (currentTimeframe === '1h' && livePrice && Date.now() - livePrice.t < 5 * 60e3) ? livePrice : null;
+      const nowDot = (() => {
+        const el = document.createElement('div');
+        el.className = 'chart-now-dot';
+        el.setAttribute('aria-hidden', 'true');
+        return el;
+      })();
+      const LIVE_NOW_PLUGIN = {
+        id: 'liveNow',
+        // Default view: stretch the time axis to now so the dot is on screen
+        afterDataLimits(ch, { scale }) {
+          const lp = liveNow();
+          if (!lp || !scale || scale.id !== 'x' || scale.options.max !== undefined) return;
+          // a little room after now, so the dot sits inside the edge
+          const pad = Math.max(8 * 60e3, (Date.now() - scale.min) * 0.03);
+          scale.max = Math.max(scale.max, Date.now() + pad);
+        },
+        afterDatasetsDraw(ch) {
+          const lp = liveNow();
+          const data = ch.data.datasets[0] && ch.data.datasets[0].data;
+          const a = ch.chartArea;
+          if (!nowDot.parentNode && ch.canvas.parentNode) {
+            ch.canvas.parentNode.style.position = ch.canvas.parentNode.style.position || 'relative';
+            ch.canvas.parentNode.appendChild(nowDot);
+          }
+          nowDot.style.display = 'none';
+          if (!lp || !data || !data.length) return;
+          const last = data[data.length - 1];
+          const { x, y } = ch.scales;
+          const x0 = x.getPixelForValue(last.x), y0 = y.getPixelForValue(last.c);
+          const x1 = x.getPixelForValue(Date.now()), y1 = y.getPixelForValue(lp.price);
+          const g = ch.ctx;
+          // Price tag on the price axis (right), like a trading app's last price
+          if (y1 >= a.top && y1 <= a.bottom) {
+            g.save();
+            g.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            const text = Math.round(lp.price).toLocaleString('en-US');
+            const w = Math.max(g.measureText(text).width + 10, ch.width - a.right - 2);
+            g.fillStyle = '#e6edf3';
+            g.beginPath(); g.roundRect ? g.roundRect(a.right + 2, y1 - 9, w, 18, 4) : g.rect(a.right + 2, y1 - 9, w, 18); g.fill();
+            g.fillStyle = '#0d1117'; g.textBaseline = 'middle'; g.textAlign = 'left';
+            g.fillText(text, a.right + 7, y1 + 0.5);
+            g.strokeStyle = 'rgba(230,237,243,0.35)'; g.lineWidth = 1; g.setLineDash([2, 3]);
+            g.beginPath(); g.moveTo(Math.max(a.left, Math.min(a.right, x1)), y1); g.lineTo(a.right, y1); g.stroke();
+            g.restore();
+          }
+          if (x1 < a.left || x1 > a.right || y1 < a.top || y1 > a.bottom) return;
+          g.save();
+          g.beginPath(); g.rect(a.left, a.top, a.right - a.left, a.bottom - a.top); g.clip();
+          g.strokeStyle = 'rgba(230,237,243,0.7)'; g.lineWidth = 1.4; g.setLineDash([4, 4]);
+          g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+          g.restore();
+          nowDot.style.left = (ch.canvas.offsetLeft + x1) + 'px';
+          nowDot.style.top = (ch.canvas.offsetTop + y1) + 'px';
+          nowDot.style.display = 'block';
+        },
+      };
+
       // Price lines for each pot holding BTC: what it paid, its stop (sells
       // automatically if the price falls there) and its profit target.
       // A line off the visible range is shown as an arrow at the edge.
@@ -2653,7 +2730,8 @@
       function potLevels() {
         const d = window.__potsData;
         if (!d || !d.pots) return [];
-        const price = Number(d.price) || null;
+        const lp = liveNow();
+        const price = (lp && lp.price) || Number(d.price) || null;
         // stop/target: how far the price must move from now to reach them
         const pct = (v) => price ? ` (${v >= price ? '+' : '−'}${Math.abs((v / price - 1) * 100).toFixed(1)}% away)` : '';
         const usd = (v) => '$' + Math.round(v).toLocaleString('en-US');
@@ -3002,7 +3080,7 @@
             },
           },
         },
-        plugins: [POT_LEVELS_PLUGIN],
+        plugins: [LIVE_NOW_PLUGIN, POT_LEVELS_PLUGIN],
       });
       if (!showPotLevels) {
         const b = document.getElementById('toggle-levels-btn');
@@ -3374,6 +3452,7 @@
         savedViewMin = null;
         savedViewMax = null;
         await refresh();
+        fetchLivePrice();
         
         // Ensure Y-axis fits after timeframe change
         fitYAxisToVisibleCandles();
@@ -4593,6 +4672,7 @@
 
       // Initial refresh
       refresh();
+      fetchLivePrice();
       
       // Auto-refresh - faster for live timeframe, slower for historical views
       setInterval(() => {

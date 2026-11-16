@@ -526,6 +526,36 @@ def _sell_terms(pots) -> dict:
     return terms
 
 
+_ticker_cache = {"price": None, "at": None}
+
+
+@market_bp.route("/api/price/live")
+@limiter.limit("20 per minute")
+@require_auth
+def get_live_price():
+    """BTC's price right now, for the chart's "now" marker (display only).
+    From the live stream; the exchange ticker if the stream is quiet."""
+    app_state = get_app_state()
+    price, at = app_state.get_live_price()
+    now = datetime.now(timezone.utc)
+    source = "stream"
+    if not price or (now - at).total_seconds() > 120:
+        cached = _ticker_cache
+        if cached["price"] and (now - cached["at"]).total_seconds() < 15:
+            price, at = cached["price"], cached["at"]
+        else:
+            try:
+                from config import BotConfig
+                price = float(app_state.get_exchange().fetch_ticker(BotConfig.load().symbol)["last"])
+                at = now
+                cached.update(price=price, at=at)
+            except Exception as exc:
+                logger.warning("Live price unavailable: %s", exc)
+                return jsonify({"success": False, "error": "Live price unavailable"}), 503
+        source = "ticker"
+    return jsonify({"success": True, "price": price, "at": at.isoformat(), "source": source})
+
+
 @market_bp.route("/api/pots")
 @limiter.limit("30 per minute")
 @require_auth
