@@ -71,3 +71,10 @@ def _reset_manual_trade_guard():
     trading._manual_done.clear()
     trading._manual_last.update(buy=0.0, sell=0.0)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_lost_order_wait(monkeypatch):
+    """Don't wait the real few seconds before re-asking about a lost order."""
+    import live_trader
+    monkeypatch.setattr(live_trader, "LOST_ORDER_RECHECK_SECONDS", 0.0)

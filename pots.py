@@ -406,6 +406,13 @@ class PotManager:
                 if trade:
                     self.record_trade(pot, trade)
             results[pot.name] = r
+        if self.live:
+            # A stop that failed to place (e.g. a network blip right after a
+            # buy) used to stay missing until a restart: try again every hour
+            try:
+                self._rearm_missing_stops()
+            except Exception as exc:
+                logger.warning("Re-arming missing exchange stops failed: %s", exc)
         return results
 
     # Alert after this many failed hourly checks in a row (one can be a blip)
@@ -1025,9 +1032,13 @@ class PotManager:
     def _rearm_missing_stops(self) -> None:
         """Holding pots with no exchange stop (held back while the account
         didn't match) get one again."""
-        self.rearm_stops([t for t in self.traders() if isinstance(t, PotLiveTrader)
-                          and t.open_position is not None
-                          and not t.open_position.exchange_stop_order_id])
+        missing = [t for t in self.traders() if isinstance(t, PotLiveTrader)
+                   and t.open_position is not None
+                   and not t.open_position.exchange_stop_order_id
+                   and t.wants_exchange_stop()]
+        for t in missing:
+            logger.warning("Pot %s holds BTC with no exchange stop: placing it again", t.pot)
+        self.rearm_stops(missing)
 
     def book_stop_fills(self) -> Dict[str, object]:
         """Record any exchange stop order that sold a pot's coins.

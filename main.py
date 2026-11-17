@@ -716,6 +716,29 @@ def main():
             )
         except Exception as exc:
             logging.warning("Candle backfill after (re)connect failed: %s", exc)
+            return
+        # An hour that closed while we were disconnected never reached
+        # handle_kline, so its check never ran (2026-11-13 08:00). Run it now
+        # on the newest closed candle; older missed hours are past.
+        if closed:
+            _run_missed_check(closed[-1])
+
+    def _run_missed_check(c) -> None:
+        open_ms = int(c[0])
+        with processed_lock:
+            done = max(processed_candle["open"], startup_closed_open)
+        if open_ms <= done:
+            return
+        logging.warning(
+            "Hourly check for the candle that opened %s was missed during a "
+            "disconnect: running it now",
+            datetime.utcfromtimestamp(open_ms / 1000).strftime("%Y-%m-%d %H:%M UTC"),
+        )
+        handle_kline({"e": "kline", "missed": True, "k": {
+            "s": binance_symbol, "x": True,
+            "t": open_ms, "T": open_ms + timeframe_ms - 1,
+            "o": c[1], "h": c[2], "l": c[3], "c": c[4], "v": c[5],
+        }})
 
 
     # Pre-load initial candles to start trading immediately
@@ -828,6 +851,10 @@ def main():
 
     # Open time of the last closed candle the hourly check ran on
     processed_candle = {"open": 0}
+    processed_lock = threading.Lock()
+    # The candle that had already closed when the bot started: a missed-check
+    # catch-up never runs for it (start-up doesn't trade on an old candle)
+    startup_closed_open = _last_closed_open(int(time.time() * 1000))
 
     ws_activity = {
         "last_mono": time.monotonic(),
@@ -871,10 +898,11 @@ def main():
 
         ws_activity["last_mono"] = time.monotonic()
         ws_activity["stale_alerted"] = False
-        try:
-            app_state.set_live_price(float(kline.get("c", 0.0)))  # chart's "now" marker
-        except Exception:
-            pass
+        if not msg.get("missed"):  # a caught-up old candle isn't the live price
+            try:
+                app_state.set_live_price(float(kline.get("c", 0.0)))  # chart's "now" marker
+            except Exception:
+                pass
         
         # Store closed candles in buffer
         if kline.get("x"):  # Candle is closed
@@ -894,10 +922,13 @@ def main():
 
             # The same closed candle again (a reconnect can resend it): its
             # check already ran, so don't trade on it twice
-            if int(candle_data[0]) <= processed_candle["open"]:
+            with processed_lock:
+                seen = int(candle_data[0]) <= processed_candle["open"]
+                if not seen:
+                    processed_candle["open"] = int(candle_data[0])
+            if seen:
                 logging.info("Closed candle %s seen again; already checked", candle_data[0])
                 return
-            processed_candle["open"] = int(candle_data[0])
             if not is_new:
                 logging.info("Closed candle %s replaced a copy in the buffer", candle_data[0])
             

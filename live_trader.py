@@ -35,6 +35,16 @@ except ImportError:
 # A stop more than 80% below entry means "no stop": skip the exchange order.
 NO_STOP_BELOW_FRACTION = 0.2
 
+# The exchange stop's limit price sits this far below its trigger. At 0.2%
+# a fast drop could trigger the stop and leave it resting unfilled below the
+# market; 0.75% still caps the extra slippage while it fills in a quick move.
+STOP_LIMIT_GAP = 0.0075
+
+# After an unclear order reply where the exchange said "no such order",
+# wait this long and ask again before sending it a second time: a market
+# order that was still queued could otherwise fill twice.
+LOST_ORDER_RECHECK_SECONDS = 3.0
+
 
 # ---------------------------------------------------------------------------
 # Retry / order-status helpers (module-level so they're easy to unit-test)
@@ -894,6 +904,16 @@ class LiveTrader:
         self._update_open_position_in_db()
         return None
 
+    def wants_exchange_stop(self) -> bool:
+        """Live, holding, and the strategy has a real stop: this position
+        should have a stop order resting on the exchange."""
+        pos = self.open_position
+        if self.mode != TradingMode.LIVE or not pos or pos.side != "long":
+            return False
+        if not getattr(self.config, "exchange_stop_loss_enabled", True):
+            return False
+        return self._effective_protective_trigger(pos) >= pos.entry_price * NO_STOP_BELOW_FRACTION
+
     def _sync_exchange_protective_stop(self) -> None:
         """
         Place a STOP_LOSS_LIMIT sell that mirrors the higher of the fixed
@@ -938,9 +958,9 @@ class LiveTrader:
         # Binance requires limit < stop for auction — sell limit slightly
         # below the trigger so that when the stop fires, the limit rests
         # inside executable range.
-        limit_px = self.round_price(trigger * 0.998)
+        limit_px = self.round_price(trigger * (1 - STOP_LIMIT_GAP))
         if limit_px >= trigger:
-            limit_px = self.round_price(trigger * 0.995)
+            limit_px = self.round_price(trigger * (1 - 2 * STOP_LIMIT_GAP))
 
         # Replace existing bracket. If the old stop can't be confirmed gone,
         # keep it: a second stop would try to sell the same coins twice.
@@ -2130,13 +2150,20 @@ class LiveTrader:
                                  params={"newClientOrderId": client_order_id})
             except _PERMANENT_CCXT_ERRORS:
                 raise
-            except _TRANSIENT_CCXT_ERRORS as exc:
+            # BadResponse: Binance -1006 "execution status unknown" - the
+            # order may have gone through, same as a timeout
+            except _TRANSIENT_CCXT_ERRORS + (ccxt.BadResponse,) as exc:
                 if _permanent_by_code(exc):  # e.g. -2015: the key can't trade
                     raise ccxt.PermissionDenied(str(exc)) from exc
                 last_exc = exc
                 self.logger.warning("%s order attempt %d/%d got no clear answer: %s",
                                     side.upper(), attempt, attempts, exc)
                 found = self._find_lost_order(client_order_id, side)
+                if found == {}:
+                    # "No such order" right away can mean it's still queued:
+                    # look again before sending it a second time
+                    time.sleep(LOST_ORDER_RECHECK_SECONDS)
+                    found = self._find_lost_order(client_order_id, side)
                 if found:
                     self.logger.warning("The %s did go through (order %s)", side, found.get("id"))
                     return found
