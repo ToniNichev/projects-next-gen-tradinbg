@@ -128,6 +128,20 @@
   .no-data-indicator.show {
     display: flex;
   }
+  /* Couldn't refresh, but the last loaded chart is still shown: small banner at the top */
+  .no-data-indicator.stale {
+    top: 12px;
+    transform: translateX(-50%);
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.4rem 0.75rem;
+    padding: 0.5rem 0.9rem;
+    max-width: calc(100% - 32px);
+  }
+  .no-data-indicator.stale .no-data-title { font-size: 0.85rem; }
+  .no-data-indicator.stale .no-data-detail { display: none; }
+  .no-data-indicator.stale .glass-btn { padding: 0.25rem 0.7rem; font-size: 0.8rem; }
   .no-data-indicator .no-data-title {
     font-size: 1.1rem;
     font-weight: 600;
@@ -2010,10 +2024,10 @@
     <div class="spinner"></div>
     <span>Loading candles...</span>
   </div>
-  <div class="no-data-indicator" id="chart-no-data">
-    <span class="no-data-title">No Chart Data Available</span>
-    <span class="no-data-detail">Could not load candles from the exchange API and no bot history is available yet. Check that your API keys are configured and the exchange is reachable.</span>
-    <button class="glass-btn" onclick="refresh()">Retry</button>
+  <div class="no-data-indicator" id="chart-no-data" role="status" aria-live="polite">
+    <span class="no-data-title" id="chart-no-data-title">No Chart Data Available</span>
+    <span class="no-data-detail" id="chart-no-data-detail"></span>
+    <button type="button" class="glass-btn" id="chart-no-data-btn" onclick="chartProblemAction()">Retry</button>
   </div>
 
   <div class="chart-head">
@@ -3464,6 +3478,94 @@
         document.getElementById('chart-loading').classList.remove('show');
       }
 
+      // ---- Why the chart couldn't load, in plain words ----
+      const CHART_PROBLEMS = {
+        auth: { title: 'Logged out',
+                detail: "The browser stopped sending the dashboard password (this can happen after the computer sleeps). Reload the page to sign in again.",
+                button: 'Reload page' },
+        offline: { title: 'No internet connection',
+                detail: 'This device is offline. The chart reloads by itself when the connection is back.',
+                button: 'Retry' },
+        network: { title: "Can't reach the bot's server",
+                detail: "The request didn't get through (connection dropped, or the bot is restarting). Retrying automatically.",
+                button: 'Retry now' },
+        server: { title: 'Server error',
+                detail: "The bot's server answered with an error. Retrying automatically; if it stays, check the bot status.",
+                button: 'Retry now' },
+        bad: { title: 'Unexpected answer',
+                detail: 'Got a web page instead of chart data (often a Cloudflare error page). Retrying automatically.',
+                button: 'Retry now' },
+        exchange: { title: "Exchange didn't answer",
+                detail: "Binance.US didn't send candles for this timeframe and there's no saved history for it. Retrying automatically.",
+                button: 'Retry now' },
+        page: { title: "Couldn't draw the chart",
+                detail: 'Something went wrong on this page while drawing the chart. Retrying automatically; reload the page if it stays.',
+                button: 'Retry now' },
+        empty: { title: 'No chart data yet',
+                detail: "There are no candles for this timeframe yet. They'll show once the exchange sends some.",
+                button: 'Retry' },
+      };
+      let chartProblem = null;   // kind currently shown, or null
+      let loadedTf = null;       // timeframe of the candles on screen
+
+      function chartLoadError(kind, status) {
+        const e = new Error(kind + (status ? ' ' + status : ''));
+        e.kind = kind;
+        e.status = status;
+        return e;
+      }
+
+      // fetch() that turns every failure into a chartLoadError with a kind
+      async function fetchChartJson(url) {
+        let resp;
+        try {
+          resp = await fetch(url, {credentials: 'include'});
+        } catch (_) {
+          throw chartLoadError(navigator.onLine === false ? 'offline' : 'network');
+        }
+        if (resp.status === 401) throw chartLoadError('auth');
+        if (!resp.ok) throw chartLoadError('server', resp.status);
+        try {
+          return await resp.json();
+        } catch (_) {
+          throw chartLoadError('bad');
+        }
+      }
+
+      // keepChart: the last loaded candles stay on screen, so show a small banner
+      function showChartProblem(kind, status, keepChart) {
+        const p = CHART_PROBLEMS[kind] || CHART_PROBLEMS.network;
+        chartProblem = kind;
+        const el = document.getElementById('chart-no-data');
+        let title = p.title + (kind === 'server' && status ? ` (${status})` : '');
+        if (keepChart) title += ' · showing the last loaded chart';
+        document.getElementById('chart-no-data-title').textContent = title;
+        document.getElementById('chart-no-data-detail').textContent = p.detail;
+        document.getElementById('chart-no-data-btn').textContent = p.button;
+        el.classList.toggle('stale', !!keepChart);
+        el.classList.add('show');
+      }
+
+      function hideChartProblem() {
+        chartProblem = null;
+        document.getElementById('chart-no-data').classList.remove('show', 'stale');
+      }
+
+      function chartProblemAction() {
+        if (chartProblem === 'auth') location.reload();  // brings back the password prompt
+        else refresh();
+      }
+
+      // Try again as soon as the connection comes back or the tab is looked at again
+      window.addEventListener('online', () => { if (chartProblem) refresh(); });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && chartProblem) refresh();
+      });
+
+      function chartHasCandles() {
+        return loadedTf === currentTimeframe && !!(chart && chart.data.datasets[0] && chart.data.datasets[0].data.length);
+      }
+
       // Run one refresh at a time. A call that arrives while one is running
       // queues a single follow-up run (e.g. a timeframe switch mid-refresh).
       let refreshInFlight = null;
@@ -3491,21 +3593,21 @@
           // Fetch candle data from exchange
           let history = [];
           let body = {};
+          let loadErr = null;   // why loading failed, if it did
           
           try {
             isLoadingTimeframe = true;
-            const resp = await fetch(`/api/candles/${currentTimeframe}?limit=200`, {credentials: 'include'});
-            body = await resp.json();
+            body = await fetchChartJson(`/api/candles/${currentTimeframe}?limit=200`);
             
             if (body.error) {
               console.error("Error fetching candles:", body.error);
               // Fall back to history endpoint if candles API fails
-              throw new Error(body.error);
+              throw chartLoadError('exchange');
             }
             
             if (!body.candles || body.candles.length === 0) {
               console.warn("No candles returned from API");
-              throw new Error("No candles available");
+              throw chartLoadError('empty');
             }
             
             // Convert to history format
@@ -3522,9 +3624,9 @@
           } catch (candleError) {
             // Fallback to /history endpoint if candles API is unavailable
             console.warn("Falling back to /history endpoint:", candleError.message);
+            loadErr = candleError;
             try {
-              const historyResp = await fetch("/history", {credentials: 'include'});
-              const historyBody = await historyResp.json();
+              const historyBody = await fetchChartJson("/history");
               history = historyBody.history || [];
               
               if (history.length === 0) {
@@ -3534,6 +3636,8 @@
               }
             } catch (historyError) {
               console.error("Failed to fetch history as fallback:", historyError);
+              // Logged out / offline / unreachable say more than "exchange didn't answer"
+              if (['auth', 'offline', 'network'].includes(historyError.kind)) loadErr = historyError;
               history = [];
             }
           } finally {
@@ -3549,10 +3653,9 @@
           
           // Handle empty history gracefully
           let candleData = [];
-          const noDataEl = document.getElementById('chart-no-data');
+          let keepOldChart = false;
           if (history && history.length > 0) {
-            // Hide no-data indicator when we have data
-            noDataEl.classList.remove('show');
+            hideChartProblem();
             
             candleData = history.map((row) => {
               // Parse UTC timestamp - the 'Z' or lack thereof matters!
@@ -3574,8 +3677,10 @@
             });
           } else {
             console.warn("No chart data available");
-            // Show no-data indicator so user knows what happened
-            noDataEl.classList.add('show');
+            // A failed refresh keeps the candles already on screen
+            keepOldChart = chartHasCandles();
+            const kind = (loadErr && loadErr.kind) || 'empty';
+            showChartProblem(kind, loadErr && loadErr.status, keepOldChart);
           }
           
           // Fetch bot signals BEFORE touching the chart. Everything below that
@@ -3614,8 +3719,9 @@
 
           // While the user is dragging or the chart is still gliding, leave it
           // alone; the next refresh picks up the new candles.
-          if (!isDragging && !momentumAnimation && !viewAnim) {
+          if (!keepOldChart && !isDragging && !momentumAnimation && !viewAnim) {
             applyChartData(candleData, signalPoints);
+            if (candleData.length) loadedTf = currentTimeframe;
           }
           
           // Update trade markers after chart data is refreshed
@@ -3650,13 +3756,13 @@
         } catch (err) {
           console.error("Error refreshing chart:", err);
           
-          // Hide loading indicator and show no-data indicator
+          // Hide loading indicator and say what went wrong
           document.getElementById('chart-loading').classList.remove('show');
-          const noDataEl = document.getElementById('chart-no-data');
-          noDataEl.classList.add('show');
+          const keep = chartHasCandles();
+          showChartProblem(err.kind || 'page', err.status, keep);
           
-          // Try to show error on chart label
-          if (chart && chart.data.datasets[0]) {
+          // Clear the chart only when it shows nothing current anyway
+          if (!keep && chart && chart.data.datasets[0]) {
             chart.data.datasets[0].data = [];
             chart.data.datasets[0].label = `BTC/USD (${currentTimeframe}) - could not load data`;
             chart.update('none');

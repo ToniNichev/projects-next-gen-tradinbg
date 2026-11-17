@@ -17,8 +17,9 @@ def seed_candle_history(exchange, db_manager, symbol: str, timeframe: str, days_
     """
     logger.info("Seeding candle history: %d days of %s %s", days_back, symbol, timeframe)
 
-    since_ms = int((datetime.now(timezone.utc) - timedelta(days=days_back)).timestamp() * 1000)
+    # One clock for both ends of the range
     target_end = exchange.milliseconds()
+    since_ms = target_end - int(timedelta(days=days_back).total_seconds() * 1000)
     batch_size = 1000
     current_since = since_ms
     all_candles = []
