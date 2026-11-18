@@ -461,6 +461,14 @@ def test_transfer_api():
 
         data = client.get("/api/pots").get_json()
         assert data["transfers"][0]["amount"] == 4.0 and data["unassigned"] is None
+
+        # The same move sent again (its answer was lost) isn't done twice
+        move = {"from": "trend", "to": "manual", "amount": 1, "request_id": "move-1"}
+        first = client.post("/api/pots/transfer", json=move).get_json()
+        again = client.post("/api/pots/transfer", json=move).get_json()
+        assert first["success"] and again["duplicate"]
+        assert again["balances"]["manual"]["USDT"] == first["balances"]["manual"]["USDT"] == 11.0
+        assert pots.get(POT_MANUAL).balances()["USDT"] == 11.0
     finally:
         state.set_pot_manager(None)
 
@@ -488,10 +496,31 @@ def test_pot_line_follows_its_trades_and_ignores_money_moves():
     pts = data["pots"][0]["points"]
     assert [p["pct"] for p in pts[:3]] == [0.0, 0.0, 10.0]   # BTC up 10% after the buy
     assert pts[3]["value"] == pytest.approx(26.5) and pts[3]["invested"] == 25.0
-    assert pts[3]["pct"] == pytest.approx(6.0)              # $1.50 gain on $25 put in, not +$10
+    assert pts[3]["gain"] == pytest.approx(1.5) and pts[3]["moved"] == 10.0
+    assert pts[3]["pct"] == pytest.approx(10.0)             # the $10 moved in doesn't move the line
     assert pts[4]["value"] == pytest.approx(28.15)
+    # BTC +10% again, but $10 of the $26.50 is cash now: 1.10 * 28.15/26.50
+    assert pts[4]["pct"] == pytest.approx(16.8491, abs=1e-3)
+    assert data["pots"][0]["hold_pct"] == pytest.approx(21.0)
     assert [p["holding"] for p in pts] == [False, True, True, True, True]
     assert data["hold"][-1]["pct"] == pytest.approx(21.0)
+
+
+def test_money_moved_into_a_losing_pot_doesnt_make_its_line_jump():
+    """2026-11-16: $48 moved into the $6 Manual pot that was down $0.69.
+    The old % (value / money put in) jumped from -11% to -1%."""
+    t0 = datetime(2026, 11, 1, 0, tzinfo=timezone.utc)
+    candles = _hours(t0, [100, 100, 100, 100])
+    pots = [{
+        "name": "manual", "label": "M", "start_time": t0, "start_cash": 6.0,
+        "trades": [{"timestamp": t0 + timedelta(hours=1, minutes=10), "usdt_balance": 5.31, "base_balance": 0.0}],
+        "moves": [{"timestamp": t0 + timedelta(hours=2, minutes=20), "amount": 48.0},
+                  {"timestamp": t0 + timedelta(hours=3, minutes=20), "amount": -20.0}],
+    }]
+    pts = compute_pot_performance(pots, candles)["pots"][0]["points"]
+    assert pts[1]["pct"] == pytest.approx(-11.5)
+    assert pts[2]["pct"] == pytest.approx(-11.5) and pts[2]["gain"] == pytest.approx(-0.69)
+    assert pts[3]["pct"] == pytest.approx(-11.5) and pts[3]["moved"] == -20.0
 
 
 def test_each_pot_line_starts_when_the_pot_began():

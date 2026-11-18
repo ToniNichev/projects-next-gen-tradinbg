@@ -218,7 +218,10 @@ def get_manual_status():
             # bool() guards against numpy.bool_ (not a `bool` subclass, unlike
             # numpy.float64/int64) leaking in if balances ever hold numpy
             # scalars - that type isn't JSON-serializable and 500s this route.
-            "can_buy": bool(balances["USDT"] > 0),
+            # One position per pot: a second buy is refused ("Sell it first"),
+            # so don't offer it
+            "can_buy": bool(balances["USDT"] > 0 and not can_sell),
+            "holding": bool(can_sell),
             "can_sell": bool(can_sell),
             "min_position_size": config.min_position_size,
             "max_position_size": config.max_position_size,

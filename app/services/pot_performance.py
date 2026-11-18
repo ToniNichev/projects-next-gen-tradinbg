@@ -2,10 +2,15 @@
 Each money pot's result over time, next to just holding BTC.
 
 One point per closed hourly candle. A pot's value is rebuilt from its trade
-records (cash and BTC after each trade) and its cash moves; moves count as
-money put in or taken out, so they change what the pot was given, not its
-result. Each pot's line starts when the pot began; "holding BTC" starts with
-the earliest pot.
+records (cash and BTC after each trade) and its cash moves. Each pot's line
+starts when the pot began; "holding BTC" starts with the earliest pot.
+
+The % is time-weighted: each hour's change leaves out money moved in or out
+that hour, and the hours are chained. Before (2026-11-17) it was value / money
+put in, so moving $48 into a $6 pot that was down $0.69 made its line jump
+from -11% to -1%. A pot's % now compares straight with BTC's own change over
+the same time ("hold_pct"). The dollar result (value - money put in) is sent
+too, as "gain".
 """
 
 from datetime import datetime, timedelta, timezone
@@ -54,6 +59,9 @@ def compute_pot_performance(pots: List[Dict], candles: List[Dict], candle_hours:
         btc, k = 0.0, 0
         pot_start = _ts(pot["start_time"])
         points = []
+        growth = 1.0                        # chained hourly growth (time-weighted)
+        prev_value = float(pot["start_cash"])
+        moved = 0.0                         # money moved in (+) / out (-) since the last point
         for t, price in closes:
             while k < len(events) and events[k][0] <= t + GRACE:
                 _, kind, e = events[k]
@@ -62,16 +70,33 @@ def compute_pot_performance(pots: List[Dict], candles: List[Dict], candle_hours:
                 else:
                     cash += float(e["amount"])
                     invested += float(e["amount"])
+                    moved += float(e["amount"])
                 k += 1
             if t + GRACE < pot_start:
+                # Before the pot began nothing counts as a result yet
+                prev_value = cash + btc * price
+                moved = 0.0
                 continue
             value = cash + btc * price
+            # This hour's change without the money moved in or out. An
+            # (almost) empty pot has no change to measure.
+            if prev_value > 0.01:
+                growth *= (value - moved) / prev_value
+            prev_value = value
             points.append({
                 "time": t.isoformat(),
-                "pct": round((value / invested - 1) * 100, 4) if invested > 0 else 0.0,
+                "pct": round((growth - 1) * 100, 4),
                 "value": round(value, 4),
                 "invested": round(invested, 4),
+                "gain": round(value - invested, 4),
+                "moved": round(moved, 4),
                 "holding": btc * price >= 1.0,  # dust doesn't count as holding
             })
-        out.append({"name": pot["name"], "label": pot["label"], "points": points})
+            moved = 0.0
+        hold_pct = None
+        if points:
+            first_price = dict((t.isoformat(), p) for t, p in closes)[points[0]["time"]]
+            hold_pct = round((closes[-1][1] / first_price - 1) * 100, 4)
+        out.append({"name": pot["name"], "label": pot["label"], "points": points,
+                    "hold_pct": hold_pct})
     return {"start_time": closes[0][0].isoformat(), "pots": out, "hold": hold}

@@ -957,6 +957,7 @@
   .pots-vs-tile .e { font-size: 0.72rem; color: var(--text-secondary); }
   .pots-vs-tile .e.ahead { color: var(--accent-green); }
   .pots-vs-tile .e.behind { color: var(--accent-red); }
+  .pots-vs-tile .v .usd { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); margin-left: 0.35rem; }
   .pots-vs-tile.hold { border-left-style: dashed; }
   .pots-perf-range { display: flex; gap: 0.3rem; margin: 0 0 0.5rem; flex-wrap: wrap; }
   .pots-perf-range button { font-size: 0.74rem; padding: 0.22rem 0.65rem; border-radius: 999px; cursor: pointer;
@@ -1087,7 +1088,7 @@
       <button type="button" data-range="all" aria-pressed="false">All</button>
     </div>
     <div class="pots-perf-wrap"><canvas id="potsPerfChart"></canvas></div>
-    <p class="pots-perf-note">Each line is a pot's gain or loss on the money put in, from when that pot began. Above 0% = money made. Money moved between pots doesn't count as a gain or loss. Badges mark each pot's buys and sells; hover one for details. Click a name above the chart to hide or show its line. The 1 day / 1 week / 1 month buttons only narrow the view: values stay counted from when each pot began.</p>
+    <p class="pots-perf-note">Each line is a pot's gain or loss from when that pot began, counting only price moves and trades. Above 0% = money made. Money moved in or out doesn't move the line (a "+$48" tag marks where it happened), so a pot compares straight with just holding BTC. The tooltip shows the result in dollars on the money put in. Badges mark each pot's buys and sells; hover one for details. Click a name above the chart to hide or show its line. The 1 day / 1 week / 1 month buttons only narrow the view: values stay counted from when each pot began.</p>
   </div>
   <div class="pots-grid" id="pots-grid"><div class="signals-empty">Loading…</div></div>
   <details class="pots-move" id="pots-move">
@@ -1110,6 +1111,42 @@
   </p>
 </section>
 
+<script>
+  // Send an action that moves money and say plainly what happened.
+  // ok: done. unclear: it may or may not have gone through (no answer, or the
+  // server failed mid-way). Otherwise it was refused and nothing was done:
+  // logged out (401), too fast (429), or the bot said no.
+  window.newActionId = function () {
+    try { if (crypto.randomUUID) return crypto.randomUUID(); } catch (e) { /* older Safari */ }
+    return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  };
+  window.postAction = async function (url, body) {
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+    } catch (e) {
+      return { ok: false, unclear: true, error: 'No answer from the bot (the connection dropped).' };
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (res.status === 401) {
+      return { ok: false, error: "You're logged out, so nothing was done. Reload the page to sign in, then try again." };
+    }
+    if (res.status === 429) {
+      return { ok: false, data, error: (data && data.error) || 'Too many requests in a row, so nothing was done. Wait a moment and try again.' };
+    }
+    if (res.status >= 500 || (res.ok && !data)) {
+      return { ok: false, unclear: true, data,
+               error: (data && data.error) || `The bot's server didn't answer properly (error ${res.status}).` };
+    }
+    if (!data) return { ok: false, error: `Refused (error ${res.status}), so nothing was done.` };
+    if (res.ok && data.success !== false) return { ok: true, data };
+    return { ok: false, data, error: data.error || 'It did not work, so nothing was done.' };
+  };
+</script>
 <script>
   (function () {
     const money = (v, d = 2) => TradeWords.money(v, d);
@@ -1397,6 +1434,46 @@
         perfChart.update('none');
       }
     });
+    // A small "+$48" tag where money was moved into (or out of) a pot
+    const PERF_MOVES_PLUGIN = {
+      id: 'perfMoves',
+      afterDatasetsDraw(ch) {
+        const { ctx, chartArea: a } = ch;
+        ctx.save();
+        ctx.font = '600 10px Inter, -apple-system, sans-serif';
+        ctx.textBaseline = 'middle';
+        ch.data.datasets.forEach((d, di) => {
+          if (!d.$pot || !ch.isDatasetVisible(di)) return;
+          const els = ch.getDatasetMeta(di).data;
+          d.data.forEach((q, i) => {
+            if (!q.moved || Math.abs(q.moved) < 0.01) return;
+            const el = els[i];
+            if (!el || el.x < a.left || el.x > a.right) return;
+            const text = (q.moved > 0 ? '+' : '−') + '$' + Math.abs(q.moved).toFixed(Math.abs(q.moved) >= 10 ? 0 : 2);
+            const w = ctx.measureText(text).width + 10, h = 16;
+            const x = Math.min(Math.max(el.x - w / 2, a.left), a.right - w);
+            const y = Math.max(el.y - 26, a.top);
+            ctx.globalAlpha = 0.95;
+            ctx.fillStyle = 'rgba(13, 17, 23, 0.9)';
+            ctx.strokeStyle = d.borderColor;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(x, y, w, h, 8); else ctx.rect(x, y, w, h);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#e1e8ff';
+            ctx.fillText(text, x + 5, y + h / 2);
+            ctx.beginPath();
+            ctx.moveTo(el.x, y + h);
+            ctx.lineTo(el.x, el.y - 3);
+            ctx.strokeStyle = d.borderColor;
+            ctx.stroke();
+          });
+        });
+        ctx.restore();
+      },
+    };
+
     function perfTick(v) {
       const n = Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 1 });
       return (v > 0 ? '+' : v < 0 ? '−' : '') + n + '%';
@@ -1417,13 +1494,16 @@
           pointRadius: 0, pointHoverRadius: 4, tension: 0.15, fill: false, ...extra,
         });
         const datasets = data.pots.map(p => line(labelOf[p.name] || p.label, potColor(p.name),
-          p.points.map(q => ({ x: new Date(q.time).getTime(), y: q.pct, value: q.value, invested: q.invested, holding: q.holding })),
+          p.points.map(q => ({ x: new Date(q.time).getTime(), y: q.pct, value: q.value, invested: q.invested,
+                               gain: q.gain, moved: q.moved, holding: q.holding })),
           { $pot: true, $key: p.name }));
         datasets.push(line('Just holding BTC', HOLD_COLOR,
           data.hold.map(q => ({ x: new Date(q.time).getTime(), y: q.pct, price: q.price })),
           { borderDash: [5, 4], borderWidth: 1.6, $hold: true, $key: 'hold' }));
 
-        // Buy/sell badges on each pot's line, at the hourly close that covers the trade
+        // Buy/sell badges on each pot's line, at the hourly close that covers
+        // the trade: the first point at or after it. Bot trades come a moment
+        // after a close, so GRACE keeps them on that close.
         const GRACE = 5 * 60 * 1000;
         datasets.filter(d => d.$pot).forEach((d, i) => {
           const pot = data.pots[i].name;
@@ -1431,8 +1511,7 @@
           if (!pts.length) return;
           const onLine = (t) => {
             const tx = new Date(t.timestamp).getTime();
-            let p = pts[0];
-            for (const q of pts) { if (q.x <= tx + GRACE) p = q; else break; }
+            const p = pts.find(q => q.x + GRACE >= tx) || pts[pts.length - 1];
             return { x: p.x, y: p.y };
           };
           ['buy', 'sell'].forEach(side => {
@@ -1458,19 +1537,24 @@
         const holdAt = {};
         data.hold.forEach(q => { holdAt[q.time] = q.price; });
         const lastHold = data.hold[data.hold.length - 1];
+        const signedUsd = (v) => (v > 0.005 ? '+' : v < -0.005 ? '−' : '') + money(Math.abs(v));
         const tiles = data.pots.map(p => {
           const last = p.points[p.points.length - 1];
           if (!last) return '';
           const startPrice = holdAt[p.points[0].time] || data.hold[0].price;
-          const holdPct = (lastHold.price / startPrice - 1) * 100;
+          // BTC's change over the same time; both are time-weighted, so money
+          // moved in later doesn't tilt the comparison
+          const holdPct = p.hold_pct != null ? p.hold_pct : (lastHold.price / startPrice - 1) * 100;
           const traded = trades.some(t => t.pot === p.name);
           const edge = last.pct - holdPct;
+          const usd = last.gain != null
+            ? `<span class="usd" title="${signedUsd(last.gain)} on ${money(last.invested)} put in">${signedUsd(last.gain)}</span>` : '';
           const e = !traded
             ? '<div class="e">not traded yet</div>'
             : `<div class="e ${edge >= 0 ? 'ahead' : 'behind'}">${edge >= 0 ? 'ahead of' : 'behind'} holding by ${Math.abs(edge).toFixed(1)} pts</div>`;
-          return `<div class="pots-vs-tile" style="--c:${potColor(p.name)}" title="Holding BTC since this pot began: ${perfTick(holdPct)}">
+          return `<div class="pots-vs-tile" style="--c:${potColor(p.name)}" title="Holding BTC since this pot began: ${perfTick(holdPct)}${last.gain != null ? ` · In dollars: ${signedUsd(last.gain)} on ${money(last.invested)} put in` : ''}">
                     <div class="n">${esc(labelOf[p.name] || p.label)}</div>
-                    <div class="v">${perfTick(last.pct)}</div>${e}</div>`;
+                    <div class="v">${perfTick(last.pct)}${usd}</div>${e}</div>`;
         }).join('');
         const since = new Date(data.hold[0].time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         document.getElementById('pots-vs').innerHTML = tiles +
@@ -1505,6 +1589,7 @@
         }
         perfChart = new Chart(document.getElementById('potsPerfChart').getContext('2d'), {
           type: 'line',
+          plugins: [PERF_MOVES_PLUGIN],
           data: { datasets },
           options: {
             responsive: true, maintainAspectRatio: false, animation: false,
@@ -1537,7 +1622,13 @@
                   label(item) {
                     const r = item.raw;
                     if (item.dataset.$hold) return ` Just holding BTC: ${perfTick(r.y)} (BTC ${money(r.price, 0)})`;
-                    return ` ${item.dataset.label}: ${perfTick(r.y)} (${money(r.value)}${r.holding ? ', in BTC' : ', in cash'})`;
+                    const where = r.holding ? 'in BTC' : 'in cash';
+                    const usd = r.gain != null
+                      ? `${signedUsd(r.gain)} on ${money(r.invested)} put in, ${where}`
+                      : `${money(r.value)}, ${where}`;
+                    const out = [` ${item.dataset.label}: ${perfTick(r.y)} (${usd})`];
+                    if (r.moved) out.push(`   ${signedUsd(r.moved)} moved ${r.moved > 0 ? 'in' : 'out'} this hour`);
+                    return out;
                   },
                   labelColor: (item) => ({ borderColor: item.dataset.borderColor, backgroundColor: item.dataset.borderColor, borderRadius: 3 }),
                   // Trades made in the hour that ended here
@@ -1747,14 +1838,11 @@
                  : action === 'remove' || action === 'resetlimit' || action === 'clearcheck' ? { pot: name }
                  : { pot: name, paused: action === 'pause' };
       try {
-        const r = await fetch(url, {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        }).then(res => res.json());
-        potMsgs[name] = r.success ? { cls: 'ok', text: r.message + '.' }
-                                  : { cls: 'err', text: r.error || 'It did not work.' };
-      } catch (e) {
-        potMsgs[name] = { cls: 'err', text: 'No reply from the bot. It may still have gone through: check the pot before trying again.' };
+        const r = await postAction(url, body);
+        potMsgs[name] = r.ok ? { cls: 'ok', text: r.data.message + '.' }
+          : { cls: 'err', text: r.unclear
+                ? `${r.error} It may still have gone through: check the pot before trying again.`
+                : r.error };
       } finally {
         potBusy = false;
         setTimeout(() => { delete potMsgs[name]; }, 60000);
@@ -1831,6 +1919,7 @@
       btn.textContent = 'Move';
     }
 
+    let unclearMove = null;  // {key, id} of a move whose answer was lost
     async function onMove() {
       const btn = document.getElementById('pots-move-btn');
       const msg = document.getElementById('pots-move-msg');
@@ -1842,6 +1931,8 @@
       if (!(move.amount > 0)) { msg.className = 'pots-move-msg err'; msg.textContent = 'Enter an amount above $0.'; return; }
       if (move.from === move.to) { msg.className = 'pots-move-msg err'; msg.textContent = 'Pick two different places.'; return; }
       const key = JSON.stringify(move);
+      // Retrying a move whose answer got lost resends its id: done once at most
+      const requestId = unclearMove && unclearMove.key === key ? unclearMove.id : newActionId();
       const row = (k, v) => `<div class="preview-item"><span class="preview-label">${k}</span><span class="preview-value">${v}</span></div>`;
       const ok = await askConfirm({
         title: `Move ${money(move.amount)}?`, confirmText: 'Move money',
@@ -1853,16 +1944,13 @@
       msg.textContent = '';
       btn.disabled = true;
       try {
-        const r = await fetch('/api/pots/transfer', {
-          method: 'POST', credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }, body: key,
-        }).then(res => res.json());
-        msg.className = 'pots-move-msg ' + (r.success ? 'ok' : 'err');
-        msg.textContent = r.success ? r.message + '.' : (r.error || 'The move failed.');
-        if (r.success) document.getElementById('pots-amount').value = '';
-      } catch (e) {
-        msg.className = 'pots-move-msg err';
-        msg.textContent = 'No reply from the bot. Check the pots before trying again.';
+        const r = await postAction('/api/pots/transfer', { ...move, request_id: requestId });
+        unclearMove = r.unclear ? { key, id: requestId } : null;
+        msg.className = 'pots-move-msg ' + (r.ok ? 'ok' : 'err');
+        msg.textContent = r.ok ? r.data.message + '.'
+          : r.unclear ? `${r.error} It may have gone through: check the pots. Pressing Move again with the same amount won't move it twice.`
+          : r.error;
+        if (r.ok) document.getElementById('pots-amount').value = '';
       } finally {
         btn.disabled = false;
         resetButton();
@@ -1936,6 +2024,7 @@
     // Wait for the whole page (the chart helpers are defined further down)
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadPots); else loadPots();
     setInterval(loadPots, 60 * 1000);
+    window.loadPotsNow = () => loadPots();
     setInterval(() => { if (window.__potsEnabled) loadPerf(); }, 5 * 60 * 1000);
   })();
 </script>
@@ -2148,7 +2237,7 @@
     <canvas id="priceChart"></canvas>
   </div>
   <div class="chart-status" id="chart-status" aria-live="polite"></div>
-  <div class="chart-hint">Drag to pan · <kbd>Wheel</kbd> zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
+  <div class="chart-hint">Drag (or swipe sideways) to pan · <kbd>Wheel</kbd> or pinch to zoom · <kbd>Shift</kbd>+<kbd>Wheel</kbd> scroll · <kbd>0</kbd> reset · <kbd>F</kbd> fullscreen</div>
 </div>
 
 <!-- Strategy Signals Panel -->
@@ -3558,9 +3647,7 @@
 
       // Try again as soon as the connection comes back or the tab is looked at again
       window.addEventListener('online', () => { if (chartProblem) refresh(); });
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && chartProblem) refresh();
-      });
+      // (coming back to the tab refreshes everything: see onPageBack)
 
       function chartHasCandles() {
         return loadedTf === currentTimeframe && !!(chart && chart.data.datasets[0] && chart.data.datasets[0].data.length);
@@ -4534,8 +4621,25 @@
         animateViewTo(at - (at - v.min) * factor, at + (v.max - at) * factor, easeMs);
       }
       const VELOCITY_HISTORY_SIZE = 5;
-      
-      canvas.addEventListener('mousedown', (e) => {
+
+      // Pointer events cover mouse, pen and touch, so a one-finger drag pans
+      // the chart on iPad too (mouse events don't fire for a touch drag).
+      // Two fingers are a pinch (zoom plugin), not a drag.
+      const activePointers = new Set();
+      // Vertical swipes still scroll the page; sideways ones reach the chart.
+      // Hammer (the zoom plugin's pinch) sets its own inline value: override it.
+      canvas.style.touchAction = 'pan-y';
+
+      canvas.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        activePointers.add(e.pointerId);
+        if (activePointers.size > 1) {
+          // Second finger: a pinch is starting, drop the drag without a glide
+          isDragging = false;
+          velocityHistory.length = 0;
+          return;
+        }
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* old browser */ }
         // Grabbing the chart stops any glide or easing in progress
         stopMotion();
         
@@ -4554,8 +4658,8 @@
         velocityHistory.length = 0;
       });
       
-      canvas.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
+      canvas.addEventListener('pointermove', (e) => {
+        if (!isDragging || activePointers.size > 1) return;
         
         e.preventDefault();
         const xScale = chart.scales.x;
@@ -4762,8 +4866,19 @@
         momentumAnimation = requestAnimationFrame(animate);
       }
       
-      canvas.addEventListener('mouseup', stopDragging);
-      canvas.addEventListener('mouseleave', stopDragging);
+      const endPointer = (e) => {
+        activePointers.delete(e.pointerId);
+        if (activePointers.size === 0) stopDragging();
+      };
+      canvas.addEventListener('pointerup', endPointer);
+      canvas.addEventListener('pointercancel', (e) => {
+        // The browser took over (e.g. a vertical page scroll): no glide
+        activePointers.delete(e.pointerId);
+        velocityHistory.length = 0;
+        velocityX = 0;
+        if (activePointers.size === 0) stopDragging();
+      });
+      canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') endPointer(e); });
       
       // Mouse wheel / trackpad: up-down zooms around the cursor, sideways
       // (or Shift+wheel) scrolls. Both ease smoothly toward the new view.
@@ -4820,13 +4935,23 @@
       let pendingTradeAction = null;
       
       // Update manual trading status
+      let manualStatusAt = 0;  // when manualTradingStatus arrived (ms)
+      // Without a fresh status the buttons would trade on old numbers
+      function manualStatusFailed(why) {
+        ['buy-btn', 'sell-btn'].forEach(id => {
+          const b = document.getElementById(id);
+          if (b) { b.disabled = true; b.title = why; }
+        });
+      }
       async function updateManualTradingStatus() {
         try {
           const response = await fetch('/api/manual/status', {credentials: 'include'});
+          if (response.status === 401) { manualStatusFailed("Logged out: reload the page to sign in"); return false; }
           const data = await response.json();
           
           if (data.available) {
             manualTradingStatus = data;
+            manualStatusAt = Date.now();
             updatePositionDisplay(data);
             updateTradePreview(data);
             updateButtonStates(data);
@@ -4837,7 +4962,10 @@
           }
         } catch (error) {
           console.error('Failed to fetch manual trading status:', error);
+          manualStatusFailed("Can't reach the bot right now");
+          return false;
         }
+        return true;
       }
       
       // Update position size input constraints based on config
@@ -5007,11 +5135,14 @@
         
         buyBtn.disabled = !status.can_buy;
         sellBtn.disabled = !status.can_sell;
+        const holding = status.holding ?? !!status.position;
+        buyBtn.title = holding ? 'The Manual pot already holds BTC: sell it first, then buy again' : '';
+        sellBtn.title = '';
         
         // Update button text based on position status
         const icoUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
         const icoDown = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
-        buyBtn.innerHTML = icoUp + (status.position && status.position.side === 'long' ? 'Buy more' : 'Buy');
+        buyBtn.innerHTML = icoUp + 'Buy';
         sellBtn.innerHTML = icoDown + 'Sell all';
       }
       
@@ -5052,22 +5183,11 @@
         // Plain answer to "what happens if I buy": spend, get, and where it ends
         const b = buyPlan(manualTradingStatus, orderValue);
         const price = manualTradingStatus.current_price;
-        const pos = manualTradingStatus.position && manualTradingStatus.position.side === 'long'
-          ? manualTradingStatus.position : null;
-        modalTitle = pos ? '🔼 Buy more BTC?' : '🔼 Buy BTC?';
-        let extra = '';
-        if (pos) {
-          const total = pos.amount + b.btc;
-          const avg = (pos.entry_price * pos.amount + b.spend) / total;
-          extra = `<div class="modal-split"></div>
-            ${mtRow('You\'ll then hold', `${total.toFixed(8)} BTC`, `${pos.amount.toFixed(8)} you have + ${b.btc.toFixed(8)} new`)}
-            ${mtRow('New average buy price', fmtUsd(avg), `was ${fmtUsd(pos.entry_price)}`)}`;
-        }
+        modalTitle = '🔼 Buy BTC?';
         modalBody = `
           ${mtRow('You spend', usdS(b.spend), `${(positionSize * 100).toFixed(0)}% of the Manual pot's cash`)}
           ${mtRow('At about', fmtUsd(price), 'market price; the exact price is set when the order fills')}
           ${mtRow('You get', `${b.btc.toFixed(8)} BTC`, `after a ${usdS(b.fee)} fee, taken in BTC`)}
-          ${extra}
           <div class="modal-split"></div>
           ${mtRow('Break-even price', fmtUsd(b.breakEven), `BTC must rise ${((b.breakEven / price - 1) * 100).toFixed(2)}% to cover the fees`)}
           ${b.sl ? mtRow('If BTC falls to the stop', `${fmtUsd(b.sl)} <em class="negative">${sgn(b.slResult)}</em>`, 'the bot sells automatically there — the most you\'d normally lose') : ''}
@@ -5201,38 +5321,46 @@
         const originalText = confirmBtn.textContent;
         confirmBtn.innerHTML = '<span class="loading-spinner"></span> Processing...';
         confirmBtn.disabled = true;
-        
-        try {
-          const endpoint = pendingTradeAction.type === 'buy' ? '/api/manual/buy' : '/api/manual/sell';
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              position_size: pendingTradeAction.positionSize,
-              request_id: pendingTradeAction.requestId,
-            })
-          });
-          
-          const data = await response.json();
-          
-          if (response.ok && data.success) {
-            showNotification(`✅ ${data.message}`, 'success');
-            closeModal();
-            
-            // Refresh status and chart
-            await updateManualTradingStatus();
-            await refresh();
-          } else {
-            showNotification(`❌ ${data.error || 'Trade failed'}`, 'error');
-            confirmBtn.textContent = originalText;
-            confirmBtn.disabled = false;
+
+        // The box may have sat open (or the iPad froze the tab): show fresh
+        // numbers before trading on them. Not on a retry of a sent order.
+        const action = pendingTradeAction;
+        if (!action.sent && Date.now() - manualStatusAt > 15000) {
+          const fresh = await updateManualTradingStatus();
+          confirmBtn.textContent = originalText;
+          confirmBtn.disabled = false;
+          if (!fresh) {
+            showNotification("❌ Couldn't get a fresh price from the bot, so nothing was done. Try again in a moment.", 'error');
+            return;
           }
-        } catch (error) {
+          closeModal();
+          if (action.type === 'buy') await executeBuy(); else await executeSell();
+          showNotification('Prices updated: check the numbers, then confirm again.', 'warning');
+          return;
+        }
+
+        const endpoint = action.type === 'buy' ? '/api/manual/buy' : '/api/manual/sell';
+        action.sent = true;
+        const r = await postAction(endpoint, {
+          position_size: action.positionSize,
+          request_id: action.requestId,
+        });
+        if (r.ok) {
+          showNotification(`✅ ${r.data.message}`, 'success');
+          closeModal();
+          // Refresh status and chart
+          await updateManualTradingStatus();
+          await refresh();
+        } else if (r.unclear) {
           // The order may have gone through even though the answer was lost.
           // Confirming again resends the same id, so it can't trade twice.
-          showNotification(`❌ No answer from the bot (${error.message}). The order may have gone through: check the balance. Confirming again won't trade twice.`, 'error');
+          showNotification(`❌ ${r.error} The order may have gone through: check the balance. Confirming again won't trade twice.`, 'error');
+          confirmBtn.textContent = originalText;
+          confirmBtn.disabled = false;
+        } else {
+          showNotification(`❌ ${r.error}`, 'error');
+          // Refused: nothing happened, so a new confirmation starts fresh
+          action.sent = false;
           confirmBtn.textContent = originalText;
           confirmBtn.disabled = false;
         }
@@ -5374,6 +5502,24 @@
       
       // Auto-refresh manual trading status
       setInterval(updateManualTradingStatus, 5000); // Every 5 seconds
+
+      // iPad Safari freezes background tabs and can restore the page from
+      // its cache: everything shown may be old when you come back
+      function onPageBack() {
+        refresh();
+        fetchLivePrice();
+        updateManualTradingStatus();
+        if (window.loadPotsNow) window.loadPotsNow();
+      }
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) { onPageBack(); return; }
+        // Leaving the tab: close a confirm box that hasn't been sent, so it
+        // isn't confirmed later on old numbers
+        const btn = document.getElementById('modal-confirm-btn');
+        const open = document.getElementById('confirmation-modal').classList.contains('show');
+        if (open && pendingTradeAction && !pendingTradeAction.sent && !(btn && btn.disabled)) closeModal();
+      });
+      window.addEventListener('pageshow', (e) => { if (e.persisted) onPageBack(); });
       
       // =====================================================================
       // STRATEGY SIGNALS

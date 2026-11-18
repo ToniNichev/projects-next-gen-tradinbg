@@ -14,6 +14,7 @@ GET /api/paper/performance          Paper test so far: bot vs. holding BTC, hour
 """
 
 import logging
+import time
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
@@ -588,6 +589,12 @@ def get_pots():
         return jsonify({"success": False, "error": str(exc)}), 500
 
 
+# A money move sent again with the same request_id (its answer was lost and
+# the page retried) returns the first result instead of moving it twice
+_TRANSFER_MEMORY = 600.0
+_transfer_done: dict = {}          # request_id -> (time, response body)
+
+
 @market_bp.route("/api/pots/transfer", methods=["POST"])
 @limiter.limit("10 per minute")
 @require_auth
@@ -600,9 +607,18 @@ def transfer_pot_cash():
     if pots is None:
         return jsonify({"success": False, "error": "Money pots are off"}), 400
     params = request.get_json(silent=True) or {}
+    rid = str(params["request_id"])[:64] if params.get("request_id") else None
     lock = app_state.get_trader_lock()
     try:
         with lock if lock else nullcontext():
+            now = time.time()
+            for k, (at, _) in list(_transfer_done.items()):
+                if now - at > _TRANSFER_MEMORY:
+                    _transfer_done.pop(k, None)
+            if rid and rid in _transfer_done:
+                body = dict(_transfer_done[rid][1])
+                body.update(duplicate=True, message="Already done: this move went through the first time (not repeated)")
+                return jsonify(body)
             result = pots.transfer(
                 str(params.get("from", "")),
                 str(params.get("to", "")),
@@ -610,7 +626,10 @@ def transfer_pot_cash():
                 str(params.get("note", ""))[:200],
             )
             balances = {p.name: p.balances() for p in pots.pots.values()}
-        return jsonify({"success": True, **result, "balances": balances})
+            body = {"success": True, **result, "balances": balances}
+            if rid:
+                _transfer_done[rid] = (now, body)
+        return jsonify(body)
     except TransferError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
     except Exception as exc:

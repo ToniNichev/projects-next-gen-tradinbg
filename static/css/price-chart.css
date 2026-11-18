@@ -241,7 +241,7 @@
 }
 .chart-container canvas {
   cursor: grab;
-  touch-action: none;  /* Improve touch scrolling */
+  touch-action: pan-y;  /* one-finger sideways drag pans the chart; up/down still scrolls the page */
   user-select: none;   /* Prevent text selection during drag */
 }
 .chart-container canvas:active {
