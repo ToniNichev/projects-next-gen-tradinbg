@@ -882,7 +882,8 @@ def get_pots_performance():
                 "start_time": pot.start_time or datetime.now(timezone.utc),
                 "start_cash": pot.start_value,
                 "trades": [{"timestamp": t.timestamp, "usdt_balance": float(t.usdt_balance or 0),
-                            "base_balance": float(t.base_balance or 0)} for t in trades],
+                            "base_balance": float(t.base_balance or 0),
+                            "price": float(t.price or 0)} for t in trades],
                 "moves": [{"timestamp": m.timestamp,
                            "amount": float(m.amount) if m.to_pot == tag else -float(m.amount)}
                           for m in moves],

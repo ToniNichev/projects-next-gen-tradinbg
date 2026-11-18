@@ -523,6 +523,42 @@ def test_money_moved_into_a_losing_pot_doesnt_make_its_line_jump():
     assert pts[3]["pct"] == pytest.approx(-11.5) and pts[3]["moved"] == -20.0
 
 
+def test_loss_right_after_a_deposit_is_measured_on_the_whole_amount():
+    """2026-11-16: $48 moved into Manual (about $5.32 cash), bought with it at
+    once, and lost about $0.02 by the hour's close. Counting the move at the
+    end of the hour charged that loss to the $5.32 alone (-0.4%); it was a
+    loss on about $53 (-0.04%)."""
+    t0 = datetime(2026, 11, 1, 0, tzinfo=timezone.utc)
+    candles = _hours(t0, [100, 100, 99.9625])
+    pots = [{
+        "name": "manual", "label": "M", "start_time": t0, "start_cash": 5.32,
+        "trades": [{"timestamp": t0 + timedelta(hours=2, minutes=45), "price": 100.0,
+                    "usdt_balance": 0.0, "base_balance": 0.5332}],
+        "moves": [{"timestamp": t0 + timedelta(hours=2, minutes=40), "amount": 48.0}],
+    }]
+    pts = compute_pot_performance(pots, candles)["pots"][0]["points"]
+    assert pts[2]["value"] == pytest.approx(53.30, abs=1e-3)
+    assert pts[2]["pct"] == pytest.approx(-0.0375, abs=1e-3)
+    assert pts[2]["gain"] == pytest.approx(-0.02, abs=1e-3)
+
+
+def test_money_moved_while_holding_btc_uses_the_last_known_price():
+    t0 = datetime(2026, 11, 1, 0, tzinfo=timezone.utc)
+    candles = _hours(t0, [100, 100, 120])
+    pots = [{
+        "name": "trend", "label": "T", "start_time": t0, "start_cash": 10.0,
+        # All in at 100: 0.1 BTC
+        "trades": [{"timestamp": t0 + timedelta(hours=1, minutes=1), "price": 100.0,
+                    "usdt_balance": 0.0, "base_balance": 0.1}],
+        # $10 cash in early in the hour BTC went up 20%
+        "moves": [{"timestamp": t0 + timedelta(hours=2, minutes=5), "amount": 10.0}],
+    }]
+    pts = compute_pot_performance(pots, candles)["pots"][0]["points"]
+    # The $10 BTC part made 20%; the $10 cash part nothing: 22 / 20 = +10%
+    assert pts[2]["value"] == pytest.approx(22.0)
+    assert pts[2]["pct"] == pytest.approx(10.0)
+
+
 def test_each_pot_line_starts_when_the_pot_began():
     t0 = datetime(2026, 11, 1, 0, tzinfo=timezone.utc)
     candles = _hours(t0, [100] * 6)

@@ -6,7 +6,10 @@ records (cash and BTC after each trade) and its cash moves. Each pot's line
 starts when the pot began; "holding BTC" starts with the earliest pot.
 
 The % is time-weighted: each hour's change leaves out money moved in or out
-that hour, and the hours are chained. Before (2026-11-17) it was value / money
+that hour, and the hours are chained. When money moves, the stretch up to that
+moment is closed at the pot's value just before it (cash plus BTC at the latest
+known price: the last trade's or the last hourly close), so a loss right after a
+deposit is measured on the bigger amount, not on what was there before. Before (2026-11-17) it was value / money
 put in, so moving $48 into a $6 pot that was down $0.69 made its line jump
 from -11% to -1%. A pot's % now compares straight with BTC's own change over
 the same time ("hold_pct"). The dollar result (value - money put in) is sent
@@ -62,27 +65,41 @@ def compute_pot_performance(pots: List[Dict], candles: List[Dict], candle_hours:
         growth = 1.0                        # chained hourly growth (time-weighted)
         prev_value = float(pot["start_cash"])
         moved = 0.0                         # money moved in (+) / out (-) since the last point
+        last_px = None                      # latest known BTC price (last close or trade)
         for t, price in closes:
+            started = t + GRACE >= pot_start
             while k < len(events) and events[k][0] <= t + GRACE:
                 _, kind, e = events[k]
                 if kind == 0:
                     cash, btc = float(e["usdt_balance"]), float(e["base_balance"])
+                    if e.get("price"):
+                        last_px = float(e["price"])
                 else:
-                    cash += float(e["amount"])
-                    invested += float(e["amount"])
-                    moved += float(e["amount"])
+                    amount = float(e["amount"])
+                    if started:
+                        # Close the stretch at the value just before the move,
+                        # then carry on from there with the money in (or out)
+                        before = cash + btc * (last_px or price)
+                        if prev_value > 0.01:
+                            growth *= before / prev_value
+                        prev_value = before + amount
+                    cash += amount
+                    invested += amount
+                    moved += amount
                 k += 1
-            if t + GRACE < pot_start:
+            if not started:
                 # Before the pot began nothing counts as a result yet
                 prev_value = cash + btc * price
+                last_px = price
                 moved = 0.0
                 continue
             value = cash + btc * price
-            # This hour's change without the money moved in or out. An
-            # (almost) empty pot has no change to measure.
+            # The rest of the hour (money moves already closed their stretch).
+            # An (almost) empty pot has no change to measure.
             if prev_value > 0.01:
-                growth *= (value - moved) / prev_value
+                growth *= value / prev_value
             prev_value = value
+            last_px = price
             points.append({
                 "time": t.isoformat(),
                 "pct": round((growth - 1) * 100, 4),

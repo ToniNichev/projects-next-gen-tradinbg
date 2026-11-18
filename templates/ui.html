@@ -959,8 +959,10 @@
   .pots-vs-tile .e.behind { color: var(--accent-red); }
   .pots-vs-tile .v .usd { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); margin-left: 0.35rem; }
   .pots-vs-tile.hold { border-left-style: dashed; }
-  .pots-perf-range { display: flex; gap: 0.3rem; margin: 0 0 0.5rem; flex-wrap: wrap; align-items: center; }
-  .pots-perf-sep { width: 1px; height: 1.1rem; background: rgba(255,255,255,0.12); margin: 0 0.3rem; }
+  .pots-perf-range { display: flex; gap: 0.4rem 0.8rem; margin: 0 0 0.5rem; flex-wrap: wrap; align-items: center; }
+  .pots-perf-btns { display: inline-flex; gap: 0.3rem; flex-wrap: wrap; align-items: center; }
+  .pots-perf-unit { margin-left: auto; }
+  @media (pointer: coarse) { .pots-perf-range button { min-height: 36px; min-width: 42px; } }
   .pots-perf-range button { font-size: 0.74rem; padding: 0.22rem 0.65rem; border-radius: 999px; cursor: pointer;
     border: 1px solid rgba(255,255,255,0.14); background: transparent; color: var(--text-secondary); }
   .pots-perf-range button.on { background: rgba(83,155,245,0.16); border-color: rgba(83,155,245,0.55); color: var(--text-primary); font-weight: 600; }
@@ -1082,17 +1084,20 @@
     <div class="pots-section-title">Results over time</div>
     <div class="pots-vs" id="pots-vs"></div>
     <div class="pots-perf-legend" id="pots-perf-legend"></div>
-    <div class="pots-perf-range" id="pots-perf-range" role="group" aria-label="Time shown">
-      <button type="button" data-range="day" aria-pressed="false">1 day</button>
-      <button type="button" data-range="week" aria-pressed="false">1 week</button>
-      <button type="button" data-range="month" aria-pressed="false">1 month</button>
-      <button type="button" data-range="all" aria-pressed="false">All</button>
-      <span class="pots-perf-sep" aria-hidden="true"></span>
-      <button type="button" data-unit="pct" aria-pressed="false" title="Gain or loss in % (compares with just holding BTC)">%</button>
-      <button type="button" data-unit="usd" aria-pressed="false" title="Gain or loss in dollars on the money put in">$</button>
+    <div class="pots-perf-range" id="pots-perf-range">
+      <span class="pots-perf-btns" role="group" aria-label="Time shown">
+        <button type="button" data-range="day" aria-pressed="false">1 day</button>
+        <button type="button" data-range="week" aria-pressed="false">1 week</button>
+        <button type="button" data-range="month" aria-pressed="false">1 month</button>
+        <button type="button" data-range="all" aria-pressed="false">All</button>
+      </span>
+      <span class="pots-perf-btns pots-perf-unit" role="group" aria-label="Show as">
+        <button type="button" data-unit="pct" aria-pressed="false" aria-label="Percent" title="Gain or loss in % (compares with just holding BTC)">%</button>
+        <button type="button" data-unit="usd" aria-pressed="false" aria-label="Dollars" title="Gain or loss in dollars on the money put in">$</button>
+      </span>
     </div>
     <div class="pots-perf-wrap"><canvas id="potsPerfChart"></canvas></div>
-    <p class="pots-perf-note">Each line is a pot's gain or loss from when that pot began, counting only price moves and trades. Above 0% = money made. Money moved in or out doesn't move the line (a "+$48" tag marks where it happened), so a pot compares straight with just holding BTC. Switch to $ to see the dollars won or lost on the money put in (that view jumps only by gains and losses, not by money moved). Over a week shown, trades are small green (buy) and red (sell) dots; pick 1 week or 1 day for full badges. Badges mark each pot's buys and sells; hover one for details. Click a name above the chart to hide or show its line. The 1 day / 1 week / 1 month buttons only narrow the view: values stay counted from when each pot began.</p>
+    <p class="pots-perf-note" id="pots-perf-note">Each line is a pot's gain or loss from when that pot began, counting only price moves and trades. Above 0% = money made. Money moved in or out doesn't move the line (a "+$48" tag marks where it happened), so a pot compares straight with just holding BTC. This % shows how well the pot traded; the % on the pot cards is its total gain on all the money put in, so the two differ when money was added later. Switch to $ to see the dollars won or lost on the money put in. Badges mark each pot's buys and sells; when more than a week is shown they become small dots (▲ buy, ▼ sell, ringed in the pot's colour); pick 1 week or 1 day for full badges. Tap or hover one for details. Tap a name above the chart to hide or show its line. The 1 day / 1 week / 1 month buttons only narrow the view: values stay counted from when each pot began.<span id="pots-perf-usd-note" hidden> The "Just holding BTC" line is hidden in $ view: each pot had different money in at different times, so it only compares in %.</span></p>
   </div>
   <div class="pots-grid" id="pots-grid"><div class="signals-empty">Loading…</div></div>
   <details class="pots-move" id="pots-move">
@@ -1158,7 +1163,7 @@
     const pnlText = (v, p) => `${v >= 0 ? '+' : '−'}${money(Math.abs(v))} (${TradeWords.signedPct(p)})`;
     const signalWords = { bullish: 'wants to buy / hold', bearish: 'wants to sell', neutral: 'no signal' };
     const POT_COLORS = window.POT_COLORS = { trend: '#FFD700', intraday: '#FF6B9D', manual: '#00D9FF' };
-    const HOLD_COLOR = '#a8b3c1';  // neutral grey: the pots have the colours
+    const HOLD_COLOR = '#9fb6d6';  // muted blue-grey: the pots have the colours, and it stays apart from the zero line
     const potColor = (name) => POT_COLORS[name] || '#8b949e';
 
     // Gains and losses per pot: exact numbers from the bot, not written by the AI
@@ -1425,11 +1430,14 @@
       perfChart.$compactMarkers = compact;
       perfChart.data.datasets.forEach(d => {
         if (!d.$trade) return;
-        d.pointStyle = compact ? 'circle' : d.$img;
-        d.pointRadius = d.pointHoverRadius = compact ? 4.5 : 10;
+        // Small dots: ▲ buy / ▼ sell, so the side doesn't rest on colour alone
+        // (the Intraday pink is close to the sell red)
+        d.pointStyle = compact ? 'triangle' : d.$img;
+        d.rotation = compact && d.$side === 'sell' ? 180 : 0;
+        d.pointRadius = d.pointHoverRadius = compact ? 5.5 : 10;
         d.backgroundColor = d.$side === 'buy' ? '#58D68D' : '#ff5e57';
         d.borderColor = d.$ring;
-        d.borderWidth = compact ? 1.5 : 0;
+        d.borderWidth = compact ? 2 : 0;
       });
       perfChart.update('none');
     }
@@ -1439,8 +1447,8 @@
         if (u.dataset.unit === perfUnit) return;
         perfUnit = u.dataset.unit;
         try { localStorage.setItem('potsPerfUnit', perfUnit); } catch (e) { /* storage off */ }
-        applyPerfRange();
-        loadPerf();
+        // Rebuild from the data already here, so axis, lines and legend switch together
+        if (perfLast) renderPerf(perfLast.data, perfLast.tr); else applyPerfRange();
         return;
       }
       const b = ev.target.closest('[data-range]');
@@ -1503,11 +1511,15 @@
       },
     };
 
-    // Axis labels: % or dollars, whichever is shown
-    function perfAxisTick(v) {
-      if (perfUnit !== 'usd') return perfTick(v);
-      const a = Math.abs(v);
-      return (v > 0 ? '+' : v < 0 ? '−' : '') + '$' + a.toFixed(a >= 10 || a === 0 ? 0 : a >= 1 ? 1 : 2);
+    // Axis labels: % or dollars, whichever the chart was built with. Decimals
+    // follow the gap between ticks, so two ticks never show the same label.
+    function perfAxisTick(v, i, ticks) {
+      const step = ticks && ticks.length > 1 ? Math.abs(ticks[1].value - ticks[0].value) : 1;
+      const dp = step > 0 ? Math.min(3, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9))) : 0;
+      const n = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+      const sign = v > 0 ? '+' : v < 0 ? '−' : '';
+      const unit = (perfChart && perfChart.$unit) || perfUnit;
+      return unit === 'usd' ? `${sign}$${n}` : `${sign}${n}%`;
     }
 
     function perfTick(v) {
@@ -1515,6 +1527,7 @@
       return (v > 0 ? '+' : v < 0 ? '−' : '') + n + '%';
     }
 
+    let perfLast = null;  // last answer, so the $ / % switch can redraw without waiting
     async function loadPerf() {
       try {
         const [data, tr] = await Promise.all([
@@ -1522,6 +1535,39 @@
           fetch('/api/trades?limit=1000', { credentials: 'include' }).then(r => r.json()).catch(() => ({})),
         ]);
         if (!data.success || !data.enabled || !data.hold.length) return;
+        perfLast = { data, tr };
+        renderPerf(data, tr);
+      } catch (e) {
+        console.error('Pots results chart:', e);
+      }
+    }
+
+    // A trade badge or dot near the pointer wins (finger-sized reach on touch);
+    // otherwise every line at the pointer's hour, as before
+    const PERF_COARSE = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } })();
+    function perfTradeOrX(ch, e, options, useFinal) {
+      const pos = Chart.helpers.getRelativePosition(e, ch);
+      const compact = ch.$compactMarkers;
+      let best = null, bestD = PERF_COARSE ? 20 : (compact ? 9 : 13);
+      ch.data.datasets.forEach((d, di) => {
+        if (!d.$trade || !ch.isDatasetVisible(di)) return;
+        ch.getDatasetMeta(di).data.forEach(el => {
+          // A badge is drawn 16px below a buy's point and above a sell's (see
+          // tradeMarkerImage); a small dot sits on the point
+          const cy = compact ? el.y : el.y + (d.$side === 'buy' ? 16 : -16);
+          const dist = Math.hypot(pos.x - el.x, pos.y - cy);
+          if (dist <= bestD) { bestD = dist; best = { d, el }; }
+        });
+      });
+      ch.$overTrade = best ? best.d : null;
+      const at = best ? { native: e.native, type: e.type, x: best.el.x, y: pos.y } : e;
+      return Chart.Interaction.modes.x(ch, at, options, useFinal);
+    }
+
+    function renderPerf(data, tr) {
+      try {
+        if (Chart.Interaction.modes.perfTradeOrX !== perfTradeOrX) Chart.Interaction.modes.perfTradeOrX = perfTradeOrX;
+        const usdView = perfUnit === 'usd';
         const trades = TradeWords.pairTrades((tr.trades || []).filter(t => t.pot));
         const labelOf = {};
         (lastData ? lastData.pots : []).forEach(p => { labelOf[p.name] = p.label; });
@@ -1530,16 +1576,20 @@
           pointRadius: 0, pointHoverRadius: 4, tension: 0.15, fill: false, ...extra,
         });
         const datasets = data.pots.map(p => line(labelOf[p.name] || p.label, potColor(p.name),
-          p.points.map(q => ({ x: new Date(q.time).getTime(), y: perfUnit === 'usd' ? (q.gain ?? 0) : q.pct,
+          p.points.map(q => ({ x: new Date(q.time).getTime(), y: usdView ? (q.gain ?? null) : q.pct,
                                pct: q.pct, value: q.value, invested: q.invested,
                                gain: q.gain, moved: q.moved, holding: q.holding })),
           { $pot: true, $key: p.name }));
         // In dollars there's no single "holding" line (each pot had different
         // money at different times), so it's shown in % only
-        if (perfUnit === 'pct') {
-          datasets.push(line('Just holding BTC', HOLD_COLOR,
+        const since = new Date(data.hold[0].time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        // The holding line counts from the earliest pot. A pot that began later
+        // has its own "vs holding" on its tile (from that pot's start).
+        const holdLabel = `Just holding BTC since ${since}`;
+        if (!usdView) {
+          datasets.push(line(holdLabel, HOLD_COLOR,
             data.hold.map(q => ({ x: new Date(q.time).getTime(), y: q.pct, price: q.price })),
-            { borderDash: [5, 4], borderWidth: 1.6, $hold: true, $key: 'hold' }));
+            { borderDash: [8, 5], borderWidth: 1.6, $hold: true, $key: 'hold' }));
         }
 
         // Buy/sell badges on each pot's line, at the hourly close that covers
@@ -1598,7 +1648,6 @@
                     <div class="n">${esc(labelOf[p.name] || p.label)}</div>
                     <div class="v">${perfTick(last.pct)}${usd}</div>${e}</div>`;
         }).join('');
-        const since = new Date(data.hold[0].time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         document.getElementById('pots-vs').innerHTML = tiles +
           `<div class="pots-vs-tile hold" style="--c:${HOLD_COLOR}"><div class="n">Just holding BTC</div>
              <div class="v">${perfTick(lastHold.pct)}</div><div class="e">since ${since} · BTC ${money(lastHold.price, 0)}</div></div>`;
@@ -1610,7 +1659,9 @@
              <span class="legend-line${dashed ? ' dashed' : ''}"></span>${esc(label)}</button>`;
         document.getElementById('pots-perf-legend').innerHTML =
           data.pots.map(p => legendBtn(p.name, potColor(p.name), labelOf[p.name] || p.label)).join('')
-          + (perfUnit === 'pct' ? legendBtn('hold', HOLD_COLOR, 'Just holding BTC', true) : '');
+          + (!usdView ? legendBtn('hold', HOLD_COLOR, holdLabel, true) : '');
+        const usdNote = document.getElementById('pots-perf-usd-note');
+        if (usdNote) usdNote.hidden = !usdView;
         datasets.forEach(d => { d.hidden = perfHidden.has(d.$key); });
 
         const xs = data.hold.map(q => new Date(q.time).getTime());
@@ -1625,6 +1676,7 @@
           perfChart.$trades = trades;
           perfChart.$nowPrice = lastHold.price;
           perfChart.$xs = xs;
+          perfChart.$unit = perfUnit;
           applyPerfRange();
           redrawWhenLoaded();
           return;
@@ -1635,9 +1687,7 @@
           data: { datasets },
           options: {
             responsive: true, maintainAspectRatio: false, animation: false,
-            interaction: { mode: 'x', intersect: false },
-            // Remember where the mouse is, so a badge's tooltip shows only its own trade
-            onHover: (evt) => { if (perfChart) perfChart.$hoverEvt = evt; },
+            interaction: { mode: 'perfTradeOrX', intersect: false },
             scales: {
               x: { type: 'time', time: timeOpts,
                    ticks: { color: '#8b949e', autoSkip: true, maxRotation: 0, font: { size: 11 } },
@@ -1652,7 +1702,7 @@
               legend: { display: false },
               zoom: false,
               tooltip: {
-                mode: 'x', intersect: false,
+                mode: 'perfTradeOrX', intersect: false,
                 backgroundColor: 'rgba(13, 17, 23, 0.92)', titleColor: '#ffffff', bodyColor: '#e1e8ff',
                 borderColor: 'rgba(255, 255, 255, 0.14)', borderWidth: 1, cornerRadius: 12, padding: 12,
                 bodySpacing: 5,
@@ -1663,7 +1713,7 @@
                     { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '',
                   label(item) {
                     const r = item.raw;
-                    if (item.dataset.$hold) return ` Just holding BTC: ${perfTick(r.y)} (BTC ${money(r.price, 0)})`;
+                    if (item.dataset.$hold) return ` ${item.dataset.label}: ${perfTick(r.y)} (BTC ${money(r.price, 0)})`;
                     const where = r.holding ? 'in BTC' : 'in cash';
                     const usd = r.gain != null
                       ? `${signedUsd(r.gain)} on ${money(r.invested)} put in, ${where}`
@@ -1685,25 +1735,9 @@
                     });
                     // Pointing at a badge: only that badge's trade (one hour can
                     // hold a buy in one pot and a sell in another)
-                    // The badge is drawn 16px below a buy's point and above a
-                    // sell's (see tradeMarkerImage), so test where it's drawn
-                    let over = [];
-                    try {
-                      const ev = perfChart.$hoverEvt;
-                      if (ev) {
-                        perfChart.data.datasets.forEach((d, di) => {
-                          if (!d.$trade || !perfChart.isDatasetVisible(di)) return;
-                          perfChart.getDatasetMeta(di).data.forEach(el => {
-                            // Small dots sit on the point itself
-                            const compact = perfChart.$compactMarkers;
-                            const cy = compact ? el.y : el.y + (d.$side === 'buy' ? 16 : -16);
-                            if (Math.hypot(ev.x - el.x, ev.y - cy) <= (compact ? 8 : 13) && !over.includes(d)) over.push(d);
-                          });
-                        });
-                      }
-                    } catch (e) { over = []; }
-                    if (over.length) {
-                      here = here.filter(t => over.some(d => d.$key === t.pot && d.$side === (t.side === 'buy' ? 'buy' : 'sell')));
+                    const over = perfChart && perfChart.$overTrade;
+                    if (over) {
+                      here = here.filter(t => t.pot === over.$key && over.$side === (t.side === 'buy' ? 'buy' : 'sell'));
                     }
                     if (!here.length) return '';
                     const nowPrice = perfChart.$nowPrice;
@@ -1719,6 +1753,7 @@
         perfChart.$trades = trades;
         perfChart.$nowPrice = lastHold.price;
         perfChart.$xs = xs;
+        perfChart.$unit = perfUnit;
         applyPerfRange();
         redrawWhenLoaded();
       } catch (e) {
