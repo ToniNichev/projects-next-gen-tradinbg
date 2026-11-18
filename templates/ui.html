@@ -2835,7 +2835,7 @@
         let raf = 0;
         const tick = (ch) => {
           raf = 0;
-          if (!ch.$hoverMarker || document.hidden || !ch.canvas.isConnected) return;
+          if (!ch.$hoverMarker || document.hidden || !ch.canvas || !ch.canvas.isConnected) return;
           ch.draw();
           raf = requestAnimationFrame(() => tick(ch));
         };
@@ -2846,7 +2846,14 @@
         return {
           id: 'markerHover',
           afterEvent(ch, args) {
-            const act = ch.getActiveElements().find(a => a.datasetIndex !== 0 && badgeOf(ch, a)) || null;
+            // Ask the same hit test the tooltip uses: the candlestick chart's
+            // own hover list doesn't include the badges
+            const e = args.event;
+            let items = [];
+            if (e && e.type !== 'mouseout') {
+              try { items = Chart.Interaction.modes.priceOrMarker(ch, e, { intersect: false }, false); } catch (err) { items = []; }
+            }
+            const act = items.find(a => a.datasetIndex !== 0 && badgeOf(ch, a)) || null;
             const key = act ? act.datasetIndex + ':' + act.index : null;
             if (key === (ch.$hoverKey || null)) return;
             ch.$hoverKey = key;
