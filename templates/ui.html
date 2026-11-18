@@ -2827,6 +2827,72 @@
         return [{ element: els[index], datasetIndex: 0, index }];
       };
 
+      // Pointer on a trade badge: it grows a little, a soft ring pulses around
+      // it and the cursor becomes a hand, so it's clear you're on a trade and
+      // not on the price. Display only. No pulse with "reduce motion" on.
+      const MARKER_HOVER_PLUGIN = (() => {
+        const calm = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } })();
+        let raf = 0;
+        const tick = (ch) => {
+          raf = 0;
+          if (!ch.$hoverMarker || document.hidden || !ch.canvas.isConnected) return;
+          ch.draw();
+          raf = requestAnimationFrame(() => tick(ch));
+        };
+        const badgeOf = (ch, a) => {
+          const d = a && ch.data.datasets[a.datasetIndex];
+          return d && d.pointStyle instanceof HTMLImageElement ? d : null;
+        };
+        return {
+          id: 'markerHover',
+          afterEvent(ch, args) {
+            const act = ch.getActiveElements().find(a => a.datasetIndex !== 0 && badgeOf(ch, a)) || null;
+            const key = act ? act.datasetIndex + ':' + act.index : null;
+            if (key === (ch.$hoverKey || null)) return;
+            ch.$hoverKey = key;
+            ch.$hoverMarker = act;
+            ch.$hoverStart = performance.now();
+            ch.canvas.style.cursor = act ? 'pointer' : '';
+            args.changed = true;
+            if (act && !calm && !raf) raf = requestAnimationFrame(() => tick(ch));
+          },
+          afterDatasetsDraw(ch) {
+            const m = ch.$hoverMarker;
+            const d = badgeOf(ch, m);
+            if (!d) return;
+            const meta = ch.getDatasetMeta(m.datasetIndex);
+            const el = meta && !meta.hidden && meta.data[m.index];
+            const img = d.pointStyle;
+            if (!el || !img.complete) return;
+            const buy = d.backgroundColor === '#58D68D';
+            const rgb = buy ? '88, 214, 141' : '255, 94, 87';
+            const cy = el.y + (buy ? 16 : -16);          // badge centre (see tradeMarkerImage)
+            const t = performance.now() - ch.$hoverStart;
+            const k = Math.min(1, t / 140);
+            const sc = 1 + 0.25 * (1 - Math.pow(1 - k, 3));  // quick ease-out pop
+            const ctx = ch.ctx;
+            ctx.save();
+            if (!calm) {
+              const ph = (t % 1100) / 1100;
+              ctx.beginPath();
+              ctx.arc(el.x, cy, 12 + ph * 12, 0, Math.PI * 2);
+              ctx.strokeStyle = `rgba(${rgb}, ${(0.75 * (1 - ph)).toFixed(3)})`;
+              ctx.lineWidth = 2;
+              ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.arc(el.x, cy, 14 * sc, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${rgb}, 0.22)`;
+            ctx.fill();
+            const w = MARKER_W * sc, h = MARKER_H * sc;
+            ctx.drawImage(img, el.x - w / 2, cy + (el.y - MARKER_H / 2 - cy) * sc, w, h);
+            ctx.restore();
+            // With no pulse running, draw a few more frames to finish the pop
+            if (calm && k < 1) requestAnimationFrame(() => ch.draw());
+          },
+        };
+      })();
+
       // "Now" marker: the line ends at the last finished hour, so on the 1h
       // view a dashed segment and a pulsing dot show where the price is now,
       // with a "now $..." tag at the right edge. Display only.
@@ -3264,7 +3330,7 @@
             },
           },
         },
-        plugins: [LIVE_NOW_PLUGIN, POT_LEVELS_PLUGIN],
+        plugins: [LIVE_NOW_PLUGIN, POT_LEVELS_PLUGIN, MARKER_HOVER_PLUGIN],
       });
       if (!showPotLevels) {
         const b = document.getElementById('toggle-levels-btn');
