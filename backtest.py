@@ -240,6 +240,17 @@ def run_backtest(
     logging.info("=" * 80)
     
     # Apply config overrides (for presets like conservative, balanced, aggressive)
+    # A pot's fixed buy size (share of its cash per buy), as the live pot
+    # trades it. Without it each buy is sized by the strategy's confidence,
+    # which made a 95%-in pot look about a third as risky.
+    config_overrides = dict(config_overrides or {})
+    fixed_order_pct = config_overrides.pop("pot_order_pct", None)
+    try:
+        fixed_order_pct = float(fixed_order_pct) if fixed_order_pct is not None else None
+    except (TypeError, ValueError):
+        fixed_order_pct = None
+    if fixed_order_pct is not None and not (0 < fixed_order_pct <= 1):
+        fixed_order_pct = None
     if config_overrides:
         logging.info("=" * 80)
         logging.info("APPLYING CONFIG OVERRIDES")
@@ -592,7 +603,7 @@ def run_backtest(
             )
         
         # Execute trade if signal triggers (uses dynamic position sizing)
-        trade = trader.handle_signal(signal)
+        trade = trader.handle_signal(signal, fixed_order_pct)
         
         if trade:
             trade_count += 1

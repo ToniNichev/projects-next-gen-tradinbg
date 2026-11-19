@@ -357,7 +357,7 @@
         `<b>Testing the ${esc(potTest.label)} pot's settings</b>: ${esc(potTest.strategy)} on its own` +
         (potTest.changed.length ? `, with your unapplied changes: ${potTest.changed.map(esc).join('; ')}.`
                                 : ', with the settings it uses now.') +
-        ' Nothing is changed in the running bot. (The backtest uses the strategy\'s own buy size, not the pot\'s.)';
+        ' Nothing is changed in the running bot. (Each buy uses the pot\'s own buy size when it has one.)';
       document.getElementById('pot-test').style.display = 'flex';
       document.getElementById('strategies-field').style.display = 'none';
       document.getElementById('pot-test-clear').addEventListener('click', () => {

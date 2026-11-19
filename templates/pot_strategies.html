@@ -292,6 +292,8 @@
   function backtest(potName) {
     const pot = data.pots.find(p => p.name === potName);
     const overrides = { ...pot.backtest, strategy_llm_enabled: false };
+    // Buy the same share of cash as the live pot (none set: the strategy sizes it)
+    if (pot.buy_size) overrides.pot_order_pct = pot.buy_size;
     const changed = [];
     for (const f of pot.settings) {
       const el = document.getElementById(`f-${pot.name}-${f.key}`);
