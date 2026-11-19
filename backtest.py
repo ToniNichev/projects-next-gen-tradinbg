@@ -378,8 +378,8 @@ def run_backtest(
     # Initialize paper trader with separate log file for backtesting
     trader = PaperTrader(
         initial_usdt=config.initial_usdt,
-        fee_rate=config.fee_rate,
-        slippage=config.slippage,
+        fee_rate=config.backtest_fee_rate,
+        slippage=config.backtest_slippage,
         log_path="data/backtest_log.csv",
         use_trailing_stop=config.use_trailing_stop,
         trailing_stop_pct=config.trailing_stop_pct,

@@ -19,6 +19,11 @@ class BotConfig:
     initial_usdt: float = 1000.0
     fee_rate: float = 0.00075
     slippage: float = 0.0005
+    # Backtest costs, measured on the live Binance.US trades (Nov 2026: fees
+    # 0.020%, slippage ~0% on buys and ~0.02% on sells) with a small margin.
+    # The live fallbacks above stay as they are.
+    backtest_fee_rate: float = 0.00025
+    backtest_slippage: float = 0.0002
     dashboard_host: str = "0.0.0.0"
     dashboard_port: int = 8000
     exchange_type: str = "spot"
@@ -252,6 +257,8 @@ class BotConfig:
             initial_usdt=get_val("initial_usdt", "BOT_INITIAL_USDT", 1000.0, float),
             fee_rate=float(env.get("BOT_FEE_RATE", 0.00075)),
             slippage=float(env.get("BOT_SLIPPAGE", 0.0005)),
+            backtest_fee_rate=float(env.get("BOT_BACKTEST_FEE_RATE", 0.00025)),
+            backtest_slippage=float(env.get("BOT_BACKTEST_SLIPPAGE", 0.0002)),
             dashboard_host=env.get("BOT_DASHBOARD_HOST", "0.0.0.0"),
             dashboard_port=int(env.get("BOT_DASHBOARD_PORT", 8000)),
             exchange_type=env.get("BOT_EXCHANGE_TYPE", "spot"),
