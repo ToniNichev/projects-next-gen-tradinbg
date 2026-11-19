@@ -263,7 +263,13 @@
 }
 
 @media (max-width: 720px) {
-  .chart-container { height: clamp(480px, 78vh, 620px); padding: 1rem 0.75rem 0.75rem; }
+  /* On a phone the toolbar stacks into several rows, so a fixed panel height
+     left the chart only what was over. The chart gets its own height and
+     the panel grows around it. */
+  .chart-container { height: auto; padding: 1rem 0.75rem 0.75rem; }
+  .chart-canvas-wrap { flex: none; height: clamp(340px, 62vh, 560px); }
+  .chart-container:fullscreen .chart-canvas-wrap,
+  .chart-container:-webkit-full-screen .chart-canvas-wrap { flex: 1; height: auto; }
   .chart-toolbar { flex-direction: column; align-items: stretch; }
   .chart-toolbar > .seg { justify-content: space-between; }
   .chart-toolbar > .seg button { flex: 1; padding: 0; }
