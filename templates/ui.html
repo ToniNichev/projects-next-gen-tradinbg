@@ -2926,6 +2926,28 @@
         el.setAttribute('aria-hidden', 'true');
         return el;
       })();
+      // Line view: each hour's closing price is drawn when the hour ended,
+      // not when it began, so a trade made during the hour sits by the line
+      // (a stop that sold at 10:15 was drawn far above a line that already
+      // showed 11:00's lower close at 10:00). The candle still forming ends now.
+      // chartStyle is declared further down; the chart's first update runs before that
+      function lineView() { try { return chartStyle === 'line'; } catch (e) { return false; } }
+      const LINE_TIME_PLUGIN = {
+        id: 'lineTime',
+        beforeUpdate(ch) {
+          if (!lineView()) return;
+          const data = ch.data.datasets[0] && ch.data.datasets[0].data;
+          if (!data || !data.length) return;
+          const tf = getTimeframeMs(chartDataTimeframe || currentTimeframe);
+          const now = Date.now();
+          for (const c of data) c.xe = Math.min(c.x + tf, now);
+        },
+      };
+      // Where a trade badge goes: its real time on the line, its candle otherwise
+      function tradeX(ms) {
+        return lineView() ? ms : candleStartMs(ms);
+      }
+
       const LIVE_NOW_PLUGIN = {
         id: 'liveNow',
         // Default view: stretch the time axis to now so the dot is on screen
@@ -2948,7 +2970,7 @@
           if (!lp || !data || !data.length) return;
           const last = data[data.length - 1];
           const { x, y } = ch.scales;
-          const x0 = x.getPixelForValue(last.x), y0 = y.getPixelForValue(last.c);
+          const x0 = x.getPixelForValue(lineView() && last.xe ? last.xe : last.x), y0 = y.getPixelForValue(last.c);
           const x1 = x.getPixelForValue(Date.now()), y1 = y.getPixelForValue(lp.price);
           const g = ch.ctx;
           // Price tag on the price axis (right), like a trading app's last price
@@ -3337,7 +3359,7 @@
             },
           },
         },
-        plugins: [LIVE_NOW_PLUGIN, POT_LEVELS_PLUGIN, MARKER_HOVER_PLUGIN],
+        plugins: [LINE_TIME_PLUGIN, LIVE_NOW_PLUGIN, POT_LEVELS_PLUGIN, MARKER_HOVER_PLUGIN],
       });
       if (!showPotLevels) {
         const b = document.getElementById('toggle-levels-btn');
@@ -3354,7 +3376,7 @@
         const ds = chart.data.datasets[0];
         if (chartStyle === 'line') {
           Object.assign(ds, {
-            type: 'line', parsing: { xAxisKey: 'x', yAxisKey: 'c' },
+            type: 'line', parsing: { xAxisKey: 'xe', yAxisKey: 'c' },  // xe: when the hour ended (LINE_TIME_PLUGIN)
             borderColor: '#539bf5', backgroundColor: 'rgba(83,155,245,0.10)', fill: 'start',
             borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, pointHitRadius: 6, tension: 0.15,
           });
@@ -3373,6 +3395,7 @@
         try { localStorage.setItem('chartStyle', chartStyle); } catch (e) {}
         applyChartStyle();
         chart.update('none');
+        updateTradeMarkers();  // badges move between real time (line) and their candle
       }
       window.setChartStyle = setChartStyle;
       applyChartStyle();
@@ -3491,7 +3514,7 @@
           
           const tradeData = {
             ...trade,
-            x: candleStartMs(new Date(trade.timestamp).getTime()),
+            x: tradeX(new Date(trade.timestamp).getTime()),
             y: trade.price,
             side: trade.side,
             amount: trade.amount,
@@ -3576,7 +3599,7 @@
           ['buy', 'sell'].forEach(side => {
             const data = visibleTrades
               .filter(t => potOfTrade(t) === name && (side === 'buy') === (t.side === 'buy'))
-              .map(t => ({ ...t, x: candleStartMs(new Date(t.timestamp).getTime()), y: t.price }));
+              .map(t => ({ ...t, x: tradeX(new Date(t.timestamp).getTime()), y: t.price }));
             if (!data.length) return;
             chart.data.datasets.push({
               label: `${side === 'buy' ? '🟢' : '🔴'} ${p.label} pot ${side.toUpperCase()}`,
