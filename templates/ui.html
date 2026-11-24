@@ -2954,6 +2954,9 @@
         afterDataLimits(ch, { scale }) {
           const lp = liveNow();
           if (!lp || !scale || scale.id !== 'x' || scale.options.max !== undefined) return;
+          // The candles view reports 0..1 until it has 2 candles; stretching
+          // that to now spans 1970..now, and the time axis then fails to draw
+          if (!(scale.min > Date.now() - 5 * 365 * 864e5)) return;
           // a little room after now, so the dot sits inside the edge
           const pad = Math.max(8 * 60e3, (Date.now() - scale.min) * 0.03);
           scale.max = Math.max(scale.max, Date.now() + pad);
