@@ -1097,7 +1097,7 @@
       </span>
     </div>
     <div class="pots-perf-wrap"><canvas id="potsPerfChart"></canvas></div>
-    <p class="pots-perf-note" id="pots-perf-note">Each line is a pot's gain or loss from when that pot began, counting only price moves and trades. Above 0% = money made. Money moved in or out doesn't move the line (a "+$48" tag marks where it happened), so a pot compares straight with just holding BTC. This % shows how well the pot traded; the % on the pot cards is its total gain on all the money put in, so the two differ when money was added later. Switch to $ to see the dollars won or lost on the money put in. Badges mark each pot's buys and sells; when more than a week is shown they become small dots (▲ buy, ▼ sell, ringed in the pot's colour); pick 1 week or 1 day for full badges. Tap or hover one for details. Tap a name above the chart to hide or show its line. The 1 day / 1 week / 1 month buttons only narrow the view: values stay counted from when each pot began.<span id="pots-perf-usd-note" hidden> The "Just holding BTC" line is hidden in $ view: each pot had different money in at different times, so it only compares in %.</span></p>
+    <p class="pots-perf-note" id="pots-perf-note">Each line is a pot's gain or loss from when that pot began, counting only price moves and trades. Above 0% = money made. Money moved in or out doesn't move the line (a "+$48" tag marks where it happened), so a pot compares straight with just holding BTC. This % shows how well the pot traded; the % on the pot cards is its total gain on all the money put in, so the two differ when money was added later. Switch to $ to see the dollars won or lost on the money put in. Badges mark each pot's buys and sells; when more than a week is shown they become small dots (▲ buy, ▼ sell, ringed in the pot's colour); pick 1 week or 1 day for full badges. Tap or hover one for details. A pot's line is faded where it was all in cash. Tap a name above the chart to hide or show its line. The 1 day / 1 week / 1 month buttons only narrow the view: values stay counted from when each pot began.<span id="pots-perf-usd-note" hidden> The "Just holding BTC" line is hidden in $ view: each pot had different money in at different times, so it only compares in %.</span></p>
   </div>
   <div class="pots-grid" id="pots-grid"><div class="signals-empty">Loading…</div></div>
   <details class="pots-move" id="pots-move">
@@ -1564,6 +1564,17 @@
       return Chart.Interaction.modes.x(ch, at, options, useFinal);
     }
 
+    // A pot's line is faded where it sat all in cash (both ends of the hour),
+    // so the stretches it was in BTC stand out. undefined = normal colour.
+    function cashFade(color) {
+      const faded = /^#[0-9a-f]{6}$/i.test(color) ? color + '55' : 'rgba(139,148,158,0.45)';
+      return (ctx) => {
+        const pts = ctx.chart.data.datasets[ctx.datasetIndex].data;
+        const a = pts[ctx.p0DataIndex], b = pts[ctx.p1DataIndex];
+        return a && b && a.holding === false && b.holding === false ? faded : undefined;
+      };
+    }
+
     function renderPerf(data, tr) {
       try {
         if (Chart.Interaction.modes.perfTradeOrX !== perfTradeOrX) Chart.Interaction.modes.perfTradeOrX = perfTradeOrX;
@@ -1579,7 +1590,7 @@
           p.points.map(q => ({ x: new Date(q.time).getTime(), y: usdView ? (q.gain ?? null) : q.pct,
                                pct: q.pct, value: q.value, invested: q.invested,
                                gain: q.gain, moved: q.moved, holding: q.holding })),
-          { $pot: true, $key: p.name }));
+          { $pot: true, $key: p.name, segment: { borderColor: cashFade(potColor(p.name)) } }));
         // In dollars there's no single "holding" line (each pot had different
         // money at different times), so it's shown in % only
         const since = new Date(data.hold[0].time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
