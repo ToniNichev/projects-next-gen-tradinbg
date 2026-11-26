@@ -768,6 +768,9 @@
   .pot-pnl { font-size: 0.85rem; font-weight: 700; }
   .pot-pnl.up { color: var(--accent-green); }
   .pot-pnl.down { color: var(--accent-red); }
+  .pot-ifsold { font-size: 0.78rem; color: var(--text-secondary, #8b949e); margin-top: 2px; }
+  .pot-ifsold .up { color: var(--accent-green); }
+  .pot-ifsold .down { color: var(--accent-red); }
   .pot-rows { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.8rem; font-size: 0.8rem; }
   .pot-rows span { color: var(--text-secondary); }
   .pot-rows b { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
@@ -1772,6 +1775,18 @@
       }
     }
 
+    // The BTC held now, if sold at this price after the sell fee (same sum as
+    // the money table's "if sold now"). The line above counts the whole pot,
+    // earlier trades included, so the two can differ in sign.
+    function tradeIfSold(p) {
+      const price = window.__potsPrice;
+      if (!price || !p.holding || !(p.btc > 0) || !p.entry_price) return '';
+      const { paid, res } = sellMath(p, price, window.__potsSellTerms);
+      const amt = money(Math.abs(res), Math.abs(res) < 1 ? 4 : 2);
+      const pct = paid ? ` (${res >= 0 ? '+' : '−'}${Math.abs(res / paid * 100).toFixed(2)}%)` : '';
+      return `<div class="pot-ifsold" title="Selling this pot's BTC now at ${money(price, 0)}, after the sell fee, against what it paid. The line above is the whole pot since it began, earlier trades included. Nothing is sold.">This trade if sold now: <b class="${res >= 0 ? 'up' : 'down'}">${res >= 0 ? '+' : '−'}${amt}${pct}</b></div>`;
+    }
+
     function card(p) {
       const rows = [];
       rows.push(['Cash', money(p.cash)]);
@@ -1817,6 +1832,7 @@
           </div>
           <div class="pot-value">${money(p.value)}</div>
           <div class="pot-pnl ${p.pnl >= 0 ? 'up' : 'down'}">${pnlText(p.pnl, p.pnl_pct)} <span class="pot-strategy">on ${money(p.invested)} put in</span></div>
+          ${tradeIfSold(p)}
           <div class="pot-rows">${rows.map(([k, v]) => `<span>${esc(k)}</span><b>${esc(v)}</b>`).join('')}</div>
           ${p.note ? `<div class="pot-note">${esc(p.note)}</div>` : ''}
           ${lossAlert(p)}
@@ -2063,6 +2079,7 @@
         const panel = document.getElementById('pots-panel');
         if (!data.success || !data.enabled) { panel.style.display = 'none'; return; }
         window.__potsPrice = data.price;
+        window.__potsSellTerms = data.sell_terms || {};
         panel.style.display = '';
         document.getElementById('pots-sub').textContent =
           `Each pot trades only its own money · ${data.real_money ? 'real money' : data.live ? 'practice (dry run)' : 'practice money'}`;
